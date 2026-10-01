@@ -112,6 +112,7 @@ CREATE TABLE IF NOT EXISTS `documents` (
   `subject`     VARCHAR(48)  NOT NULL DEFAULT '',
   `domain`      VARCHAR(48)  NOT NULL DEFAULT '',
   `chapters`    JSON             NULL            COMMENT '章节数组（含正文与 AI 精读结果）',
+  `stats`       JSON             NULL            COMMENT '分章统计 {chapters,chars,headings}，列表页显示用',
   `ai_done`     INT          NOT NULL DEFAULT 0,
   `ai_total`    INT          NOT NULL DEFAULT 0,
   `ai_model`    VARCHAR(96)  NOT NULL DEFAULT '',

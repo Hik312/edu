@@ -161,7 +161,19 @@ def _clean_json(raw):
     m = re.search(r'\{[\s\S]*\}', s)          # 退一步：抓最外层的花括号
     if not m:
         raise RuntimeError('llm_not_json')
-    return json.loads(m.group(0))
+    try:
+        return json.loads(m.group(0))
+    except ValueError:
+        # ★ 必须在这里把 ValueError 翻成 RuntimeError。
+        # 调用方的契约是「失败抛 RuntimeError，上层转成人话」——见 enrich 的
+        # docstring，以及 routers/ai.py 只 `except RuntimeError`。从前这一步
+        # 漏出原始 ValueError → /api/llm/enrich 直接 500，用户在页面上看到的
+        # 是「服务器错误」，而不是「模型这次没吐对 JSON，重试一下」。
+        # 触发条件很常见：模型在 JSON 后面又补一段带花括号的说明，
+        # 正则 `\{[\s\S]*\}` 会一路吃到最后一个 `}`，json.loads 必然失败。
+        # 旁证：importer.parse_llm 里明确写了 except ValueError ——
+        # 说明这个异常类型是已知的，只是 enrich 那条链没接住。
+        raise RuntimeError('llm_not_json')
 
 
 def _drop_think(raw):

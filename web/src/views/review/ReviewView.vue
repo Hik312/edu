@@ -23,7 +23,7 @@
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useLearningStore, DAILY_MAX, DAILY_MIN } from '@/stores/learning'
 import { useCardsStore } from '@/stores/cards'
-import { LEVELS, levelLabel } from '@/api/learning'
+import { levelColor, levelLabel } from '@/config/theme'
 import CardBody from '@/components/CardBody.vue'
 import LevelPicker from '@/components/LevelPicker.vue'
 
@@ -52,8 +52,8 @@ const progress = computed(() =>
 const summary = computed(() => {
   const rows = [3, 2, 1].map(v => ({
     level: v,
-    label: LEVELS[v].label,
-    color: LEVELS[v].color,
+    label: levelLabel(v),
+    color: levelColor(v),
     count: Object.values(done.value).filter(x => x === v).length
   }))
   return rows
@@ -99,10 +99,15 @@ function next() {
 
 async function mark(level) {
   if (!cur.value || saving.value) return
+  // ★ 先把这张卡钉住，后面一律用 cid。
+  // 从前是 await 之后才读 `cur.value.id` —— 请求在途时按 ← 会改变 cur，
+  // 于是这一档被记到**上一张卡**头上，并且 next() 从被回退的位置再前进，
+  // 同一张卡会重复出现两次。属于「统计和实际操作不一致」的静默错误。
+  const cid = cur.value.id
   saving.value = true
   try {
-    await learning.mark(cur.value.id, level)
-    done.value[cur.value.id] = level
+    await learning.mark(cid, level)
+    done.value[cid] = level
     next()
   } finally {
     saving.value = false
@@ -157,26 +162,40 @@ async function pickAll(e) {
   await applySettings({ directions: [] })
 }
 
+/** 空格：揭示答案，或（已揭示时）跳到下一张。 */
+function onSpace(e) {
+  e.preventDefault()
+  if (finished.value) return
+  if (revealed.value) next()
+  else reveal()
+}
+
+/** 1 / 2 / 3：标记掌握度。没揭示答案、或这一轮已经结束时忽略。 */
+function onMarkKey(e, key) {
+  if (!revealed.value || finished.value) return
+  e.preventDefault()
+  mark(Number(key))
+}
+
+/** ← 回上一张。
+ *  ★ 标记请求在途时不允许回退：saving 期间 cur 会变，
+ *  用户会看到「标记中又跳了一张」的错乱（mark 里已经把 cid 钉住了，
+ *  但界面上的跳转还是会让人以为标错了卡）。 */
+function onBack() {
+  if (idx.value > 0 && !saving.value) idx.value--
+}
+
 /** 键盘：空格揭示/下一张，1/2/3 标记，← 回上一张。
- *  输入框里按这些键要放过 —— 否则以后加了搜索框，打字就打不进去了。 */
+ *  输入框里按这些键要放过 —— 否则以后加了搜索框，打字就打不进去了。
+ *  拆成三个小函数是因为整个 onKey 的分支数会顶到 ESLint 的 complexity 上限；
+ *  每个分支各自成一个有名字的动作，比在一条长 if 链里读更清楚。 */
 function onKey(e) {
   const tag = (e.target && e.target.tagName) || ''
   if (tag === 'INPUT' || tag === 'TEXTAREA' || e.target?.isContentEditable) return
 
-  if (e.key === ' ') {
-    e.preventDefault()
-    if (finished.value) return
-    if (revealed.value) next()
-    else reveal()
-    return
-  }
-  if (['1', '2', '3'].includes(e.key)) {
-    if (!revealed.value || finished.value) return
-    e.preventDefault()
-    mark(Number(e.key))
-    return
-  }
-  if (e.key === 'ArrowLeft' && idx.value > 0) idx.value--
+  if (e.key === ' ') return onSpace(e)
+  if (['1', '2', '3'].includes(e.key)) return onMarkKey(e, e.key)
+  if (e.key === 'ArrowLeft') return onBack()
 }
 
 onMounted(() => window.addEventListener('keydown', onKey))
@@ -287,7 +306,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKey))
     <article v-else-if="cur" class="sheet rise">
       <div class="sheet-path">
         <span v-if="cur.domain" class="badge">{{ cur.domain }}</span>
-        <span class="lv" :style="{ color: LEVELS[cur.level || 0].color }">
+        <span class="lv" :style="{ color: levelColor(cur.level || 0) }">
           {{ levelLabel(cur.level) }}
         </span>
       </div>

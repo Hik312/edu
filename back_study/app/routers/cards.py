@@ -7,13 +7,17 @@
 """
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 import db
 import importer
+from ..deps import current_user
 from ..schemas import CardIn
 
 router = APIRouter(prefix='/api', tags=['卡片'])
+
+# ★ 读写卡片全部要求登录：内置卡是源码（改不了），但自定义卡的增删改
+# 曾经匿名可用 —— 任何网页/局域网设备都能删掉你的卡。
 
 
 def _search_pool(c):
@@ -32,7 +36,8 @@ def list_cards(category: Optional[str] = Query(None, description='按一级分�
                deck_id: Optional[str] = Query(None, alias='deckId',
                                               description='按卡片组过滤（文档导出的卡）'),
                q: str = Query('', description='关键词，空格分隔表示「全都要命中」'),
-               brief: str = Query('', description='=1 只回 id/title 等轻字段，列表页用')):
+               brief: str = Query('', description='=1 只回 id/title 等轻字段，列表页用'),
+               user=Depends(current_user)):
     cards = db.all_cards(category=category or None, subject=subject or None)
 
     if domain:
@@ -63,7 +68,7 @@ def list_cards(category: Optional[str] = Query(None, description='按一级分�
 
 
 @router.post('/cards', summary='新建自定义卡', status_code=200)
-def create_card(body: CardIn):
+def create_card(body: CardIn, user=Depends(current_user)):
     # exclude_none：没发的字段就别落盘成 null，否则卡片详情里会多出一堆空行
     c = body.model_dump(exclude_none=True)
     miss = importer.validate(dict(c, scene=c.get('scene') or ['（待补充）', '（待补充）']))
@@ -78,7 +83,7 @@ def create_card(body: CardIn):
 
 
 @router.get('/cards/{cid}', summary='单张卡详情')
-def get_card(cid: str):
+def get_card(cid: str, user=Depends(current_user)):
     c = next((x for x in db.all_cards() if x['id'] == cid), None)
     if not c:
         raise HTTPException(404, '卡片不存在')
@@ -88,7 +93,7 @@ def get_card(cid: str):
 
 
 @router.put('/cards/{cid}', summary='修改自定义卡')
-def update_card(cid: str, body: CardIn):
+def update_card(cid: str, body: CardIn, user=Depends(current_user)):
     # exclude_unset：这是 PATCH 语义，只动发过来的键。
     # 用 exclude_none 会把手滑发成 null 的字段一起写进去。
     patch = body.model_dump(exclude_unset=True)
@@ -103,6 +108,10 @@ def update_card(cid: str, body: CardIn):
 
 
 @router.delete('/cards/{cid}', summary='删除自定义卡')
-def delete_card(cid: str):
+def delete_card(cid: str, user=Depends(current_user)):
+    # 返回值保持 {ok:True}：删一张不存在的卡不算错（幂等），前端不区分。
+    # 但要把「到底删掉了没有」暴露出去 —— 否则「我明明点了删除，卡片还在」
+    # （内置卡在 data/*.js 里，接口删不掉）会变成一个查不出原因的现象。
+    before = len(db.load_custom())
     db.save_custom([x for x in db.load_custom() if x.get('id') != cid])
-    return {'ok': True}
+    return {'ok': True, 'removed': before - len(db.load_custom())}

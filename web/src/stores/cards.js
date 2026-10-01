@@ -36,7 +36,11 @@ export const useCardsStore = defineStore('cards', () => {
     loading.value = true
     try {
       const f = filters.value
-      const params = {}
+      // ★ 固定要 brief=1：列表页只需要 id/title/oneLine/tags/level/deck，
+      // 不带它时后端会把每张卡的 mechanism / scene / diagram 全吐出来。
+      // 实测 67 张卡是 118KB，带 brief 只有 22KB —— 5.3 倍，
+      // 而且详情页本来就会单独拉一次 /cards/{id} 拿全字段。
+      const params = { brief: '1' }
       // 空串不发给后端：虽然后端容错，但 URL 里挂一串 &= 很难读
       if (f.category) params.category = f.category
       if (f.subject) params.subject = f.subject

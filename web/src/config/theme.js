@@ -72,12 +72,35 @@ export const LEVEL_COLOR = {
   3: INK.known
 }
 
+/** 掌握度四档 → 文案。**唯一出处**，别在页面里另写一份。
+ *
+ * ★ 从前这份文案和颜色都在 `api/learning.js` 的 LEVELS 里，而颜色在那里
+ * 是上一版深色大屏的荧光色（#ff6b81 / #ffb454 / #4fe0b0），与这里的
+ * LEVEL_COLOR（朱砂 / 赭石 / 松绿，按纸底压深过）冲突。结果同一张卡的
+ * 「不会」在复习页是亮粉、在路径页和知识图谱是朱砂 —— 同一状态两个颜色。
+ * 展示用的东西（文案 + 颜色）统一归 theme，api 层只管发请求。
+ */
+export const LEVEL_LABEL = {
+  0: '未标记',
+  1: '不会',
+  2: '模糊',
+  3: '会'
+}
+
 /** 取某个掌握度的颜色。
  * @param {number} level 0-3
  * @returns {string} 色值
  */
 export function levelColor(level) {
   return LEVEL_COLOR[level] ?? LEVEL_COLOR[0]
+}
+
+/** 取某个掌握度的文案，容错非数字/越界输入。
+ * @param {number} level 0-3
+ * @returns {string}
+ */
+export function levelLabel(level) {
+  return LEVEL_LABEL[level] ?? LEVEL_LABEL[0]
 }
 
 /** 取一个数据项的稳定颜色。

@@ -56,12 +56,21 @@ client.interceptors.response.use(
           redirecting = false
         }, 1500)
       }
-      return Promise.reject(new Error(msg))
+      // ★ 把状态码挂到错误对象上再抛。
+      // 调用方（stores/auth.js 的 fetchMe）需要区分「401 掉线」和
+      // 「后端重启 / 网络抖动」—— 而它只能拿到这里 reject 出去的东西。
+      // 从前一律 `new Error(msg)`，状态码信息在这一层就丢了，store 只好
+      // 「一有异常就清 token」，于是后端重启一次就把所有人踢回登录页。
+      // 挂一个字段比让每个调用方自己读 axios 原始错误干净。
+      const e401 = new Error(msg)
+      e401.status = 401
+      return Promise.reject(e401)
     }
 
     // 其它错误在这里统一弹一次，业务代码只管 catch 后回滚状态
-    ElMessage.error(msg)
-    return Promise.reject(new Error(msg))
+    const e = new Error(msg)
+    e.status = status || 0
+    return Promise.reject(e)
   }
 )
 

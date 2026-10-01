@@ -88,7 +88,11 @@ class SpaStatic(GuardedStatic):
                 raise
 
         rel = (path or '').replace('\\', '/').lstrip('/')
-        if rel.startswith('api/') or os.path.splitext(rel)[1]:
+        # `rel == 'api'` 这一条是补的：旧写法只判 `startswith('api/')`，
+        # 于是 `/api` 和 `/api/` 既不命中它、也不带扩展名 → 回落成 index.html
+        # 返回 200 HTML。模块自己的注释早就写了「/api/... 的 404 保持 404」，
+        # 只是这条边界漏了。
+        if rel == 'api' or rel.startswith('api/') or os.path.splitext(rel)[1]:
             raise StarletteHTTPException(404)
 
         try:
@@ -135,6 +139,24 @@ def _banner():
     for line in store_pkg.banner_lines():
         print(line)
 
+    # ★ 算法库（PG）与缓存（Redis）的降级也必须打在横幅上。
+    # 这两个模块的 degraded() 从前一处都没被服务端消费过 ——
+    # 于是 ALGO_STORE=pg 连不上时事件静默写进 JSON 文件、
+    # Redis 连不上时掌握度缓存悄悄退化成进程内存，启动日志一片安静。
+    # 项目自己的硬要求是「降级必须看得见」，这里就是那个「看得见」的地方。
+    try:
+        import algostore as algo_pkg
+        import cache as cache_pkg
+        for label, pkg in (('算法库  ', algo_pkg), ('缓存    ', cache_pkg)):
+            reason = pkg.degraded()
+            backend_name = type(pkg.get()).__name__
+            if reason:
+                print('!! %s降级运行：%s' % (label, reason))
+            else:
+                print('%s%s' % (label, backend_name))
+    except Exception as e:
+        print('算法库/缓存 ? 读取失败：%s' % str(e)[:80])
+
     st = llm.status()
     print('%s %s' % ('AI      ' if st['ok'] else 'AI 不可用', st['msg']))
     if not st['ok']:
@@ -154,12 +176,40 @@ app = FastAPI(
 
 # 纯公开 API，不带 cookie —— 所以 allow_credentials 保持 False
 # （它和 allow_origins=['*'] 不能同时开，浏览器会直接拒）
+#
+# ★ 这里**不能**用 ['*']。理由不是"将来可能带 cookie"，而是：
+#   个人数据端点虽然已经全部要求登录（Bearer token，不是 cookie），
+#   但通配来源仍然意味着「任意网页的 JS 都能对你的本机后端发请求」——
+#   跨源读走 /api/catalog 这类信息、或者拿 401/400 的差异去探测
+#   「这台机器上有没有跑这个服务」。收成白名单后，只有自己的前端能调。
+#
+# 默认放本机前端（Vite dev server 与后端自挂的静态站，两者都是 127.0.0.1/
+# localhost 来源）。换端口、放到局域网/域名下时用环境变量覆盖，
+# 不用改代码：
+#     CORS_ORIGINS="http://192.168.1.5:8080,https://my.example.com"
+def _cors_origins():
+    raw = os.environ.get('CORS_ORIGINS', '').strip()
+    if raw:
+        return [x.strip().rstrip('/') for x in raw.split(',') if x.strip()]
+    return ['http://127.0.0.1:5173', 'http://localhost:5173',
+            'http://127.0.0.1:8080', 'http://localhost:8080']
+
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=['*'],
-    allow_methods=['*'],
-    allow_headers=['*'],
+    allow_origins=_cors_origins(),
+    allow_methods=['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allow_headers=['Authorization', 'Content-Type'],
 )
+
+
+class _BodyTooLarge(Exception):
+    """chunked 请求超限时用异常把控制流拉回中间件。
+
+    为什么不只在中间件里判 Content-Length：带 `Transfer-Encoding: chunked`
+    的请求**没有** Content-Length，旧写法直接放行，FastAPI 会把整个 body
+    缓冲进内存 —— 16MB 上限形同虚设。这里改成数实际收到的字节。
+    """
 
 
 @app.middleware('http')
@@ -168,6 +218,7 @@ async def guard_log_cache(request: Request, call_next):
 
     分开写三个会让每个请求多穿三层，收益为零。
     """
+    # 1) Content-Length 能看到的先快速拒掉（省掉收 body 的开销）
     n = request.headers.get('content-length')
     if n and n.isdigit() and int(n) > MAX_BODY:
         # 语义上 413 才对（以前这里是 400，且提示还写着「上限 2MB」，
@@ -175,9 +226,29 @@ async def guard_log_cache(request: Request, call_next):
         return JSONResponse(status_code=413, content={
             'ok': False, 'msg': '请求体过大（上限 %dMB）' % (MAX_BODY >> 20)})
 
+    # 2) 没有（或不可信）Content-Length 时按实际收到的字节数兜底 ——
+    #    chunked 请求走的就是这条路。计数包在 receive 上，边收边数，
+    #    超限立刻抛出去，不等 FastAPI 把整个 body 缓冲进内存。
+    seen = {'n': 0}
+    original_receive = request._receive
+
+    async def counting_receive():
+        msg = await original_receive()
+        if msg.get('type') == 'http.request':
+            seen['n'] += len(msg.get('body') or b'')
+            if seen['n'] > MAX_BODY:
+                raise _BodyTooLarge()
+        return msg
+
+    request._receive = counting_receive
+
     is_api = request.url.path.startswith('/api/')
     t0 = time.perf_counter()
-    resp = await call_next(request)
+    try:
+        resp = await call_next(request)
+    except _BodyTooLarge:
+        return JSONResponse(status_code=413, content={
+            'ok': False, 'msg': '请求体过大（上限 %dMB）' % (MAX_BODY >> 20)})
 
     if is_api:
         # 进度、笔记这些接口的返回值绝不能进浏览器缓存，否则标记了「会」

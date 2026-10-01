@@ -12,6 +12,7 @@ LEFT JOIN + ORDER BY，next_at 上有索引，卡数从 20 涨到 20000 是同�
 """
 import hashlib
 import json
+import sys
 import threading
 
 from .base import Store, json_dumps, json_loads
@@ -244,6 +245,7 @@ class MySQLStore(Store):
             boot.close()
         for ddl in DDL_TABLES:
             self._q(ddl)
+        added = self._migrate_schema(dbname)
         # FULLTEXT 单独试，失败不影响其它表
         has = self._one("""SELECT COUNT(*) AS n FROM information_schema.STATISTICS
                            WHERE TABLE_SCHEMA=%s AND TABLE_NAME='cards'
@@ -251,10 +253,37 @@ class MySQLStore(Store):
         if not has or not has['n']:
             try:
                 self._q(DDL_FULLTEXT)
-                return {'fulltext': True}
+                return {'fulltext': True, 'added': added}
             except Exception as e:
-                return {'fulltext': False, 'fulltextError': str(e)[:120]}
-        return {'fulltext': True}
+                return {'fulltext': False, 'fulltextError': str(e)[:120],
+                        'added': added}
+        return {'fulltext': True, 'added': added}
+
+    #: 后加的列。`CREATE TABLE IF NOT EXISTS` 对**已存在的表**不会改动它，
+    #: 所以给老库补列必须显式 ALTER —— 不然新代码读一个不存在的列当场就炸，
+    #: 而「服务正常起、一点文档列表就 500」是最难联想到建表的那类故障。
+    #: 格式：表名 → [(列名, 列定义)]
+    _ADDED_COLUMNS = (
+        ('documents', 'stats', 'JSON NULL'),
+    )
+
+    def _migrate_schema(self, dbname):
+        """幂等补列：缺哪列补哪列，返回补了哪些（给启动横幅用）。"""
+        done = []
+        for table, col, definition in self._ADDED_COLUMNS:
+            row = self._one("""SELECT COUNT(*) AS n FROM information_schema.COLUMNS
+                               WHERE TABLE_SCHEMA=%s AND TABLE_NAME=%s
+                                 AND COLUMN_NAME=%s""", (dbname, table, col))
+            if row and row['n']:
+                continue
+            try:
+                self._q('ALTER TABLE `%s` ADD COLUMN `%s` %s' % (table, col, definition))
+                done.append('%s.%s' % (table, col))
+            except Exception as e:
+                # 补列失败不该拦启动：老库能用就先用，横幅会打出来
+                sys.stderr.write('[store] 补列 %s.%s 失败：%s\n'
+                                 % (table, col, str(e)[:120]))
+        return done
 
     # ---------------- 读 ----------------
     def builtin_all(self):
@@ -435,18 +464,25 @@ class MySQLStore(Store):
         d = dict(doc)
         self._q("""
             INSERT INTO documents (id, title, source, category, subject, domain,
-                                   chapters, ai_done, ai_total, ai_model, ai_provider,
-                                   created_at, updated_at)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                                   chapters, stats, ai_done, ai_total, ai_model,
+                                   ai_provider, created_at, updated_at)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
             ON DUPLICATE KEY UPDATE
               title=VALUES(title), source=VALUES(source), category=VALUES(category),
               subject=VALUES(subject), domain=VALUES(domain),
-              chapters=VALUES(chapters), ai_done=VALUES(ai_done),
+              chapters=VALUES(chapters), stats=VALUES(stats),
+              ai_done=VALUES(ai_done),
               ai_total=VALUES(ai_total), ai_model=VALUES(ai_model),
               ai_provider=VALUES(ai_provider), updated_at=VALUES(updated_at)
         """, (d.get('id'), (d.get('title') or '')[:255], (d.get('source') or '')[:255],
               d.get('category') or '', d.get('subject') or '', d.get('domain') or '',
               json_dumps(d.get('chapters') or []),
+              # ★ stats 必须存：importer.parse_document 明确产出
+              # {chapters, chars, headings}，routers/docs.py 透给前端，
+              # 前端文档列表显示「N 章 · M 字」。从前这一列不存在 →
+              # 存进 MySQL 就没了 → 列表恒显示「0 章 · 0 字」。
+              # 首页「已经入库的文档」也跟着少一块信息。
+              json_dumps(d.get('stats')),
               int(d.get('aiDone') or 0), int(d.get('aiTotal') or 0),
               (d.get('aiModel') or '')[:96], (d.get('aiProvider') or '')[:32],
               d.get('createdAt') or None, d.get('updatedAt') or None))
@@ -654,6 +690,10 @@ def _doc_of(r):
          'title': r['title'] or '',
          'source': r['source'] or '',
          'chapters': json_loads(r['chapters'], []),
+         # stats 回填。用 r.get 是因为**老库可能还没补上这一列**
+         # （补列由 init_schema 的 _migrate_schema 做，但要允许它失败），
+         # 缺列时给 None，与 json 后端「没有 stats 就是没有」一致。
+         'stats': json_loads(r.get('stats'), None),
          'aiDone': int(r['ai_done'] or 0),
          'aiTotal': int(r['ai_total'] or 0),
          'createdAt': _dstr(r['created_at']),

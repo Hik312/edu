@@ -29,7 +29,7 @@ import { useRouter } from 'vue-router'
 import EChart from '@/components/EChart.vue'
 import { useAuthStore } from '@/stores/auth'
 import { useLearningStore } from '@/stores/learning'
-import { health, storage } from '@/api/system'
+import { storage } from '@/api/system'
 import { getLlmStatus } from '@/api/ai'
 import { CHART_BG, INK, chartBase, colorOf, levelColor, SEQ } from '@/config/theme'
 
@@ -40,7 +40,6 @@ const learning = useLearningStore()
 /** 纸面主题是唯一主题，所以这些是个常量，不再按页取。 */
 const base = chartBase()
 
-const healthInfo = ref(null)
 const storeInfo = ref(null)
 /* AI 可用性**必须问 /api/llm/status**，不能读 /api/health 的 llm 字段。
  *
@@ -54,9 +53,14 @@ const llmInfo = ref(null)
 onMounted(async () => {
   learning.fetchDue({ limit: 8 })
   learning.fetchStats()
+  // ★ 两个请求各自 try/catch。
+  // 从前它们共用一个 try，`/api/health` 超时会把**已经拿到的** storeInfo
+  // 一起清成 null，于是存储后端那一整块显示成「-」，看起来像数据库没了，
+  // 实际只是另一个请求慢了一下。
+  // 另外这里本来还取了 health() 存进 healthInfo，但模板里一处都没读 ——
+  // 白拉一个请求，已删（版本号那个字段后端也不返回，见 SystemView）。
   try {
     storeInfo.value = (await storage()).storage
-    healthInfo.value = await health()
   } catch {
     // 系统状态拿不到不影响这一页的主功能，留空即可 —— 别弹错挡住整屏
     storeInfo.value = null

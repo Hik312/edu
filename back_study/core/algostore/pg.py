@@ -122,12 +122,30 @@ class PgAlgoStore(AlgoStore):
         if card_id:
             sql += ' AND card_id=%s'
             args.append(card_id)
-        sql += ' ORDER BY at ASC, id ASC LIMIT %s'
-        args.append(int(limit or 500))
+        # ★ 契约是「最近 limit 条，再按正序返回」（见 base.events_of 的说明）。
+        # 取尾部窗口只能先 DESC 再翻转 —— 直接 `ORDER BY at ASC LIMIT n`
+        # 拿到的是**最旧**的 n 条，与 jsonfile 的 `out[-limit:]` 正好相反。
+        # limit <= 0 / None = 不截断，走 LIMIT ALL；不能写 `limit or 500`，
+        # 那会把「要全量」悄悄变成「要 500 条」，连绕开的办法都没有。
+        if limit and limit > 0:
+            sql += ' ORDER BY at DESC, id DESC LIMIT %s'
+            args.append(int(limit))
+        else:
+            sql += ' ORDER BY at DESC, id DESC LIMIT ALL'
         rows = self._q(sql, args, fetch=True)
+        rows = list(reversed(rows))          # 翻回时间正序
         keys = ('id', 'user_id', 'card_id', 'kc', 'level', 'correct',
                 'at', 'elapsed_ms')
-        return [dict(zip(keys, r)) for r in rows]
+        out = []
+        for r in rows:
+            ev = dict(zip(keys, r))
+            # at 是 DATE 列，psycopg 给的是 datetime.date；jsonfile 那边是字符串。
+            # 不归一化就有个隐藏炸弹：哪天有接口直接序列化这张表，
+            # json.dumps 不认 date，直接 500。
+            if ev.get('at') is not None and not isinstance(ev['at'], str):
+                ev['at'] = str(ev['at'])[:10]
+            out.append(ev)
+        return out
 
     def events_count(self, user_id=None):
         if user_id is None:

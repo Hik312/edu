@@ -123,5 +123,5 @@ evs = [{'correct': 1}, {'correct': 0}, {'correct': 1}]
 check('from_events 正确转二值', from_events(evs) == [1, 0, 1])
 check('空序列返回先验', abs(predict([], TRUTH) - TRUTH['p_init']) < 1e-9)
 
-print('\n结果：%s' % ('全部通过' % () if ok else '**有失败项**'))
+print('\n结果：%s' % ('全部通过' if ok else '**有失败项**'))
 sys.exit(0 if ok else 1)

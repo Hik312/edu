@@ -178,7 +178,10 @@ async function copyCommand(cmd) {
         <dd class="mono">{{ info?.builtin?.inFile ?? '-' }}</dd>
         <dt>内容指纹</dt>
         <dd class="mono">
-          {{ info?.builtin?.digest || '-' }}
+          <!-- ★ 指纹在 info 的**顶层**（mysql 后端写的是 builtinDigest），
+               不在 info.builtin 里 —— 从前读 builtin.digest 永远拿到空，
+               这一行恒显示「-」，看着像「没有指纹」，其实是读错了字段。 -->
+          {{ info?.builtinDigest || '-' }}
           <span v-if="!stale" class="chip accent">一致</span>
           <span v-else class="chip warn-chip">不一致</span>
         </dd>
@@ -211,8 +214,11 @@ async function copyCommand(cmd) {
         <dd>
           <span class="chip accent">{{ rt?.framework || '-' }}</span>
         </dd>
-        <dt>语言 / 版本</dt>
-        <dd class="mono">{{ rt?.lang || '-' }} {{ rt?.version || '' }}</dd>
+        <dt>语言 / 框架</dt>
+        <!-- /api/health 不返回 version 字段，从前这里读 rt.version 恒为空，
+             只剩一个孤零零的「python 」。要么后端补字段、要么去掉 ——
+             这里选去掉，版本号对排查没有实际帮助。 -->
+        <dd class="mono">{{ rt?.lang || '-' }} / {{ rt?.framework || '-' }}</dd>
         <dt>卡片总数</dt>
         <dd class="mono">{{ rt?.cards ?? '-' }}</dd>
         <dt>服务端今天</dt>

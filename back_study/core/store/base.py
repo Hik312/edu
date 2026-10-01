@@ -95,7 +95,16 @@ class Store(object):
     # JSON 后端下是一个文件 —— 业务层不该知道这个区别。
     # 同时这也是 BKT 的前置条件：掌握度是 per-user 的，没有稳定的 user_id
     # 就没法给「每个人」建学习者模型。
-    def user_all(self):
+    def user_all(self, with_secret=False):
+        """全部用户。**默认剔除口令哈希**，`with_secret=True` 才原样返回。
+
+        ★ 参数必须写进契约：两个后端从前对它的处理是**相反**的 ——
+        mysql 默认剔除 password_hash、json 完全忽略这个参数原样吐出来，
+        而签名里连参数都没有。契约里不写，下一个实现就会再写歪一次。
+        出口这一层（db.public_user）确实兜住了口令哈希，但不能靠「下游
+        记得兜」来做安全 —— 任何一次「顺手 return 上游对象」都会漏。
+        内部需要哈希的调用方（登录校验、口令迁移）显式传 True。
+        """
         raise NotImplementedError
 
     def user_by_name(self, username):

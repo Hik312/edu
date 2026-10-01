@@ -45,6 +45,10 @@ class FSRS(Algo):
     label = 'FSRS-4.5（记忆稳定性模型）'
     needs = ('每卡几十条复习记录才能体现优势。权重是论文默认值，'
              '未在本项目数据上拟合 —— 拟合需要事件流，还没建。')
+    #: 见 sm2.py 同名常量的说明：文档说三个算法都声明了 ef_note，
+    #: 实际只有 BKT 有。FSRS 的 ef 存的是难度 D（1~10），
+    #: 与 SM-2 的难度因子（1.3~2.6）**不是一个东西**，必须写清楚。
+    ef_note = 'ef = 难度 D（1~10），不是 SM-2 的难度因子'
 
     #: 遗忘曲线的两个形状常量。19/81 这个数不是瞎取的：它让「目标保持率
     #: 0.9」时 I 恰好等于 S，公式两边刚好约掉。
@@ -78,7 +82,15 @@ class FSRS(Algo):
         return self.W[7] * init + (1 - self.W[7]) * cur
 
     def _next_difficulty(self, d, g):
-        return _clamp(self._mean_reversion(self._init_difficulty(g), d)
+        # ★ 均值回归的锚点是 **D0(Easy)**，不是「本次评级的初始难度」。
+        # FSRS-4.5（py-fsrs）里这一步是
+        #     D' = w7 · D0(4) + (1 - w7) · (D - w6 · (g - 3))
+        # 其中 D0(4) = w4 - w5，正好是 g=4 时的 _init_difficulty。
+        # 写成 self._init_difficulty(g) 会让锚点随评级浮动，与论文不符。
+        # 数值影响很小（w7=0.031，1-10 量纲上 ≤0.04），但文档写的就是
+        # 「FSRS-4.5 论文默认权重/公式」，那就按论文来。
+        d0_easy = self._init_difficulty(4)
+        return _clamp(self._mean_reversion(d0_easy, d)
                       - self.W[6] * (g - 3), 1.0, 10.0)
 
     def retrievability(self, t, s):

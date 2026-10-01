@@ -11,15 +11,21 @@
 AI 是可选增强，平台没有一处核心功能依赖它。所以这里坚持返 200，
 而不是抛 503 —— 前端据此把 AI 那一块换成提示文字，其余照常。
 """
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 
 import db
 import importer
 import llm
 from ..config import LLM_ERR
+from ..deps import current_user
 from ..schemas import EnrichIn, ToCardIn
 
 router = APIRouter(prefix='/api', tags=['AI 精读'])
+
+#: 一次精读请求最多允许的章节数。不带 indexes 时默认是「整篇逐章」，
+#: 大文档会有几十上百章 → 串行调几十次模型、几分钟不返回。
+#: 匿名可调时这是个白烧算力的口子；限个上限，超了让人分批点。
+MAX_ENRICH_CHAPTERS = 200
 
 
 def _llm_fail(e):
@@ -35,7 +41,7 @@ def llm_status():
 
 
 @router.post('/llm/enrich', summary='精读一章 / 多章 / 一整段文字')
-def enrich(body: EnrichIn):
+def enrich(body: EnrichIn, user=Depends(current_user)):
     return _enrich_doc(body) if body.docId else _enrich_text(body)
 
 
@@ -63,6 +69,9 @@ def _enrich_doc(body: EnrichIn):
     idxs = [i for i in idxs if isinstance(i, int) and 0 <= i < len(chs)]
     if not idxs:
         raise HTTPException(400, '章节下标无效')
+    if len(idxs) > MAX_ENRICH_CHAPTERS:
+        raise HTTPException(400, '一次最多精读 %d 章（这次 %d 章），请分批'
+                                 % (MAX_ENRICH_CHAPTERS, len(idxs)))
 
     skipped, fail, targets = [], [], []
     for i in idxs:
@@ -115,7 +124,7 @@ def _enrich_doc(body: EnrichIn):
 
 
 @router.post('/llm/to-card', summary='把某章的精读结果变成草稿卡')
-def to_card(body: ToCardIn):
+def to_card(body: ToCardIn, user=Depends(current_user)):
     """复用「草稿 → 补 scene → 入库」那条流程，不另开一条入库路径。
     这样导入的资料和手写的卡，进库前都过同一道关卡。"""
     d = db.get_doc(body.docId)

@@ -8,6 +8,7 @@
 产出都是「草稿」，落盘 data/store/drafts.json，确认补全后再入库，
 避免半自动的脏数据直接污染卡库。
 """
+import hashlib
 import json
 import re
 
@@ -69,6 +70,32 @@ def pick_keywords(title, body):
     return list(dict.fromkeys([x for x in merged if x]))[:8]
 
 
+def _draft_ids(text, opts, n):
+    """给这一次导入生成 n 个**互相不撞、也能跨批次区分**的草稿 id。
+
+    ★ 为什么不能只用「日期 + 批内序号」：同一天导入第二次，第 1 块又叫
+    `imp-20261001-1`，与第一次那份草稿**同名**。后果是三重的：
+      1. `publish` 按 id 匹配 cards.custom.json → 第二份发布的卡直接
+         **覆盖**第一份已发布的卡；
+      2. `drop_draft` 删的是「所有同 id 草稿」→ 发布 B 会把 A 的草稿一起删；
+      3. `PUT /api/drafts/{id}` 只命中第一条 → 编辑第二条实际改的是第一条。
+    一次「同一天导两次」就全中，不需要 LLM 路径。
+
+    现在把**内容指纹**编进 id：内容不同 → id 必然不同；同一段文字导两次 →
+    id 相同（这是想要的，`save_drafts` 按 id upsert 覆盖成同一份，
+    而不是并存两条同名草稿）。
+
+    ⚠️ 别在这里加「发现 id 已存在就往后挪一位」的避让循环 —— 我加过，
+    然后实测发现它**恰好把幂等性毁掉**：第二次导入同一段文字时，
+    避让逻辑看到草稿列表里已有这个 id，就把新 id 挪成 `...-1x`，
+    于是同一段资料每导一次就多一条草稿，正是要修的那个毛病。
+    id 撞车该在**发布时**判（`publish`：撞到已有卡就报错，不覆盖）。
+    """
+    stamp = db.today_str().replace('-', '')
+    base = '%s-%s' % (stamp, hashlib.md5(text.encode('utf-8')).hexdigest()[:8])
+    return ['imp-%s-%d' % (base, i + 1) for i in range(max(1, n))]
+
+
 def parse_local(text, opts=None):
     opts = opts or {}
     lines = [l.strip() for l in text.replace('\r\n', '\n').split('\n')]
@@ -94,8 +121,8 @@ def parse_local(text, opts=None):
             blocks.append(cur)
         cur['body'].append(line)
 
-    stamp = db.today_str().replace('-', '')
     cards = []
+    ids = _draft_ids(text, opts, len(blocks))
     for i, b in enumerate(blocks):
         bullets = [clean_bullet(l) for l in b['body'] if is_bullet(l)]
         plain = [l for l in b['body'] if not is_bullet(l)]
@@ -106,7 +133,7 @@ def parse_local(text, opts=None):
         mech = [(ORD[k] + ' ' + s) if k < len(ORD) else ('%d. %s' % (k + 1, s))
                 for k, s in enumerate(mech)]
         cards.append({
-            'id': 'imp-%s-%d' % (stamp, i + 1),
+            'id': ids[i],
             'domain': opts.get('domain') or '待归类',
             'category': opts.get('category') or '',
             'subject': opts.get('subject') or '',
@@ -125,7 +152,7 @@ def parse_local(text, opts=None):
     if not cards and text.strip():
         first = text.strip().split('\n')[0]
         cards.append({
-            'id': 'imp-%s-1' % stamp,
+            'id': _draft_ids(text, opts, 1)[0],
             'domain': opts.get('domain') or '待归类',
             'category': opts.get('category') or '',
             'subject': opts.get('subject') or '',
@@ -365,6 +392,7 @@ def parse_llm(text, opts=None):
         raise RuntimeError('llm_not_json')
     if isinstance(out, list):                       # 有的模型直接吐数组
         out = {'cards': out}
+    ids = _draft_ids(text, opts, len(out.get('cards') or []))
     cards = []
     for c in out.get('cards', []):
         if not isinstance(c, dict):
@@ -376,6 +404,13 @@ def parse_llm(text, opts=None):
         cards.append(c)
     if not cards:
         raise RuntimeError('llm_not_json')
+    # ★ 模型给的 id 一律丢掉，换成我们发的号。
+    # 原因：模型不保证全局唯一，实测会出现重复 id（同一批里两张卡同名），
+    # 也会撞上已有自定义卡 —— 前者让两张草稿互相覆盖，后者让 publish
+    # 变成「静默替换别人已发布的卡」。草稿 id 的权威在我们这边，
+    # 不在提示词里。
+    for i, c in enumerate(cards):
+        c['id'] = ids[i]
     return cards
 
 
@@ -383,8 +418,31 @@ def parse_llm(text, opts=None):
 # 一律走 db 的这两个函数，不要直接碰文件 —— 走了 MySQL 后端以后文件里是空的，
 # 直接读文件会得到「草稿凭空消失」的假象。
 def save_drafts(cards):
+    """按 id upsert，不是无脑 append。
+
+    从前是 `all_.extend(cards)`：同一天对同一段资料点两次「导入」就会
+    并存两条**同 id** 的草稿，此后「丢弃」一次删两条、「补齐字段」只改
+    第一条、「入库」只发布第一条 —— 用户看到的是「改了没生效 / 删了少两条」，
+    而且这两条同名草稿在列表里长得一模一样，根本分辨不出来。
+
+    现在草稿 id 带内容指纹（见 `_draft_ids`），所以「同一段资料重复导入」
+    必然落到同一个 id 上，upsert 让它**覆盖**成一份 —— 这才符合直觉：
+    重复导入同一份东西，本来就该是一件事。
+    """
     all_ = db.load_drafts()
-    all_.extend(cards)
+    index = {}
+    for i, d in enumerate(all_):
+        index.setdefault(str(d.get('id') or ''), i)
+    for c in cards:
+        cid = str(c.get('id') or '')
+        if cid and cid in index:
+            merged = dict(all_[index[cid]])
+            merged.update(c)                 # 新一次导入的字段覆盖旧的
+            all_[index[cid]] = merged
+        else:
+            if cid:
+                index[cid] = len(all_)
+            all_.append(c)
     db.save_drafts(all_)
     return len(all_)
 
@@ -424,12 +482,15 @@ def publish(did):
     copy = json.loads(json.dumps(d))
     copy.pop('_draft', None)
     copy.pop('_from', None)
-    for i, c in enumerate(custom):
-        if c.get('id') == copy['id']:
-            custom[i] = copy
-            break
-    else:
-        custom.append(copy)
+    # ★ 撞 id 必须报错，不能静默替换。
+    # 从前的写法是 `for i, c in enumerate(custom): if c['id'] == copy['id']:
+    # custom[i] = copy` —— 一张**人工写好、已经发布**的卡就这样被草稿无声覆盖，
+    # 而且接口回 ok:true。宁可让人看到「id 已被占用」再去改 id。
+    if any(c.get('id') == copy['id'] for c in custom):
+        return {'ok': False,
+                'msg': '已存在同 id 的卡片（%s）：改一下草稿标题重新导入，'
+                       '或先在卡片库里删掉那张再发布' % copy['id']}
+    custom.append(copy)
     db.save_custom(custom)
     drop_draft(did)
     return {'ok': True, 'card': copy}

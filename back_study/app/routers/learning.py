@@ -12,14 +12,19 @@ router = APIRouter(prefix='/api', tags=['学习'])
 
 _LEVEL_HINT = 'level 必须是 1(不会) / 2(模糊) / 3(会)'
 
+# ★ 复习进度 / 队列 / 统计都是**个人数据**，全部要求登录。
+# 曾经只有 PUT 挂了鉴权，而隔壁的 DELETE /api/progress（清空全部进度）
+# 是匿名的 —— 加上 CORS 通配，任意网页一句 fetch 就能把你的进度清零。
+# 保护一个端点不等于保护这条链，这几个必须一起看。
+
 
 @router.get('/progress', summary='全部进度')
-def get_progress():
+def get_progress(user=Depends(current_user)):
     return {'ok': True, 'progress': db.get_progress()}
 
 
 @router.delete('/progress', summary='清空全部进度')
-def clear_progress():
+def clear_progress(user=Depends(current_user)):
     db.clear_progress()
     return {'ok': True}
 
@@ -55,7 +60,7 @@ def my_events(limit: int = Query(200, ge=1, le=2000),
 
 
 @router.delete('/progress/{cid}', summary='重置某张卡的进度')
-def reset_progress(cid: str):
+def reset_progress(cid: str, user=Depends(current_user)):
     db.reset_progress(cid)
     return {'ok': True}
 
@@ -66,7 +71,8 @@ def review_due(limit: int = Query(50, ge=1, le=500),
                dirs: Optional[str] = Query(
                    None, description='学习方向 id，逗号分隔（data/directions.js）。只推这些方向的卡'),
                include_all: str = Query('', alias='all',
-                                        description='=1 时把没到期的也带上（「全部过一遍」用）')):
+                                        description='=1 时把没到期的也带上（「全部过一遍」用）'),
+               user=Depends(current_user)):
     # 形参叫 include_all、查询串仍叫 ?all=1：alias 保住了对外契约，
     # 又不至于在函数体里盖掉内置的 all()
     items = db.due_list(domain=domain or None, include_all=(include_all == '1'))
@@ -84,10 +90,10 @@ def review_due(limit: int = Query(50, ge=1, le=500),
               # overdue == 999 是 db 层表示「从没复习过」的哨兵值，不该漏给前端
               'overdue': None if x['overdue'] == 999 else x['overdue']}
              for x in items]
-    return {'ok': True, 'today': db.today_str(), 'total': len(queue), 'queue': queue}
+    return {'ok': True, 'today': db.today_str(), 'total': len(items), 'queue': queue}
 
 
 @router.get('/stats', summary='统计')
-def stats():
+def stats(user=Depends(current_user)):
     """总卡数、今日待复习、掌握分布 —— 首页那几个数字。"""
     return {'ok': True, 'stats': db.stats()}

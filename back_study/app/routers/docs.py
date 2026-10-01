@@ -7,18 +7,24 @@
 import base64
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 import db
 import importer
+from ..deps import current_user
 from ..schemas import DocImportIn
 
 router = APIRouter(prefix='/api', tags=['文档'])
 
+# ★ 文档是**个人资料**：4 个端点全部要求登录。
+# 它们曾经匿名可访问，而 CORS 又是通配 —— 跨源网页能读走你导入的全部资料，
+# 还能 DELETE 掉。详见 notes.py 顶上那段说明。
+
 
 @router.get('/docs', summary='文档列表（轻字段）')
 def list_docs(category: Optional[str] = Query(None),
-              subject: Optional[str] = Query(None)):
+              subject: Optional[str] = Query(None),
+              user=Depends(current_user)):
     docs = db.load_docs()
     if category:
         docs = [d for d in docs if d.get('category') == category]
@@ -37,7 +43,7 @@ def list_docs(category: Optional[str] = Query(None),
 
 
 @router.get('/docs/{did}', summary='文档详情（含全部章节）')
-def get_doc(did: str):
+def get_doc(did: str, user=Depends(current_user)):
     d = next((x for x in db.load_docs() if x.get('id') == did), None)
     if not d:
         raise HTTPException(404, '文档不存在')
@@ -45,12 +51,12 @@ def get_doc(did: str):
 
 
 @router.delete('/docs/{did}', summary='删除文档')
-def delete_doc(did: str):
+def delete_doc(did: str, user=Depends(current_user)):
     return {'ok': db.delete_doc(did)}
 
 
 @router.post('/import/doc', summary='导入整份文档')
-def import_doc(body: DocImportIn):
+def import_doc(body: DocImportIn, user=Depends(current_user)):
     """`text` 与 `dataB64` 二选一：
 
     - 粘贴 md / txt → 传 `text`

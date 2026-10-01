@@ -5,19 +5,26 @@
 """
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 import db
+from ..deps import current_user
 from ..schemas import NoteIn
 
 router = APIRouter(prefix='/api', tags=['笔记'])
+
+# ★ 笔记是**个人数据**：5 个端点全部要求登录。
+# 曾经它们不需要登录，而 main.py 的 CORS 又是 allow_origins=['*'] ——
+# 于是用户浏览任意网页时，那个页面的 JS 就能 fetch 走全部笔记正文并删掉它们。
+# 注意 GET 也算：简单请求不触发预检，跨源也能读到响应体。
 
 
 @router.get('/notes', summary='笔记列表')
 def list_notes(category: Optional[str] = Query(None),
                subject: Optional[str] = Query(None),
                cardId: Optional[str] = Query(None, description='只看某张卡下面的理解'),
-               q: str = Query('', description='搜标题 / 正文 / 标签')):
+               q: str = Query('', description='搜标题 / 正文 / 标签'),
+               user=Depends(current_user)):
     notes = db.load_notes()
     if category:
         notes = [n for n in notes if n.get('category') == category]
@@ -34,7 +41,7 @@ def list_notes(category: Optional[str] = Query(None),
 
 
 @router.post('/notes', summary='新建或更新笔记')
-def upsert_note(body: NoteIn):
+def upsert_note(body: NoteIn, user=Depends(current_user)):
     n = body.model_dump(exclude_none=True)
     if not (n.get('title') or '').strip() and not (n.get('body') or '').strip():
         raise HTTPException(400, '标题和正文不能都为空')
@@ -42,7 +49,7 @@ def upsert_note(body: NoteIn):
 
 
 @router.get('/notes/{nid}', summary='单条笔记')
-def get_note(nid: str):
+def get_note(nid: str, user=Depends(current_user)):
     n = next((x for x in db.load_notes() if x.get('id') == nid), None)
     if not n:
         raise HTTPException(404, '笔记不存在')
@@ -50,13 +57,13 @@ def get_note(nid: str):
 
 
 @router.put('/notes/{nid}', summary='修改笔记')
-def update_note(nid: str, body: NoteIn):
+def update_note(nid: str, body: NoteIn, user=Depends(current_user)):
     patch = body.model_dump(exclude_none=True)
     patch['id'] = nid                       # 路径里的 id 说了算
     return {'ok': True, 'note': db.upsert_note(patch)}
 
 
 @router.delete('/notes/{nid}', summary='删除笔记')
-def delete_note(nid: str):
+def delete_note(nid: str, user=Depends(current_user)):
     # 返回值原本就是「删掉没有」，保持原样：前端拿它判断要不要提示
     return {'ok': db.delete_note(nid)}

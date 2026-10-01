@@ -45,6 +45,7 @@ _LOCAL_CFG = os.path.join(_BACK_DIR, 'config.local.json')
 
 _current = None
 _degraded = None
+_init_lock = threading.Lock()     # 保护 get() 的单例构建（见下面的双检锁）
 
 
 def _load_local():
@@ -225,9 +226,14 @@ def _build():
 
 
 def get():
+    # 双检锁：冷启动瞬间的并发请求会各自 _build() 一次，Redis 那边就多建
+    # 一个连接池（旧的被丢弃且不关闭），_degraded 也可能被后完成的构建覆盖。
+    # store/__init__.py 本来就有这把锁，这里漏了。
     global _current
     if _current is None:
-        _current = _build()
+        with _init_lock:
+            if _current is None:          # 等锁期间别人可能已经建好
+                _current = _build()
     return _current
 
 

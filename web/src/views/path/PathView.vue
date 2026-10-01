@@ -22,8 +22,11 @@ const learning = useLearningStore()
 
 onMounted(() => {
   // all=1：今天没到期也要能看到内容，否则新用户进来是空的，
-  // 会以为这一页坏了。真正的「到期才复习」约束在复习页体现
-  learning.fetchDue({ all: '1' })
+  // 会以为这一页坏了。真正的「到期才复习」约束在复习页体现。
+  // ★ 必须同时给 limit：后端 /api/review/due 的 limit 默认只有 50，
+  // 不给就是「静默截断」—— 库里有 67 张时路径页只显示 50 张，
+  // 「已完成 x / 50」也跟着错，而且没有任何提示。500 是后端上限。
+  learning.fetchDue({ all: '1', limit: 500 })
   learning.fetchStats()
   loadMap()
 })

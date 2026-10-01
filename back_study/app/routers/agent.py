@@ -151,13 +151,24 @@ def _sse(rt, question, hist=None, prof=None):
 @router.get('/agent/profile', summary='取当前用户的长期档案')
 def get_profile(user=Depends(current_user)):
     import db
-    return db.profile_of(user.get('id') if user else None)
+    return {'ok': True, 'profile': db.profile_of(user.get('id') if user else None)}
 
 
 @router.put('/agent/profile', summary='更新长期档案（合并写入）')
 def put_profile(body: AgentProfileIn, user=Depends(current_user)):
+    """★ `exclude_unset=True` 是必须的，不是风格问题。
+
+    `AgentProfileIn` 的字段全是「没发 = None = 不动」，而 `save_profile`
+    判的是 `if 'role' in patch`。不带 `exclude_unset` 时 `model_dump()`
+    会把**没发的** role 一起序列化成 `role: None` 放进 patch → 被判为
+    「用户要清空岗位」→ 档案里的目标岗位变成空串。
+
+    真实现象：先在「今日路径」点了「存进我的档案」，再到「复习队列」
+    点一下 ±5（只发 dailyTarget），岗位就没了。属静默丢用户数据。
+    """
     import db
     uid = user.get('id') if user else None
     if uid is None:
         raise HTTPException(401, '未登录')
-    return db.save_profile(uid, body.model_dump())
+    p = db.save_profile(uid, body.model_dump(exclude_unset=True))
+    return {'ok': True, 'profile': p}

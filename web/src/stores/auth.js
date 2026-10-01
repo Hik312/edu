@@ -49,12 +49,20 @@ export const useAuthStore = defineStore('auth', () => {
       const r = await authApi.me()
       user.value = r.user
       return r.user
-    } catch {
-      // 401 时拦截器已经负责跳登录页了，这里只负责把本地状态清干净，
-      // 不然守卫会拿着一个假登录态把人放进去
-      token.value = ''
-      setToken('')
-      user.value = null
+    } catch (err) {
+      // ★ 只有 401 才算「token 失效」，别的错误不能把人踢下线。
+      // 从前是无条件清 token：后端重启中 / 瞬时 502 / 网络抖动时刷新页面，
+      // 用户会被默默送回登录页，登录页还说「登录已过期」—— 明明什么都没过期。
+      // 状态码由 api/client.js 的拦截器挂在 error.status 上（它会先把
+      // 原始 axios 错误吃掉，所以这里读不到 err.response）。
+      const status = err?.status
+      if (status === 401) {
+        // 拦截器已经负责跳登录页，这里只把本地状态清干净，
+        // 不然守卫会拿着一个假登录态把人放进去
+        token.value = ''
+        setToken('')
+        user.value = null
+      }
       return null
     } finally {
       ready.value = true

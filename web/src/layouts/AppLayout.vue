@@ -24,10 +24,12 @@ import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { useAuthStore } from '@/stores/auth'
+import { useLearningStore } from '@/stores/learning'
 
 const route = useRoute()
 const router = useRouter()
 const auth = useAuthStore()
+const learning = useLearningStore()
 
 /** 图标用内联 SVG 的 innerHTML —— 比引一整个图标库省 200KB，
  *  而且这几个形状简单到不值得为它装依赖。viewBox 统一 0 0 24 24。
@@ -122,6 +124,11 @@ const initial = computed(() => (displayName.value || '?').trim().charAt(0).toUpp
 
 function onLogout() {
   auth.logout()
+  // ★ 业务 store 里还留着上一个人的状态，必须一起清。
+  // learning 的 settingsP 一旦 resolve 就永不再取档案（每日目标 / 学习方向），
+  // 而这里从前只清 auth —— 同一 SPA 会话换账号后，新用户会被套上上一个人的
+  // 方向和每日目标，刷新页面才恢复。属于「换个人登录，推的还是他的内容」。
+  learning.resetSettings()
   ElMessage.success('已退出登录')
   router.push({ name: 'login' })
 }

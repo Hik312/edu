@@ -36,7 +36,17 @@ class AlgoStore(object):
         raise NotImplementedError
 
     def events_of(self, user_id, kc=None, card_id=None, limit=500):
-        """取某人的事件，按时间正序（BKT 要按序回放）。"""
+        """取某人的事件，按时间**正序**返回（BKT 要按序回放）。
+
+        ★ `limit` 的语义是两个后端必须一致的硬契约：**只取「最近 limit 条」**，
+        再按正序给出去（尾部窗口）。`limit <= 0` / `None` = 不截断，全给。
+
+        为什么写进契约：`jsonfile` 曾经是 `out[-limit:]`（最近 limit 条），
+        而 `pg` 是 `ORDER BY at ASC LIMIT limit`（**最旧** limit 条）——
+        同一份数据换个后端就得到不同的窗口，BKT 回放出来的掌握度直接不一样；
+        PG 下超过 limit 之后新事件还永远不参与计算，掌握度卡死不动。
+        这不属于「PG 尚未验证」的免责范围：工厂把两个后端定义成可互换的。
+        """
         raise NotImplementedError
 
     def events_count(self, user_id=None):

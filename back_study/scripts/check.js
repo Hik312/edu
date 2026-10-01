@@ -266,8 +266,21 @@ const PYCHECK = (function () {
                             'back_study/core', 'back_study/app',
                             'back_study/scripts', 'back_study/run.py'],
                        { cwd: ROOT, encoding: 'utf8' });
-  if (pf.error || /No module named pyflakes/.test(pf.stderr || '')) {
-    console.log('PY LINT  跳过（没装 pyflakes：pip install pyflakes）');
+  // ★ 两种失败必须分开报，别混成一句「没装 pyflakes」。
+  // `pf.error` 是**起不了进程**（EPERM / ENOENT / 超时），跟「没装包」完全是
+  // 两回事。从前它们并成一个分支，于是沙箱里跑（子进程创建被拒）时会打印
+  // 「跳过（没装 pyflakes：pip install pyflakes）」—— 而 pyflakes 其实是装着的
+  // （实测 .venv 里 4.0.0）。人被这句话指向「去装包」，永远查不到真正的原因。
+  // 另外 stdio 被管道接走时 pf.stderr 是 null，`|| ''` 又把失败信息吞掉，
+  // 连是哪一步失败的都看不出来。
+  const pfErr = pf.error ? String(pf.error.message || pf.error) : '';
+  const pfNoMod = /No module named pyflakes/.test(pf.stderr || '');
+  if (pf.error) {
+    console.log('PY LINT  起不了子进程，跳过（' + pfErr + '）');
+    console.log('         这不是「没装 pyflakes」，是进程创建被环境拒绝了');
+  } else if (pfNoMod) {
+    console.log('PY LINT  跳过（这个解释器里没有 pyflakes：'
+                + py + ' -m pip install pyflakes）');
   } else {
     const hits = (pf.stdout || '').trim().split('\n').filter(Boolean);
     if (!hits.length) console.log('PY LINT  clean');
@@ -316,17 +329,39 @@ async function smoke(py) {
   srv.stderr.on('data', d => { out += d; });
   const B = 'http://127.0.0.1:' + port;
   const wait = ms => new Promise(r => setTimeout(r, ms));
+  //: 登录后填上，之后所有请求默认带它。声明必须在 call 之前 ——
+  //: `let` 有暂时性死区，放在 call 之后会在调用时直接 ReferenceError。
+  let authToken = '';
+  // ★ 默认带上 token。个人数据端点（notes / progress / docs / cards / drafts /
+  // llm / outline / graph / plan …）现在全部要求登录了，不带就是一片 401。
+  // 顺序上没问题：下面认证那一组会**先**把 authToken 填上，之后才跑其它用例。
+  // 要显式测「没带 token 会怎样」的用例传 `auth: false`。
   const call = async (u, opt) => {
-    const r = await fetch(B + u, opt);
+    const o = Object.assign({}, opt);
+    const withAuth = o.auth;
+    delete o.auth;
+    if (authToken && withAuth !== false) {
+      o.headers = Object.assign({ Authorization: 'Bearer ' + authToken },
+                                o.headers || {});
+    }
+    const r = await fetch(B + u, o);
     return { code: r.status, body: await r.json().catch(() => null) };
   };
   let up = false;
-  for (let i = 0; i < 40; i++) {
+  // ★ 等待窗口必须够长。原先是 40 × 150ms ≈ 6 秒，而本机冷启动实测要
+  // **18 秒**（Python 导入 + MySQL/PG 连接 + 建表探测 + 67 张卡入内存）。
+  // 结果是服务明明起来了，却打印「API FAIL 服务没起来」── 后面紧跟的
+  // 启动横幅和 8639 端口都证明它活着。假失败比没有检查更糟：
+  // 人会去查一个不存在的问题。改成 120 × 500ms = 60 秒。
+  const READY_TRIES = 120;
+  const READY_GAP = 500;
+  for (let i = 0; i < READY_TRIES; i++) {
     try { const r = await call('/api/health'); if (r.body && r.body.ok) { up = true; break; } } catch (e) {}
-    await wait(150);
+    await wait(READY_GAP);
   }
   if (!up) {
-    console.log('API FAIL 服务没起来\n' + out);
+    console.log('API FAIL 服务在 ' + (READY_TRIES * READY_GAP / 1000)
+                + ' 秒内没起来\n' + out);
     srv.kill(); process.exitCode = 1;
     return 1;                    // 必须返回数字：返回 undefined 会让累加变成 NaN，
   }                              // 而 NaN 是 falsy —— 失败的运行会被当成通过
@@ -365,7 +400,10 @@ async function smoke(py) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(obj || {})
   });
-  let authToken = '';
+  // 注意：`let authToken` 已经在上面（call 的定义之前）声明过了，
+  // 这里**不能**再声明一次 —— 重复 let 是 SyntaxError；
+  // 而把它只放这里又会踩 call 里的暂时性死区（ReferenceError）。
+  // 所以声明上移，这里直接赋值。
 
   await t('注册：用户名不合法 → 400', async () => {
     const r = await post('/api/auth/register', { username: 'a', password: AUTH_PASS });
@@ -394,7 +432,8 @@ async function smoke(py) {
     return raw.indexOf('passwordHash') === -1 && raw.indexOf('pbkdf2') === -1;
   });
   await t('auth/me 无 token → 401', async () => {
-    return (await call('/api/auth/me')).code === 401;
+    // auth:false = 这一次**故意不带** Authorization（call 默认会补上）
+    return (await call('/api/auth/me', { auth: false })).code === 401;
   });
   await t('auth/me 伪造签名的 token → 401', async () => {
     const fake = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9'
@@ -522,7 +561,9 @@ async function smoke(py) {
     return r.code === 400;
   });
   await t('未登录标记进度 → 401（事件不能记到无名氏头上）', async () => {
+    // auth:false = 故意不带 Authorization（call 现在默认会补上 token）
     const r = await call('/api/progress/' + TEST_ID, {
+      auth: false,
       method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ level: 3 })
     });
     return r.code === 401;
@@ -724,6 +765,24 @@ async function crossStore(py) {
   console.log('---- 存储后端一致性（json vs mysql）----');
   const port = 8800 + Math.floor(Math.random() * 100);
 
+  /** 幂等登录：先试着登录，账号不存在再注册。返回 token 或 null。
+   *  账号名带 zz_ 前缀，一眼看得出是测试造的。 */
+  const loginOrRegister = async (base, user, pass) => {
+    const post = async (p, body) => {
+      const r = await fetch(base + p, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      });
+      return r.json().catch(() => null);
+    };
+    let j = await post('/api/auth/login', { username: user, password: pass });
+    if (!j || !j.token) {
+      j = await post('/api/auth/register', { username: user, password: pass });
+    }
+    return (j && j.token) || null;
+  };
+
   const run = async (storeName, p) => {
     const srv = spawn(py, [path.join(BACK, 'run.py'), String(p)], {
       cwd: BACK, stdio: ['ignore', 'pipe', 'pipe'],
@@ -735,9 +794,10 @@ async function crossStore(py) {
     const B = 'http://127.0.0.1:' + p;
     const wait = ms => new Promise(r => setTimeout(r, ms));
     let up = false;
-    for (let i = 0; i < 40; i++) {
+    // 同上：等待窗口要给够（冷启动实测 18 秒）
+    for (let i = 0; i < 120; i++) {
       try { const r = await fetch(B + '/api/health'); if (r.ok) { up = true; break; } } catch (e) {}
-      await wait(150);
+      await wait(500);
     }
     if (!up) {
       srv.kill(); srv.kill('SIGKILL');
@@ -745,14 +805,27 @@ async function crossStore(py) {
       return null;
     }
     const health = await (await fetch(B + '/api/health')).json();
+    // ★ 先登录拿 token。`/api/storage`、`/api/progress`、`/api/review/due`
+    // 现在都要求登录了（它们含个人进度 / 库名主机这类信息），不带 token
+    // 一律 401，下面的 `due.ok !== true` 会直接判失败。
+    // 每个实例各登录一次：json 与 mysql 是**两套账号表**，一个实例发的
+    // token 在另一个实例上解不出来。
+    const auth = await loginOrRegister(B, 'zz_cross_store', 'zz_cross_123456');
+    if (!auth) {
+      srv.kill(); srv.kill('SIGKILL');
+      console.log('  拿不到 token（STORE=' + storeName + '）:\n' + out);
+      return null;
+    }
+    const AH = { Authorization: 'Bearer ' + auth };
     // ⚠️ limit 上限是 500（learning.py: `Query(50, ge=1, le=500)`）。
     // 这里原来写 1000：FastAPI 版直接 400，而老的零依赖版不校验上限、照常返回，
     // 于是这份对照**一直是拿空队列比空队列**，还打印一句 SKIP 假装没事。
     // 零依赖版 2026-09-26 移除后这个洞才暴露出来 —— 所以「两套实现互为对照」
     // 这套机制有个反面：宽松的那套会帮严格的那套把错误吞掉。
-    const due = await (await fetch(B + '/api/review/due?all=1&limit=500')).json();
-    const st = await (await fetch(B + '/api/storage')).json();
-    const pg = await (await fetch(B + '/api/progress')).json();
+    const due = await (await fetch(B + '/api/review/due?all=1&limit=500',
+                                   { headers: AH })).json();
+    const st = await (await fetch(B + '/api/storage', { headers: AH })).json();
+    const pg = await (await fetch(B + '/api/progress', { headers: AH })).json();
     srv.kill(); srv.kill('SIGKILL');
     if (due.ok !== true) {
       console.log('  /api/review/due 失败（STORE=' + storeName + '）: '

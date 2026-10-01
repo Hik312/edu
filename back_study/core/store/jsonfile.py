@@ -6,6 +6,7 @@
 """
 import datetime
 import os
+import threading
 
 from .base import Store, read_json, write_json
 
@@ -14,6 +15,22 @@ BACK_DIR = os.path.dirname(CORE_DIR)                                     # back_
 ROOT = os.path.dirname(BACK_DIR)                                         # study
 DATA_DIR = os.path.join(ROOT, 'data')
 STORE_DIR = os.path.join(DATA_DIR, 'store')
+
+# ★ 一把全局锁，保护「读全量 → 改 → 写全量」这一个整体。
+#
+# 为什么必须有：端点是同步 `def`，FastAPI 会把它们丢进 40 槽线程池，
+# 所以并发是常态而不是例外。而这里每个写方法都是读全量、改一处、再写回全量；
+# `write_json` 只保证「文件不会写一半」（原子替换），**不保证互斥** ——
+# 两个线程同时改同一份 JSON 时，后写的那个会把前一个的修改整份覆盖掉。
+#
+# 真实现象：同一秒内标记两张不同的卡（或开两个标签页各标一张）→
+# 先标的那张进度凭空消失。json 后端是默认后端，也是 MySQL 不可用时的
+# 降级目标，命中概率不低。
+#
+# 对照：algostore/jsonfile.py 和 store/mysql.py 本来就有锁，只有这里漏了。
+# 用 RLock 而不是 Lock：user_put 内部会调 self.user_all()（也走锁），
+# 普通 Lock 在这里会自死锁。
+_lock = threading.RLock()
 
 # 这里以前还有 FILE_PROGRESS / FILE_CUSTOM / FILE_DRAFTS / FILE_NOTES / FILE_DOCS
 # 五个模块级常量，2026-09-26 删掉：真正生效的是下面 self.file 那个字典，
@@ -61,90 +78,120 @@ class JsonFileStore(Store):
         return self._read('drafts', [])
 
     # ---------------- 写：卡片 ----------------
+    # 所有写方法都把「读-改-写」整体圈进 _lock，别只锁 _write：
+    # 那样两个线程仍会各自读到同一份旧数据，后写的整份覆盖前一个。
     def custom_put(self, card):
-        lst = self.custom_all()
-        for i, c in enumerate(lst):
-            if c.get('id') == card.get('id'):
-                lst[i] = card
-                break
-        else:
-            lst.append(card)
-        self._write('cards.custom', lst)
+        with _lock:
+            lst = self.custom_all()
+            for i, c in enumerate(lst):
+                if c.get('id') == card.get('id'):
+                    lst[i] = card
+                    break
+            else:
+                lst.append(card)
+            self._write('cards.custom', lst)
 
     def custom_del(self, cid):
-        self._write('cards.custom', [c for c in self.custom_all() if c.get('id') != cid])
+        with _lock:
+            self._write('cards.custom',
+                        [c for c in self.custom_all() if c.get('id') != cid])
 
     def custom_replace(self, lst):
-        self._write('cards.custom', list(lst))
+        with _lock:
+            self._write('cards.custom', list(lst))
 
     # ---------------- 写：进度 ----------------
     def progress_put(self, cid, rec):
-        m = self.progress_all()
-        m[cid] = rec
-        self._write('progress', m)
+        with _lock:
+            m = self.progress_all()
+            m[cid] = rec
+            self._write('progress', m)
 
     def progress_del(self, cid):
-        m = self.progress_all()
-        m.pop(cid, None)
-        self._write('progress', m)
+        with _lock:
+            m = self.progress_all()
+            m.pop(cid, None)
+            self._write('progress', m)
 
     def progress_clear(self):
-        self._write('progress', {})
+        with _lock:
+            self._write('progress', {})
 
     # ---------------- 写：笔记 ----------------
     def note_put(self, note):
-        lst = self.notes_all()
-        for i, n in enumerate(lst):
-            if n.get('id') == note.get('id'):
-                lst[i] = note
-                break
-        else:
-            lst.append(note)
-        self._write('notes', lst)
+        with _lock:
+            lst = self.notes_all()
+            for i, n in enumerate(lst):
+                if n.get('id') == note.get('id'):
+                    lst[i] = note
+                    break
+            else:
+                lst.append(note)
+            self._write('notes', lst)
 
     def note_del(self, nid):
-        self._write('notes', [n for n in self.notes_all() if n.get('id') != nid])
+        with _lock:
+            self._write('notes',
+                        [n for n in self.notes_all() if n.get('id') != nid])
 
     # ---------------- 写：文档 ----------------
     def doc_put(self, doc):
-        lst = self.docs_all()
-        for i, d in enumerate(lst):
-            if d.get('id') == doc.get('id'):
-                lst[i] = doc
-                break
-        else:
-            lst.append(doc)
-        self._write('documents', lst)
+        with _lock:
+            lst = self.docs_all()
+            for i, d in enumerate(lst):
+                if d.get('id') == doc.get('id'):
+                    lst[i] = doc
+                    break
+            else:
+                lst.append(doc)
+            self._write('documents', lst)
 
     def doc_del(self, did):
-        self._write('documents', [d for d in self.docs_all() if d.get('id') != did])
+        with _lock:
+            self._write('documents',
+                        [d for d in self.docs_all() if d.get('id') != did])
 
     # ---------------- 写：草稿 ----------------
     def draft_replace(self, lst):
-        self._write('drafts', list(lst))
+        with _lock:
+            self._write('drafts', list(lst))
 
     # ---------------- 用户 ----------------
     def user_all(self, with_secret=False):
-        # with_secret 这个参数 JSON 端用不上（本来就是原样读文件），
-        # 但**签名必须和 MySQL 后端一致** —— 否则换个后端就 TypeError，
-        # 而这类错误只有在真的切库那一刻才暴露
-        return self._read('users', [])
+        """★ 默认**剔除**口令哈希，`with_secret=True` 才原样给。
+
+        这个参数以前被完全忽略（注释还写着「JSON 端用不上」），于是同一个
+        `backend().user_all()` 在两个后端返回不同的东西：mysql 默认剔除
+        password_hash，json 原样吐出来。目前唯一的调用方 db.user_all 外面
+        套了 public_user，所以还没漏；但任何将来「顺手 return 上游对象」
+        的代码在 JSON 后端下就会直接把口令哈希交出去（db.py 里那段注释
+        正是在警告这件事）。签名一样、行为也得一样 —— 这正是这个项目
+        对两个后端的硬要求。
+        """
+        rows = self._read('users', [])
+        if with_secret:
+            return rows
+        return [{k: v for k, v in u.items() if k != 'passwordHash'} for u in rows]
 
     def user_by_name(self, username):
         # 大小写不敏感：用户在手机上手打，把 Wangtong 打成 wangtong 是常事，
-        # 报「用户不存在」比让他登录成功糟糕得多
+        # 报「用户不存在」比让他登录成功糟糕得多。
+        # ★ 这里必须 with_secret=True：登录要拿口令哈希去比对。
+        # user_all() 默认剔除哈希（与 mysql 后端一致），所以不能调它。
         key = (username or '').strip().lower()
         if not key:
             return None
-        for u in self.user_all():
+        for u in self.user_all(with_secret=True):
             if (u.get('username') or '').lower() == key:
                 return u
         return None
 
     def user_get(self, uid):
         # 用 str 比较：id 在 JSON 里可能是数字、也可能被前端传成字符串，
-        # 类型不一致会让「明明有这个用户却查不到」
-        for u in self.user_all():
+        # 类型不一致会让「明明有这个用户却查不到」。
+        # 同样要 with_secret=True：db.user_get 的调用方里既有只读出口
+        # （外面套 public_user），也有鉴权链路。
+        for u in self.user_all(with_secret=True):
             if str(u.get('id')) == str(uid):
                 return u
         return None
@@ -157,31 +204,32 @@ class JsonFileStore(Store):
         字符串 "None" —— 表现是「注册看着成功、一刷新就掉登录」，
         而且日志里一点错都没有。
         """
-        lst = self.user_all()
+        with _lock:
+            lst = self.user_all(with_secret=True)
 
-        if user.get('id'):
-            for i, u in enumerate(lst):
-                if str(u.get('id')) == str(user['id']):
-                    lst[i] = user
-                    break
-            else:
-                lst.append(user)
+            if user.get('id'):
+                for i, u in enumerate(lst):
+                    if str(u.get('id')) == str(user['id']):
+                        lst[i] = user
+                        break
+                else:
+                    lst.append(user)
+                self._write('users', lst)
+                return int(user['id'])
+
+            # 自增 = 现有最大 id + 1。**不复用被删掉的 id**：id 一旦复用，
+            # 历史数据（progress.user_id、attempt.user_id）会指到另一个人身上
+            nid = max([int(u.get('id') or 0) for u in lst] or [0]) + 1
+
+            rec = dict(user)
+            rec['id'] = nid
+            # MySQL 那边有 DEFAULT CURRENT_TIMESTAMP，这里得自己补，
+            # 不然同一个字段两个后端一个有值一个没有
+            rec.setdefault('createdAt',
+                           datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+            lst.append(rec)
             self._write('users', lst)
-            return int(user['id'])
-
-        # 自增 = 现有最大 id + 1。**不复用被删掉的 id**：id 一旦复用，
-        # 历史数据（将来 progress.user_id、attempt.user_id）会指到另一个人身上
-        nid = max([int(u.get('id') or 0) for u in lst] or [0]) + 1
-
-        rec = dict(user)
-        rec['id'] = nid
-        # MySQL 那边有 DEFAULT CURRENT_TIMESTAMP，这里得自己补，
-        # 不然同一个字段两个后端一个有值一个没有
-        rec.setdefault('createdAt',
-                       datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
-        lst.append(rec)
-        self._write('users', lst)
-        return nid
+            return nid
 
     def user_count(self):
         return len(self.user_all())

@@ -9,12 +9,24 @@
 import os
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 import db
 import store as store_pkg
+from ..deps import current_user
 
 router = APIRouter(prefix='/api', tags=['结构'])
+
+# ★ 哪些端点要登录、哪些不要，判据是**响应里有没有个人数据**，不是"读还是写"：
+#
+#   要登录：/outline、/graph、/graph/neighbors、/plan
+#     —— 它们把每张卡的 level / 掌握度一起吐出来（来自 progress），
+#        是个人复习状态，不是公共内容。
+#   不要登录：/health、/catalog、/roles、/directions
+#     —— 纯配置与存活探测。data/catalog.js 这类文件本身就在 git 里、
+#        没有任何秘密；留公开是为了让「后端活着吗」和「未登录时整站
+#        结构还渲染得出来吗」这两件事不需要凭据就能验。
+#   /storage 含库名/主机/账号，属于踩点信息 → 要登录。
 
 
 @router.get('/health', summary='健康探测')
@@ -44,7 +56,7 @@ def health():
 
 
 @router.get('/storage', summary='存储后端状态')
-def storage():
+def storage(user=Depends(current_user)):
     """当前用的是哪个存储、库里有多少行、内置卡副本有没有过期。
 
     用途有两个：一是排查（「我明明改了 data/*.js，怎么接口还是旧的」→
@@ -85,7 +97,8 @@ def directions():
 @router.get('/plan', summary='岗位知识点地图')
 def plan(role: Optional[str] = Query(None, description='预置岗位 id'),
          subjects: Optional[str] = Query(
-             None, description='自定义科目组合，逗号分隔，如 java,ai,python')):
+             None, description='自定义科目组合，逗号分隔，如 java,ai,python'),
+         user=Depends(current_user)):
     """岗位（或自定义科目组合）→ 按技能分组的卡片 + 覆盖缺口。
 
     自定义组合**不落库**：用完即走，用户勾的组合存在前端 localStorage。
@@ -101,20 +114,23 @@ def plan(role: Optional[str] = Query(None, description='预置岗位 id'),
 
 @router.get('/outline', summary='知识框架（MOC 树）')
 def outline(category: Optional[str] = Query(None, description='只看某个一级分类'),
-            subject: Optional[str] = Query(None, description='只看某个科目')):
+            subject: Optional[str] = Query(None, description='只看某个科目'),
+            user=Depends(current_user)):
     return {'ok': True, 'tree': db.build_outline(category=category or None,
                                                  subject=subject or None)}
 
 
 @router.get('/graph', summary='知识图谱')
-def graph(category: Optional[str] = Query(None), subject: Optional[str] = Query(None)):
+def graph(category: Optional[str] = Query(None), subject: Optional[str] = Query(None),
+          user=Depends(current_user)):
     """节点 + 边。层级边构成骨架，语义边来自卡片自己的 `related` 字段。"""
     return {'ok': True, 'graph': db.build_graph(category=category or None,
                                                 subject=subject or None)}
 
 
 @router.get('/graph/neighbors/{cid}', summary='某张卡的邻居')
-def graph_neighbors(cid: str, depth: int = Query(1, description='1~3，越深越慢')):
+def graph_neighbors(cid: str, depth: int = Query(1, description='1~3，越深越慢'),
+                    user=Depends(current_user)):
     """图谱点开某张卡时用：「这张卡还牵着谁」。"""
     nb = db.neighbors(cid, max(1, min(3, depth)))
     if nb['center'] is None:

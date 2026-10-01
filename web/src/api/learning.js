@@ -6,24 +6,14 @@
  *
  * level 的取值全项目统一，别在别处另立一套：
  *   0 = 未标记   1 = 不会   2 = 模糊   3 = 会
+ *
+ * ★ 本文件**只管发请求**：label / color 这些展示用的东西已经搬到
+ * `@/config/theme`（levelLabel / levelColor）。从前这里有一份 LEVELS
+ * 带着自己的颜色，与 theme.js 的 LEVEL_COLOR 冲突，同一档在两个页面
+ * 是两种颜色；而且组件为了拿 label 直接 import 本文件，顺带破了
+ * 「views 只调 store」那条铁律。
  */
 import client from './client'
-
-/** 三档标记的含义与各档颜色。放这里是想让「0/1/2/3 到底哪个是不会」
- * 有个唯一答案 —— 散落在各页面里迟早会写反。
- */
-export const LEVELS = {
-  0: { label: '未标记', color: '#7a8699', rank: 2 },
-  1: { label: '不会', color: '#ff6b81', rank: 0 },
-  2: { label: '模糊', color: '#ffb454', rank: 1 },
-  3: { label: '会', color: '#4fe0b0', rank: 3 }
-}
-
-/** 取 level 的展示文案，容错非数字输入。 */
-export function levelLabel(level) {
-  const hit = LEVELS[level]
-  return hit ? hit.label : '未标记'
-}
 
 /** 全部学习进度。key 是卡片 id。
  * @returns {Promise<{ok:boolean, progress:Object<string,Object>}>}

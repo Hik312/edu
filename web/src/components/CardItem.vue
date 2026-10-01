@@ -13,7 +13,7 @@
  *    只是为了好看而编的号，一旦有人拿去搜索就露馅。
  */
 import { computed } from 'vue'
-import { LEVELS } from '@/api/learning'
+import { levelColor, levelLabel } from '@/config/theme'
 
 const props = defineProps({
   card: { type: Object, required: true }
@@ -21,7 +21,10 @@ const props = defineProps({
 
 defineEmits(['open'])
 
-const level = computed(() => LEVELS[props.card.level ?? 0] || LEVELS[0])
+// 文案与颜色都来自 theme，别在这里再立一套（从前是从 api/learning 的
+// LEVELS 拿，那份颜色是上一版深色的荧光色，跟路径页/图谱对不上）
+const levelText = computed(() => levelLabel(props.card.level ?? 0))
+const levelTint = computed(() => levelColor(props.card.level ?? 0))
 const tags = computed(() => (props.card.tags || []).slice(0, 3))
 </script>
 
@@ -35,9 +38,9 @@ const tags = computed(() => (props.card.tags || []).slice(0, 3))
     <span class="edge" />
     <header class="ci-head">
       <h3 class="ci-title">{{ card.title }}</h3>
-      <span class="ci-level" :style="{ color: level.color }" :title="level.label">
+      <span class="ci-level" :style="{ color: levelTint }" :title="levelText">
         <i class="dot" />
-        {{ level.label }}
+        {{ levelText }}
       </span>
     </header>
 

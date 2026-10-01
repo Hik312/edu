@@ -1,4 +1,4 @@
-﻿/* AI 问答接口 —— 对应后端 `app/routers/agent.py`。
+/* AI 问答接口 —— 对应后端 `app/routers/agent.py`。
 
 三条硬规矩（和 ai.js 同源，别破坏）：
   1. `/agent/status` 返回 ok:false 是正常状态，不是故障。AI 是可选增强，
@@ -70,7 +70,12 @@ export function cleanAnswer(text) {
   s = lines.join('\n')
   s = s.replace(/【\s*[A-Za-z][A-Za-z0-9_-]{1,60}\s*】/g, '')
   s = s.replace(/\{[^{}]*"id"\s*:\s*"[^"]+"[^{}]*\}/g, '')
-  s = s.replace(/(?:卡\s*片?\s*id\s*[:：为]?\s*|id\s*[:：]\s*)[A-Za-z][A-Za-z0-9_-]{1,60}/gi, '')
+  // ★ `id\s*[:：]` 这两个分支必须带词边界 \b：
+  // 没有它时，任何以 id 结尾的英文词后面跟冒号都会被吃掉一段 ——
+  // `valid: true` 变成 `val`、`solid: …`、`grid: …`、`void: …` 同理。
+  // 中英混排的技术回答里这类词很常见，属于「清洗把答案改坏了」。
+  // 后端 agent/qa/runtime.py 是同一份正则，两边必须一起改。
+  s = s.replace(/(?:卡\s*片?\s*id\s*[:：为]?\s*|\bid\s*[:：]\s*)[A-Za-z][A-Za-z0-9_-]{1,60}/gi, '')
   s = s.replace(/\n{3,}/g, '\n\n')
   return s.trim()
 }

@@ -81,6 +81,24 @@ def diff_days(a, b):
     return (date(yb, mb, db_) - date(ya, ma, da)).days
 
 
+def safe_next_at(p, today):
+    """取一条进度记录的 nextAt，**把 None / 空串也当「今天」**。
+
+    ★ 为什么不能写 `p.get('nextAt', today)`：那是「键不存在才用默认值」，
+    兜不住「键存在但值是 None 或 ''」。而这两种值真的会出现 ——
+    `progress` 表（MySQL）的 `next_at` 是 **DATE NULL**，写入侧是
+    `rec.get('nextAt') or None`，`dbseed.py --import-json` 又会把源 JSON
+    里的 rec 原样搬进库；`store/mysql.py` 的到期队列里甚至专门为
+    `next_at IS NULL` 写了一支分支，说明作者本来就预期存在这种行。
+
+    不兜住的后果：`None.split` → AttributeError、`''.split('-')` 解包
+    失败 → `/api/review/due` 和 `/api/stats` 直接 500。整张卡库有一个
+    坏行就全站看不了队列，代价与「一行判空」完全不成比例。
+    """
+    v = (p or {}).get('nextAt')
+    return v if isinstance(v, str) and v.strip() else today
+
+
 # ---------- 间隔调度 ----------
 def schedule(prev, level):
     """算下一次复习时间。level: 1=不会 2=模糊 3=会。返回新的进度记录。
@@ -513,17 +531,22 @@ def build_outline(category=None, subject=None):
     cards = all_cards(category=category, subject=subject)
 
     tree = []
-    index = {}                                  # (cat, sub) -> 节点，避免两层循环查找
+    # ★ 这里曾经写成 `index[(cat, sub)] = 领域节点的 children`，于是同一个
+    # category 的第二个 subject 因为 key 不同，又 append 了一个新的领域节点 ——
+    # 67 张卡会长出 9 个顶层节点、其中 work 重复 5 次、kaoyan 重复 4 次，
+    # 「领域 → 科目」第一层直接退化成「一科目一领域」。
+    # 修法：按 cat 建索引，领域节点只在**首次见到这个 cat** 时进 tree。
+    tree_index = {}                             # cat -> 领域节点
     for c in cards:
         cat = c.get('category') or 'other'
         sub = c.get('subject') or 'other'
-        key = (cat, sub)
-        if key not in index:
+        if cat not in tree_index:
             node = {'id': cat, 'name': cat_name(cat), 'type': 'category',
                     'count': 0, 'children': {}}
             tree.append(node)
-            index[key] = node['children']
-        sub_children = index[key]
+            tree_index[cat] = node
+        cat_node = tree_index[cat]
+        sub_children = cat_node['children']
         if sub not in sub_children:
             sub_children[sub] = {'id': sub, 'name': subject_name(sub),
                                  'type': 'subject', 'count': 0, 'children': {}}
@@ -550,6 +573,7 @@ def build_outline(category=None, subject=None):
                 })
             cur = node['children']
         sub_node['count'] += 1
+        cat_node['count'] += 1
 
     def to_list(d):
         out = []
@@ -682,6 +706,33 @@ def load_notes():
     return backend().notes_all()
 
 
+def _next_daily_id(prefix, existing, day=None):
+    """按「日期 + 不重复序号」发号，序号取**已有最大值 + 1**。
+
+    ★ 为什么不能用 `len(existing) + 1`：删掉中间任意一条后计数会回退，
+    新号就会撞上仍然存在的那条记录，而两个存储后端都是 upsert 语义
+    （jsonfile 按 id 覆盖、mysql 是 ON DUPLICATE KEY UPDATE）→
+    **新建一条笔记会把别人那条笔记的标题正文覆盖掉**，接口还回 ok:true。
+
+    真实现象：今天建了 3 条（尾号 1/2/3）→ 删掉第 1 条 → 再新建 →
+    新号 3 → 第 3 条被覆盖。文档同理（doc-<日期>-N）。
+
+    序号只增不复用，所以被删掉的号不会回来 —— 这跟 store/jsonfile.py
+    给用户发号时的取舍一致：历史数据（progress.user_id、attempt.user_id）
+    将来会指回来，号一旦复用就会指到另一个对象身上。
+    """
+    stamp = (day or today_str()).replace('-', '')
+    head = '%s-%s-' % (prefix, stamp)
+    used = set()
+    for x in existing:
+        xid = str(x.get('id') or '')
+        if xid.startswith(head):
+            tail = xid[len(head):]
+            if tail.isdigit():
+                used.add(int(tail))
+    return head + str(max(used) + 1 if used else 1)
+
+
 def upsert_note(note):
     """有 id 就更新，没有就新建。返回保存后的笔记。"""
     lst = load_notes()
@@ -695,7 +746,7 @@ def upsert_note(note):
                 merged['updatedAt'] = now
                 backend().note_put(merged)
                 return merged
-    nid = nid or ('note-' + now.replace('-', '') + '-' + str(len(lst) + 1))
+    nid = nid or _next_daily_id('note', lst, now)
     note = dict(note)
     note['id'] = nid
     note.setdefault('createdAt', now)
@@ -731,7 +782,7 @@ def upsert_doc(doc):
                 merged['updatedAt'] = now
                 backend().doc_put(merged)
                 return merged
-    did = did or ('doc-' + now.replace('-', '') + '-' + str(len(lst) + 1))
+    did = did or _next_daily_id('doc', lst, now)
     doc = dict(doc)
     doc['id'] = did
     doc.setdefault('createdAt', now)
@@ -812,14 +863,19 @@ def set_level(cid, level, user_id=None):
     rec = schedule(get_progress().get(cid), level)
     backend().progress_put(cid, rec)
     if user_id is not None:
-        log_review(user_id, cid, level)
-        # 刚产生新事件 → 这个 kc 的掌握度缓存作废，重算一次并写回。
-        # 包 try：缓存/PG 出问题不该让「标记进度」这个主操作失败，
-        # 掌握度是派生数据，丢了重算就行，进度丢了才是真丢。
+        # ★ log_review 和 mastery_of 必须在**同一个 try** 里。
+        # 它们打的是算法库（PG 或文件），和 progress 是两套存储；
+        # 从前只包住了 mastery_of，而 log_review 裸在 try 外面 ——
+        # pg 掉线 / 算法库文件只读时：进度已经改完、事件没写、请求返回 500。
+        # 用户看到失败就会重试，而重试是从**已经推进过的**进度再算一次
+        # （连续两次「会」本该 1→3 天，重试后直接跳到 3×ef≈8 天），
+        # 状态和他的认知对不上，而且没有任何地方提示这件事。
+        # 掌握度、事件流都是**派生数据**，丢了能重算；进度的正确性优先。
         try:
+            log_review(user_id, cid, level)
             mastery_of(user_id, cid, refresh=True)
-        except Exception:
-            pass
+        except Exception as e:
+            sys.stderr.write('[set_level] 派生数据写入失败（进度已保存）：%s\n' % e)
     return rec
 
 
@@ -847,8 +903,19 @@ def log_review(user_id, card_id, level, kc=None, at=None, elapsed_ms=None):
     })
 
 
+#: 回放类调用（BKT 拟合 / 掌握度）要**全量**事件，不是默认的最近 500 条。
+#: 0 = 不截断（见 algostore.base.events_of 的 limit 契约）。
+#: 为什么必须显式写：默认 500 会在卡库×复习次数上去之后悄悄截断，
+#: 表现为「掌握度算到一半就不动了」，而且换后端症状还不一样。
+EVENTS_ALL = 0
+
+
 def events_of(user_id, kc=None, card_id=None, limit=500):
-    """某人的复习事件，按时间正序（BKT 要按序回放）。"""
+    """某人的复习事件，按时间正序（BKT 要按序回放）。
+
+    `limit` 语义：取**最近** limit 条再正序返回；`limit=0`/`None` 表示全量。
+    回放路径请显式传 `EVENTS_ALL`，别用默认值。
+    """
     return algostore.get().events_of(user_id, kc=kc, card_id=card_id,
                                      limit=limit)
 
@@ -884,7 +951,7 @@ def fit_bkt(user_id=None):
     返回 `(params, info)`。数据不够时**返回默认参数并说明原因**，不硬拟合——
     20 条记录拟合 4 个参数必然过拟合，那时候默认参数反而预测得更准。
     """
-    evs = events_of(str(user_id)) if user_id else []
+    evs = events_of(str(user_id), limit=EVENTS_ALL) if user_id else []
     by_kc = {}
     for e in evs:
         by_kc.setdefault(e.get('kc'), []).append(e)
@@ -925,7 +992,7 @@ def mastery_of(user_id, kc, refresh=False):
             return float(got)
 
     p = algo.bkt.predict(
-        algo.bkt.from_events(events_of(user_id, kc=kc)),
+        algo.bkt.from_events(events_of(user_id, kc=kc, limit=EVENTS_ALL)),
         bkt_params(user_id))
     c.set(key, p, ttl=600)
     algostore.get().mastery_put(user_id, kc, p)
@@ -993,14 +1060,17 @@ def due_list(domain=None, include_all=False, category=None, subject=None):
             overdue = OVERDUE_NEVER
             due = True
         else:
-            overdue = diff_days(p.get('nextAt', today), today)
+            overdue = diff_days(safe_next_at(p, today), today)
             due = overdue >= 0
         if not include_all and not due:
             continue
         items.append({
             'card': c,
             'progress': p,
-            'level': p['level'] if p else 0,
+            # p['level'] 会在记录缺 level 键时 KeyError 500；
+            # 同一份数据在 build_outline / role_plan 里都用 p.get('level')，
+            # 口径要一致。
+            'level': p.get('level', 0) if p else 0,
             'overdue': overdue,
             'due': due
         })
@@ -1038,7 +1108,7 @@ def stats():
             s['fuzzy'] += 1
         else:
             s['weak'] += 1
-        if diff_days(p.get('nextAt', today), today) >= 0:
+        if diff_days(safe_next_at(p, today), today) >= 0:
             s['dueToday'] += 1
     return s
 
@@ -1140,7 +1210,16 @@ def verify_login(username, password):
 
 # ---------- 存储状态 ----------
 def storage_info():
-    """给 /api/storage 用。退化原因、内容副本是否过期都折叠进来。"""
+    """给 /api/storage 用。退化原因、内容副本是否过期都折叠进来。
+
+    ★ 除了业务存储，还要把**算法库（PG）与缓存（Redis）的降级**一起报出来。
+    从前这两个模块的 `degraded()` 全仓只有一次性脚本在用，服务端一处都没消费：
+    横幅不打、`/api/storage` 不吐。而两个模块的 docstring 都写着
+    「降级原因会写进 degraded() 让启动横幅打出来」，项目的硬要求也是
+    「降级必须看得见」。结果就是 `ALGO_STORE=pg` 连不上时事件静默落到
+    JSON 文件、Redis 连不上时掌握度缓存退化成进程内存，都没有任何提示 ——
+    正是这条硬要求要防的那种情况。
+    """
     info = store_pkg.info()
     st = backend()
     if st.holds_builtin:
@@ -1165,4 +1244,16 @@ def storage_info():
             'stale': False,
             'authority': 'data/*.js',
         }
+    # 算法库：事件流 / 掌握度 / 拟合参数存哪儿
+    try:
+        info['algo'] = {'backend': type(algostore.get()).__name__,
+                        'degraded': algostore.degraded()}
+    except Exception as e:
+        info['algo'] = {'backend': '?', 'degraded': str(e)[:160]}
+    # 缓存：只用来缓存 BKT 掌握度
+    try:
+        info['cache'] = {'backend': type(cache.get()).__name__,
+                         'degraded': cache.degraded()}
+    except Exception as e:
+        info['cache'] = {'backend': '?', 'degraded': str(e)[:160]}
     return info

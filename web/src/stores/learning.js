@@ -20,6 +20,7 @@ import { ref, computed } from 'vue'
 import * as learningApi from '@/api/learning'
 import { getProfile, putProfile } from '@/api/agent'
 import { getDirections } from '@/api/system'
+import { useCardsStore } from '@/stores/cards'
 
 /** 每日目标从没设过时按这个值显示。定 20 而不是接口默认的 50：50 几乎等于
  *  全库（67 张），那不叫目标，叫「一次全看完」。 */
@@ -74,6 +75,20 @@ export const useLearningStore = defineStore('learning', () => {
     return settingsP
   }
 
+  /** 退出登录 / 换账号时调。
+   *
+   * ★ 为什么必须显式重置：`settingsP` 一旦 resolve 就永不再取档案，
+   * 而登出只清了 auth store。同一 SPA 会话里换账号后，
+   * `pickedDirs` 还是上一个人的方向，`fetchDue` 会把它注入**新用户**的队列；
+   * `dailyTarget` 同理。刷新页面才会恢复 —— 这正是「换个人登录，怎么推的
+   * 还是他的内容」那类说不清的 bug。AppLayout 的登出流程会调这里。 */
+  function resetSettings() {
+    settingsP = null
+    directions.value = []
+    dailyTarget.value = DAILY_DEFAULT
+    pickedDirs.value = []
+  }
+
   /** 改设置：写后端档案，成功后用**服务端返回的那份**回填本地
    *  （截断/去重在后端做，本地自己算一遍迟早跟它不一致）。 */
   async function saveSettings(patch) {
@@ -102,8 +117,19 @@ export const useLearningStore = defineStore('learning', () => {
     return base
   })
 
+  /** 并发取队列的序号。**后发先回的旧响应必须丢掉。**
+   *
+   * ★ 从前是 `queue.value = r.queue` 直接赋值，谁后回来谁赢。
+   * 复习页快速连点「跳过」、路径页快速连点两个岗位时，旧请求晚于新请求
+   * 返回，就会把新结果覆盖成旧岗位/旧队列的 —— 页面显示的内容和用户
+   * 刚点的东西对不上。防抖只缩小窗口，并不保证顺序（这点注释里曾经
+   * 写反了）。
+   */
+  let dueSeq = 0
+
   async function fetchDue(params) {
     await ensureSettings() // 方向没拿到之前先别取队列，否则取到的是全库
+    const seq = ++dueSeq
     loading.value = true
     try {
       const p = Object.assign({}, params)
@@ -113,11 +139,13 @@ export const useLearningStore = defineStore('learning', () => {
         p.dirs = pickedDirs.value.join(',')
       }
       const r = await learningApi.getDue(p)
+      // 已经有更新的请求发出去了，丢弃这份迟到的旧响应
+      if (seq !== dueSeq) return
       queue.value = r.queue || []
       total.value = r.total || 0
       today.value = r.today || ''
     } finally {
-      loading.value = false
+      if (seq === dueSeq) loading.value = false
     }
   }
 
@@ -127,12 +155,21 @@ export const useLearningStore = defineStore('learning', () => {
     const item = queue.value.find(c => c.id === cid)
     const old = item ? item.level : 0
     if (item) item.level = level
+    // ★ 卡片列表里的同一张卡也必须跟着变。
+    // `cards.list` 和 `queue` 是**两批不同的对象**（分别来自 /cards 和
+    // /review/due）。从前只改了 queue 和详情缓存，于是「在抽屉里标了会、
+    // 关掉抽屉，列表上那张卡还是未标记」，要重新筛选才更新。
+    const cards = useCardsStore()
+    const listItem = (cards.list || []).find(c => c.id === cid)
+    const oldList = listItem ? listItem.level : undefined
+    if (listItem) listItem.level = level
     marking.value[cid] = true
     try {
       await learningApi.markCard(cid, level)
       await fetchStats()
     } catch (e) {
       if (item) item.level = old
+      if (listItem) listItem.level = oldList
       throw e
     } finally {
       delete marking.value[cid]
@@ -171,6 +208,7 @@ export const useLearningStore = defineStore('learning', () => {
     dirNames,
     dirText,
     ensureSettings,
+    resetSettings,
     saveSettings,
     fetchDue,
     mark,

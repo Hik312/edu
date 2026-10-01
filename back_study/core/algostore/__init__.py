@@ -12,6 +12,7 @@
 
 import json
 import os
+import threading
 
 from .base import AlgoStore                     # 对外契约，新后端继承它
 from .jsonfile import JsonAlgoStore             # 默认后端 + 降级目标
@@ -24,6 +25,7 @@ DEFAULT_NAME = 'json'
 _current = None
 #: 降级原因。None = 没降级。
 _degraded = None
+_init_lock = threading.Lock()     # 保护 get() 的单例构建（见下面的双检锁）
 
 _BACK_DIR = os.path.dirname(os.path.dirname(
     os.path.dirname(os.path.abspath(__file__))))

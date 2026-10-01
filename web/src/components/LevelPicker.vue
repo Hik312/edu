@@ -3,13 +3,14 @@
  *
  * 复习页和卡片详情共用同一份 —— 各写一遍的话，「哪个颜色是哪个档」
  * 迟早会写反（1 是不会、3 是会，很容易记成一不会二三会）。
- * 颜色的唯一真相在 `api/learning.js` 的 LEVELS，这里只负责渲染。
+ * 文案与颜色的唯一真相在 `@/config/theme`（levelLabel / levelColor），
+ * 这里只负责渲染。
  *
  * 只给 1 / 2 / 3 三档。**0（未标记）不是一个选项，它是「还没选」** ——
  * 把它做成按钮的话，用户会以为那是第四种掌握程度。
  */
 import { computed } from 'vue'
-import { LEVELS } from '@/api/learning'
+import { levelColor, levelLabel } from '@/config/theme'
 
 // 不用接变量名：这几个 prop 只在模板里用（modelValue / loading / compact），
 // script 里没有任何一处需要读它。写成 const props = 会被 lint 判为未使用。
@@ -24,7 +25,7 @@ defineProps({
 const emit = defineEmits(['pick'])
 
 const options = computed(() =>
-  [1, 2, 3].map(v => ({ value: v, label: LEVELS[v].label, color: LEVELS[v].color }))
+  [1, 2, 3].map(v => ({ value: v, label: levelLabel(v), color: levelColor(v) }))
 )
 
 /** 快捷键提示写在这里，键盘处理交给父组件的 window 监听 ——

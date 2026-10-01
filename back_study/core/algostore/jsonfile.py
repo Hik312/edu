@@ -19,8 +19,14 @@ import time
 
 from .base import AlgoStore
 
-CORE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-DATA_DIR = os.path.join(os.path.dirname(CORE_DIR), 'data')
+# ★ 这里必须退**三**层：本文件在 `back_study/core/algostore/jsonfile.py`，
+# 退两层只到 `back_study/core`，于是 DATA_DIR 算成 `back_study/data` ——
+# 事件流被写到项目里另一个目录，而 docstring 和 .gitignore 都指着
+# `study/data/store/`。运维按文档去备份/排查时什么都找不到。
+# 对照 store/jsonfile.py 的算法（它是 core/store/ 下的同名文件，退两层正好）。
+CORE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))   # core
+ROOT = os.path.dirname(os.path.dirname(CORE_DIR))                        # 项目根
+DATA_DIR = os.path.join(ROOT, 'data')
 STORE_DIR = os.path.join(DATA_DIR, 'store')
 
 _lock = threading.Lock()

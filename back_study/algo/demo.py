@@ -38,8 +38,18 @@ def simulate(alg, seq, horizon=365, retention=None):
     「今天」是**真实推进**的（每次跳到算法给的 nextAt），所以 FSRS 算
     可提取性 R 用的天数是真的，不是编的。
     """
+    # ★ 不要直接改 alg.retention：那会绕开 FSRS.__init__ 里的
+    # `_clamp(retention, 0.7, 0.99)`，而且 algo.get('fsrs') 返回的是**共享单例**，
+    # 改完不还原 —— 同一进程里后续任何 algo.get('fsrs') 都继承这个坏值。
+    # 实测：--retention 0 → interval_for 里 0.0 ** (1/-0.5) → ZeroDivisionError；
+    # --retention 1.2 → k<0 → 所有间隔都算成 1 天，打出「200 次复习」的假象。
+    # 正确做法是给自己造一个实例（构造器会 clamp）。
     if retention is not None and hasattr(alg, 'retention'):
-        alg.retention = retention
+        if type(alg).__name__ == 'FSRS':
+            from .fsrs import FSRS
+            alg = FSRS(retention)
+        else:
+            alg.retention = retention
 
     day = _START
     prev = None
@@ -60,7 +70,9 @@ def simulate(alg, seq, horizon=365, retention=None):
             break
         day = rec['nextAt']
         prev = rec
-    return steps
+    # 把最终用的算法实例一起返回：指定 retention 时换过实例，
+    # 调用方拿原来的 `a` 打出的标签就不准了（会以为跑的是默认保持率）。
+    return steps, alg
 
 
 def show(title, steps, horizon):
@@ -105,8 +117,8 @@ def main():
     summary = []
     for n in picked:
         a = algo.get(n)
-        steps = simulate(a, seq, horizon, retention)
-        show('%s（%s）' % (a.label, n), steps, horizon)
+        steps, used = simulate(a, seq, horizon, retention)
+        show('%s（%s）' % (used.label, n), steps, horizon)
         summary.append((n, len(steps), steps[-1]['interval']))
 
     if len(summary) > 1:

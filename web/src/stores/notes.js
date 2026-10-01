@@ -3,6 +3,11 @@
  * 后端是「带 id 就是更新，不带就是新建」的单一 save 接口，
  * 这里刻意保留同样的写法 —— 前端再拆成 create/update 两个方法，
  * 反而要多维护一处「到底该调谁」的判断。
+ *
+ * ⚠️ 现状：**这个 store 目前没有任何页面引用**（全仓 grep useNotesStore
+ * 只命中本文件的定义）。NotesView.vue 自己在页面里直接调 api/notes，
+ * 把这里的职责重写了一遍。见 docs.js 顶上同款说明：
+ * 改笔记相关接口时要记得两边都看。
  */
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'

@@ -51,7 +51,10 @@ async function loadMeta() {
     status.value = { ok: false, msg: '状态获取失败' }
   }
   try {
-    const r = await cardsApi.listCards({})
+    // brief=1：这里只是要一张 id → 标题 的映射，用来把回答里的引用渲染成
+    // 可点的卡片名。不带它的话后端会回整库正文（实测 118KB vs 22KB）——
+    // 每次打开问答页都白下载一遍所有卡片的 mechanism/scene。
+    const r = await cardsApi.listCards({ brief: '1' })
     ;(r.cards || []).forEach(c => {
       cardMap[c.id] = c.title || c.id
     })
@@ -341,7 +344,7 @@ function closeDrawer() {
   align-items: center;
   gap: 7px;
   font-size: var(--fs-sm);
-  color: var(--green, #2f7d4f);
+  color: var(--ac);
 }
 .status.bad {
   color: var(--dim);
@@ -350,7 +353,7 @@ function closeDrawer() {
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: var(--green, #2f7d4f);
+  background: var(--ac);
 }
 .status.bad .dot {
   background: var(--dim);

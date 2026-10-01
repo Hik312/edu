@@ -139,5 +139,12 @@ class Algo(object):
         return add_days(base, clamp_interval(interval))
 
     def describe(self):
-        """给 `/api/...` 或 demo 用的一行自我介绍。"""
-        return {'name': self.name, 'label': self.label, 'needs': self.needs}
+        """给 `/api/...` 或 demo 用的一行自我介绍。
+
+        ★ 带上 efNote：三个算法的 `ef` 字段含义完全不同
+        （sm2=难度因子、fsrs=难度 D、bkt=掌握度 p），而文档里写着
+        「每个算法都在 ef_note 里声明了」—— 声明了却没有出口，
+        看 `demo --list` 或接口的人拿不到这句话。这里把它吐出来。
+        """
+        return {'name': self.name, 'label': self.label, 'needs': self.needs,
+                'efNote': self.ef_note}
