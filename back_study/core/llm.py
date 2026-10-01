@@ -1,0 +1,397 @@
+# -*- coding: utf-8 -*-
+"""本地大模型精读：把导入资料的一章，整理成「一句话 / 类比 / 重点 / 原理拆解」
+
+两条通道，都只用标准库 urllib（不为这点功能引 SDK）：
+  1) Ollama（默认）—— 本机 127.0.0.1:11434，离线、免费、不需要 key
+  2) OpenAI 兼容云端接口 —— 设了 LLM_API_KEY 且 LLM_PROVIDER=cloud 才走
+
+为什么不用 LangChain / LangGraph：
+  这里要的只是「一次结构化抽取 + 解析失败重试 + 类比不合格重问」，
+  三个函数就写完了。引框架会给后端塞进几十 MB 依赖，而收益是负的
+  —— 单次 LLM 调用不需要编排，编排的价值在「多步、有分支、要状态」的场景。
+  真要跑多步 agent（抽取 → 自检 → 修补 → 合并），那应该是一个独立的、
+  可选的脚本，而不是塞进平台主链路。见 README 的说明。
+"""
+import hashlib
+import json
+import os
+import re
+import time
+import urllib.error
+import urllib.request
+
+OLLAMA = (os.environ.get('OLLAMA_HOST') or 'http://127.0.0.1:11434').rstrip('/')
+CLOUD_BASE = (os.environ.get('LLM_BASE_URL') or 'https://api.deepseek.com').rstrip('/')
+CLOUD_KEY = os.environ.get('LLM_API_KEY') or ''
+CLOUD_MODEL = os.environ.get('LLM_MODEL') or 'deepseek-chat'
+
+# 服务器上根本不想跑 AI（没显卡 / 没装 Ollama / 不想付云上的钱）时设 AI=off。
+# 关掉的只是「AI 精读」这一块：背卡、复习、导入分章、文档阅读全都不受影响 ——
+# 平台没有任何一处核心功能依赖大模型，AI 是最后一道可选工序。
+AI_OFF = (os.environ.get('AI') or '').lower() in ('off', '0', 'false', 'no')
+
+_models_cache = {'at': 0.0, 'list': []}
+_MODELS_TTL = 20          # 秒。Ollama 不在时每次探测要等满 4 秒超时，缓存一下别让页面反复卡
+
+# 本机装了多个模型时的优先顺序：指令跟随好、不吐思考链的排前面。
+# deepseek-r1 是推理模型，就算关掉 think 出字也慢一些，所以放后面。
+PREFER = ['qwen2.5:7b-instruct', 'qwen2.5:7b', 'qwen2.5:3b', 'qwen3:8b',
+          'llama3.1:8b', 'glm4:9b', 'deepseek-r1:7b']
+
+# 类比里出现这些词 = 没写成生活场景，要重问
+TECH_WORDS = ['数据库', '索引', '缓存', '服务器', '接口', '线程', '进程', '协议',
+              '系统', '数据', '代码', '算法', '架构', '请求', '网络', '内存', '框架']
+
+SYS = '''你是技术考点精读助手。把用户给的一段技术内容整理成 JSON：
+
+{
+  "oneLine": "一句话结论（<=40字，说清它是什么、有什么用）",
+  "analogy": "生活类比（<=40字）",
+  "points": ["重点，3-5条，每条<=30字，必须带原文里的具体名词或数字"],
+  "mechanism": ["原理拆解，3-5步，每步<=35字，讲清'它怎么跑'的因果链"]
+}
+
+硬性要求：
+- analogy 必须是日常生活场景（排队 / 图书馆 / 快递 / 做饭 / 开车之类），
+  不许出现任何技术词，不许说"就像优化xx"。
+- mechanism 要一步一步推进、每步回答"为什么"，不许把 points 换个说法抄一遍。
+- points 要保留原文的具体名词和数字，不许泛化成"效率高""很重要"。
+- 只输出 JSON，不要 markdown 代码块，不要任何解释。
+
+示例（输入是「HTTP 的 keep-alive」）：
+{"oneLine":"keep-alive 让一条 TCP 连接连续传多个请求，省掉反复握手","analogy":"像打电话一次把几件事说完，而不是每句话都挂掉重拨","points":["HTTP/1.0 默认关闭，1.1 默认开启","省掉三次握手和慢启动","由 Connection 头控制","空闲超时后服务端才关"],"mechanism":["建连一次后连接不立刻关闭，socket 留在池里","下一个请求复用同一个 socket，省掉三次握手","复用连接不再从零慢启动，拥塞窗口还在","空闲超过 keepalive_timeout 才被服务端回收"]}'''
+
+REPAIR = ('上一次给的 analogy 里出现了技术词（或者太像说明书）。'
+          '重给一个：必须是纯日常生活场景，一个技术词都不许有。'
+          '仍然只输出同样的 JSON，不要解释。')
+
+
+# ---------- 底层 HTTP ----------
+def _post(url, payload, headers=None, timeout=300):
+    data = json.dumps(payload).encode('utf-8')
+    h = {'Content-Type': 'application/json'}
+    h.update(headers or {})
+    req = urllib.request.Request(url, data=data, headers=h)
+    with urllib.request.urlopen(req, timeout=timeout) as r:
+        return json.loads(r.read().decode('utf-8'))
+
+
+def _get(url, timeout=8):
+    with urllib.request.urlopen(url, timeout=timeout) as r:
+        return json.loads(r.read().decode('utf-8'))
+
+
+# ---------- 通道探测 ----------
+def provider():
+    if AI_OFF:
+        return 'off'
+    if CLOUD_KEY and (os.environ.get('LLM_PROVIDER') or '').lower() == 'cloud':
+        return 'cloud'
+    return 'ollama'
+
+
+def list_models():
+    """本机 Ollama 装了哪些模型。Ollama 没起来就返回空列表，不抛异常。
+    带 20 秒缓存：服务器上没 Ollama 时每次探测都要等满 4 秒连接超时，
+    一个页面上多问几次就会明显卡顿。"""
+    if AI_OFF:
+        return []
+    now = time.time()
+    if now - _models_cache['at'] < _MODELS_TTL:
+        return _models_cache['list']
+    try:
+        j = _get(OLLAMA + '/api/tags', timeout=4)
+        out = [m.get('name') for m in (j.get('models') or []) if m.get('name')]
+    except Exception:
+        out = []
+    _models_cache['at'] = now
+    _models_cache['list'] = out
+    return out
+
+
+def pick_model(models=None):
+    """选一个模型：环境变量 LLM_MODEL 优先，其次按 PREFER 顺序找，最后拿第一个。"""
+    env = (os.environ.get('LLM_MODEL') or '').strip()
+    models = list_models() if models is None else models
+    if env and env in models:
+        return env
+    for p in PREFER:
+        if p in models:
+            return p
+    return models[0] if models else (env or '')
+
+
+def status():
+    """给前端看的状态：能不能用、用的哪个模型、为什么不能用。
+    注意 ok=False 是**正常状态**不是错误 —— 前端据此把 AI 那一块换成提示文字，
+    其余功能照常。任何一个分支都不该让前端炸掉。"""
+    p = provider()
+    if p == 'off':
+        return {'ok': False, 'provider': 'off', 'base': '', 'model': '', 'models': [],
+                'msg': 'AI 精读已关闭（服务端设了 AI=off）—— 不影响背卡、复习、导入分章'}
+    if p == 'cloud':
+        if not CLOUD_KEY:
+            return {'ok': False, 'provider': 'cloud', 'base': CLOUD_BASE, 'model': '',
+                    'models': [], 'msg': '云端模式要设 LLM_API_KEY'}
+        return {'ok': True, 'provider': 'cloud', 'base': CLOUD_BASE,
+                'model': CLOUD_MODEL, 'models': [],
+                'msg': '云端接口 %s · %s' % (CLOUD_BASE, CLOUD_MODEL)}
+    models = list_models()
+    if not models:
+        return {'ok': False, 'provider': 'ollama', 'base': OLLAMA, 'model': '',
+                'models': [],
+                'msg': ('这台机器上没连上 Ollama（%s）。三选一：① 装 Ollama 并 `ollama pull qwen2.5:7b-instruct`；'
+                        '② 设 LLM_PROVIDER=cloud + LLM_API_KEY 走云端；③ 设 AI=off 直接关掉精读。'
+                        '关掉不影响背卡、复习、导入分章') % OLLAMA}
+    m = pick_model(models)
+    return {'ok': True, 'provider': 'ollama', 'base': OLLAMA, 'model': m,
+            'models': models, 'msg': '本地模型 %s（离线、免费）' % m}
+
+
+# ---------- 调用 + 解析 ----------
+def _clean_json(raw):
+    """模型爱把 JSON 包在 ```json 里，还爱在前后加一句话。逐层剥。"""
+    s = (raw or '').strip()
+    s = re.sub(r'^```(?:json)?\s*', '', s)
+    s = re.sub(r'\s*```$', '', s)
+    try:
+        return json.loads(s)
+    except ValueError:
+        pass
+    m = re.search(r'\{[\s\S]*\}', s)          # 退一步：抓最外层的花括号
+    if not m:
+        raise RuntimeError('llm_not_json')
+    return json.loads(m.group(0))
+
+
+def _drop_think(raw):
+    return re.sub(r'<think(?:ing)?>[\s\S]*?</think(?:ing)?>', '', raw or '').strip()
+
+
+def _call(messages, model, timeout, temperature=0.15, max_tokens=900):
+    p = provider()
+    if p == 'cloud':
+        payload = {'model': model or CLOUD_MODEL, 'messages': messages,
+                   'temperature': temperature, 'max_tokens': max_tokens}
+        j = _post(CLOUD_BASE + '/v1/chat/completions', payload,
+                  {'Authorization': 'Bearer ' + CLOUD_KEY}, timeout)
+        return _drop_think(j['choices'][0]['message']['content'])
+    payload = {'model': model, 'messages': messages, 'stream': False,
+               'options': {'temperature': temperature, 'num_predict': max_tokens}}
+    # 关掉思考链：deepseek-r1 这类模型不关掉会把 token 全烧在思考上，
+    # 80 个 token 出来是空的。不支持 think 字段的老版本会报错，降级重试一次。
+    payload['think'] = False
+    try:
+        j = _post(OLLAMA + '/api/chat', payload, None, timeout)
+    except urllib.error.HTTPError:
+        payload.pop('think', None)
+        j = _post(OLLAMA + '/api/chat', payload, None, timeout)
+    return _drop_think(j.get('message', {}).get('content') or '')
+
+
+def _norm(o):
+    """把模型吐的东西收拾干净：类型、长度、空值。模型不听话是常态，不收拾前端会崩。"""
+    def s(v, n):
+        return ('' if v is None else str(v)).strip()[:n]
+
+    def arr(v, n, each):
+        if not isinstance(v, list):
+            v = [v] if v else []
+        out = []
+        for x in v:
+            t = s(x, each)
+            if t:
+                out.append(t)
+        return out[:n]
+
+    return {
+        'oneLine': s(o.get('oneLine') or o.get('oneliner') or o.get('一句话'), 90),
+        'analogy': s(o.get('analogy') or o.get('类比'), 90),
+        'points': arr(o.get('points') or o.get('重点'), 6, 70),
+        'mechanism': arr(o.get('mechanism') or o.get('原理拆解'), 6, 80),
+    }
+
+
+def _bad_analogy(a):
+    if not a or len(a) < 6:
+        return True
+    return any(w in a for w in TECH_WORDS)
+
+
+def enrich(title, body, model=None, timeout=300, self_check=True):
+    """把一章正文整理成结构化精读。返回 dict（含 _meta）。
+    失败抛 RuntimeError，上层转成人话提示，不要让它变 500。"""
+    if AI_OFF:
+        raise RuntimeError('ai_off')
+    text = (body or '').strip()
+    if len(text) < 20:
+        raise RuntimeError('too_short')
+    p = provider()
+    model = model or (CLOUD_MODEL if p == 'cloud' else pick_model())
+    if not model:
+        raise RuntimeError('no_model')
+
+    user = ('标题：%s\n\n正文：\n%s' % (title or '（无标题）', text[:6000]))
+    msgs = [{'role': 'system', 'content': SYS}, {'role': 'user', 'content': user}]
+    t0 = time.time()
+    raw = _call(msgs, model, timeout)
+    out = _norm(_clean_json(raw))
+    tries = 1
+
+    # 自检：类比写成说明书了就重问一次。这一步就是「质检」——
+    # 一个带条件的重试而已，不需要为此上 LangGraph。
+    if self_check and _bad_analogy(out['analogy']) and tries < 2:
+        tries += 1
+        msgs2 = msgs + [{'role': 'assistant', 'content': json.dumps(out, ensure_ascii=False)},
+                        {'role': 'user', 'content': REPAIR}]
+        try:
+            out2 = _norm(_clean_json(_call(msgs2, model, timeout)))
+            if not _bad_analogy(out2['analogy']):
+                out = out2
+        except Exception:
+            pass                                  # 重问失败就用第一版，别把好结果丢了
+    out['_meta'] = {'provider': p, 'model': model, 'ms': int((time.time() - t0) * 1000),
+                    'tries': tries}
+    return out
+
+
+BATCH_SYS = '''你是技术考点精读助手。用户会给你多段技术内容（带编号），
+逐段整理成 JSON 数组输出：
+
+{"items":[{"i":0,"oneLine":"...","analogy":"...","points":["..."],"mechanism":["..."]},
+          {"i":1,...}]}
+
+每个字段的要求：
+- oneLine：一句话结论（<=40字），说清它是什么、有什么用
+- analogy：生活类比（<=40字），必须是日常生活场景（排队/图书馆/快递/做饭/开车），不许出现任何技术词
+- points：重点 3-5 条（<=30字），必须带原文里的具体名词或数字
+- mechanism：原理拆解 3-5 步（<=35字），讲清"它怎么跑"的因果链，不许把 points 抄一遍
+- i 必须和输入的编号一一对应，不许漏、不许改
+只输出 JSON，不要 markdown 代码块，不要解释。'''
+
+
+def _norm_many(raw, n):
+    out = _clean_json(raw)
+    if isinstance(out, dict):
+        out = out.get('items') or out.get('cards') or []
+    got = {}
+    for k, o in enumerate(out if isinstance(out, list) else []):
+        if not isinstance(o, dict):
+            continue
+        i = o.get('i')
+        i = k if not isinstance(i, int) else i
+        if 0 <= i < n:
+            got[i] = _norm(o)
+    return got
+
+
+def _bigrams(s):
+    s = re.sub(r'\s+', '', s or '')
+    return {s[i:i + 2] for i in range(len(s) - 1)}
+
+
+def align_score(src, ai):
+    """批量精读的真实风险：章节又短又相邻，模型会把 A 章的内容安到 B 章头上。
+    用「返回值与原文的字符二元组重合度」做质检 —— 对不上就单章重跑。
+    类比不参与打分：它本来就该是另一个领域的生活场景，重合度天然为 0。"""
+    a = _bigrams(src)
+    if not a:
+        return 1.0
+    txt = ' '.join([ai.get('oneLine') or ''] + (ai.get('points') or [])
+                   + (ai.get('mechanism') or []))
+    b = _bigrams(txt)
+    if not b:
+        return 0.0
+    return len(a & b) / float(len(b))
+
+
+def enrich_many(items, model=None, timeout=600, batch=4, min_align=0.10):
+    """一次送多章，让模型返回数组——15 章逐章调要 90 秒，批量能压到 1/3。
+    某一批解析失败就退化成逐章调，不因为一批坏了整篇没结果。
+    items: [{'title','body'}]，返回 [{...}] 与输入等长，失败的位是 None。"""
+    if AI_OFF:
+        raise RuntimeError('ai_off')
+    p = provider()
+    model = model or (CLOUD_MODEL if p == 'cloud' else pick_model())
+    if not model:
+        raise RuntimeError('no_model')
+    results = [None] * len(items)
+    t0 = time.time()
+
+    for start in range(0, len(items), batch):
+        chunk = list(range(start, min(start + batch, len(items))))
+        parts = []
+        for k, i in enumerate(chunk):
+            t = (items[i].get('title') or '').strip()
+            b = (items[i].get('body') or '').strip()[:2500]
+            parts.append('[%d] 标题：%s\n%s' % (k, t or '（无标题）', b))
+        msgs = [{'role': 'system', 'content': BATCH_SYS},
+                {'role': 'user', 'content': '\n\n---\n\n'.join(parts)}]
+        try:
+            raw = _call(msgs, model, timeout, max_tokens=min(3000, 700 * len(chunk) + 300))
+            got = _norm_many(raw, len(chunk))
+        except Exception:
+            got = {}
+        # 质检：按 i 对上了不代表内容对上了。串味的、类比写成说明书的，都退回单章重跑。
+        for k, i in enumerate(chunk):
+            if k not in got:
+                continue
+            r = got[k]
+            body = items[i].get('body') or ''
+            if align_score(body, r) >= min_align and not _bad_analogy(r['analogy']):
+                results[i] = r
+        # 缺谁补谁：单章调（enrich 内部还会再修一次类比）
+        for k, i in enumerate(chunk):
+            if results[i] is not None:
+                continue
+            if len((items[i].get('body') or '').strip()) < 20:
+                continue
+            try:
+                results[i] = enrich(items[i].get('title'), items[i].get('body'),
+                                    model=model, timeout=timeout)
+            except Exception:
+                results[i] = None
+
+    for r in results:
+        if isinstance(r, dict):
+            r.pop('_meta', None)
+    meta = {'provider': p, 'model': model, 'ms': int((time.time() - t0) * 1000)}
+    return results, meta
+
+
+def to_card(chapter, ai, opts=None):
+    """把一章 + 它的精读结果，转成一张卡的草稿（走现有草稿→入库流程）。
+    这样「导入的资料」也能变成和手写卡一样带类比/重点/原理拆解的卡片。"""
+    opts = opts or {}
+    title = (chapter.get('title') or '').strip() or '未命名'
+    mech = ai.get('mechanism') or []
+    ords = '①②③④⑤⑥⑦⑧⑨⑩'
+    mech = [(ords[k] + ' ' + s) if k < len(ords) else ('%d. %s' % (k + 1, s))
+            for k, s in enumerate(mech)]
+    body = (chapter.get('body') or '').strip()
+    # id 用标题的哈希：标题基本是中文，slug 化会把中文全滤掉，
+    # 多章都退化成同一个 id，入库时会互相覆盖
+    cid = opts.get('id') or ('ai-' + hashlib.md5(title.encode('utf-8')).hexdigest()[:8])
+    card = {
+        'id': cid,
+        'domain': opts.get('domain') or '待归类',
+        'category': opts.get('category') or '',
+        'subject': opts.get('subject') or '',
+        'topicPath': list(opts.get('topicPath') or ['导入', title[:20]]),
+        'title': title[:60],
+        'oneLine': ai.get('oneLine') or body[:60],
+        'analogy': ai.get('analogy') or '',
+        'why': ai.get('oneLine') or '',
+        'mechanism': mech or [l for l in body.split('\n') if l.strip()][:5],
+        'keywords': opts.get('keywords') or [],
+        'scene': ['（待补充：在你做过的项目里这条用在哪）'],
+        'interviewQ': ['（待补充：面试官会怎么追问这条）'],
+        '_draft': True,
+        '_from': 'llm-doc',
+    }
+    # 卡片组（文件夹）：这张卡出自哪份文档。手写卡没有这个概念，不加键 ——
+    # 空字符串会让卡片墙的「组」chips 里冒出一堆无名组。
+    if opts.get('deck'):
+        card['deck'] = str(opts['deck'])[:60]
+        card['deckId'] = opts.get('deckId') or ''
+    return card

@@ -1,0 +1,46 @@
+# 本机配置：含数据库密码，绝不入库
+back_study/config.local.json
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# 前端（Vite）
+web/node_modules/
+web/dist/
+npm-debug.log*
+
+# 截图产物（每次跑 smoke_paper.py / shot_url.py / mprender.js 都会重刷）
+# 这个目录别往里放手工文件 —— 清理时是整目录删的（曾经把一份手工测试样本
+# sample-mysql.md 放在这里，差点一起清掉，已挪到 back_study/scripts/fixtures/）。
+back_study/_shot/
+*.png
+# 例外：PWA 图标是源码，要进库（由 back_study/scripts/make_icon.py 生成）。
+# 注意路径 —— 网页端从「单文件 web/index.html」迁到 Vite 工程后，
+# 图标挪进了 web/public/icons/（构建时被复制到 dist/icons/）。
+!web/public/icons/*.png
+
+# 脚本运行期临时产物（smoke_paper.py 起服务写的 stdout / chrome 日志等）
+back_study/_srv.log
+back_study/_*.log
+back_study/_*.out
+
+# 复习状态是本地数据，不进版本库
+data/store/*.json
+data/store/*.bak-*
+# 双保险：上面两条是相对本文件所在目录的，锚不到 back_study/ 下的同名路径。
+# back_study/data/store/ 是早期算法库的废弃落盘位置（现在 ALGO_STORE=pg，真路径是
+# study/data/store/），留着这条免得它被重新生成时误入库。
+back_study/data/
+
+# JWT 签名密钥：首次启动时自动生成并落盘在这里。
+# 它一旦进库，任何人都能拿它伪造任意用户的 token
+data/store/jwt-secret.txt
+
+# 编辑器 / 系统
+.vscode/
+.idea/
+Thumbs.db
+desktop.ini

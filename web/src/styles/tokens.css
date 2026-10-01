@@ -1,0 +1,615 @@
+/* 设计令牌 —— **单一主题：暖牛皮纸卷宗**。
+ *
+ * ## 为什么只剩一套配色
+ *
+ * 上一版是「宣纸青灰 / 夜航深色」双主题，按页面切（学习页浅、数据页深）。
+ * 两个问题：
+ *   ① **每换一次页就换一次眼睛的白平衡**。所谓「晃眼」的根不在深色太深，
+ *      在于两个主题之间没有共同语言 —— 色相、明度、饱和度全变了。
+ *   ② 一套配色要维护两份语义映射，图表色板也得备两组，改一处漏一处。
+ *
+ * 现在全站一套：**牛皮纸底 + 墨褐字 + 靛蓝墨水 + 朱砂印**，
+ * 也就是档案卷宗的物料。深色彻底删掉，不再有任何按路由换色的逻辑。
+ *
+ * ## 三个取值上的讲究
+ *
+ * 1. **纸底 #eee5d3 是压过饱和的牛皮纸**。真牛皮纸（#d9b98a 一带）饱和度太高，
+ *    会把中文字染出锈色、笔画边缘发脏 —— 这是「字看不清」的主要帮凶。
+ *    这里只留暖色倾向，饱和度压到肉眼几乎察觉不到。
+ * 2. **正文 #3a2f21 是墨褐不是纯黑**。纯黑在纸底上对比过冲，长时间读会糊。
+ * 3. **强调色用靛蓝不用朱红**。朱红留给印章和危险提示（--red），
+ *    两者混用的话，页面上每个按钮都像警告。
+ *
+ * ## 主题属性
+ *
+ * 变量全部挂在 `:root` 上，**没有任何 [data-theme] 分支**。
+ * router 不再写 html 的 class，Element Plus 的 html.dark 也不会再被打开。
+ *
+ * ## 字体层级（改字号先看这里）
+ *
+ * 「字看不清」通常不是颜色不够黑，是**字号太小 + 字重太轻 + 字距太开**：
+ *   1. 正文不低于 15px，最低级别的辅助文字不低于 12px（原版有 9.5px，禁止）
+ *   2. 中文正文用 500 字重：雅黑 400 在浅底上会发虚，这是汉字笔画密决定的
+ *   3. 中文 letter-spacing 超过 1px 会糊成一团，字距只给**纯英文小标签**用
+ *   4. **标题用宋体、正文用雅黑**。宋体是卷宗的笔迹特征；但宋体做正文
+ *      在小字号下笔画会断，正文必须留黑体。
+ *
+ * ## 改颜色的规矩
+ *
+ * **不要在组件里写字面色值**，只写语义名（var(--ac) / var(--mu)）。
+ * 现在换配色要动的地方只有这一个文件。
+ */
+
+/* ============================================================
+ * 唯一主题：暖牛皮纸
+ * ============================================================ */
+:root {
+  /* ---- 纸张层级：序号越大越"浮在上面" ---- */
+  --bg: #eee5d3; /* 桌面：牛皮纸 */
+  --bg2: #e5dbc5; /* 纸上的凹区 */
+  --panel: #f8f3e6; /* 纸面：卡片、面板 */
+  --panel2: #f1ead8; /* 纸面上的嵌块 */
+  --line: #ddd1b6; /* 纸的折痕 */
+  --line2: #c8b894; /* 加重的折痕 / 描边 */
+
+  /* ---- 文字层。三级就够，多了会有人乱用 ---- */
+  --tx: #3a2f21; /* 墨褐。正文 */
+  --mu: #63543c; /* 次级：说明、标签 */
+  --dim: #8a7859; /* 三级：辅助小字 */
+
+  /* ---- 语义色 ---- */
+  --ac: #1f4b6b; /* 靛蓝墨水：主操作、链接、选中 */
+  --ac-dim: #16374f;
+  --ac-glow: rgba(31, 75, 107, 0.1);
+  --blue: #2f6fa5;
+  --amber: #8a6218;
+  --red: #a8392a; /* 朱砂：印章、危险 */
+
+  --radius: 10px;
+  --radius-sm: 7px;
+  --shadow: 0 10px 26px -18px rgba(58, 47, 33, 0.45);
+  --ring: 0 0 0 1px rgba(31, 75, 107, 0.28);
+
+  /* ---- 纸质感 ----
+   * 三层极淡的暖光把底面"压出不平"，再加一层 SVG 噪声当纸纤维。
+   *
+   * 纤维为什么不用 repeating-linear-gradient：规则细纹在浅底上会跟像素栅格
+   * 打架出摩尔纹，截图里尤其明显。feTurbulence 是不规则的，不会有这个问题，
+   * 而且它一次平铺 160px，比渲一张纸纹理图省得多。
+   * 透明度控制在 0.05 上下 —— 单独看不出来，合起来才像纸。 */
+  --tex: radial-gradient(1200px 620px at 0% -10%, rgba(126, 96, 44, 0.075), transparent 62%),
+    radial-gradient(920px 520px at 100% 0%, rgba(126, 96, 44, 0.05), transparent 58%),
+    radial-gradient(150% 110% at 50% 118%, rgba(110, 84, 38, 0.055), transparent 70%),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)' opacity='0.05'/%3E%3C/svg%3E");
+
+  /* ---- 尺寸 ---- */
+  --top-h: 64px;
+  --side-w: 236px;
+  --safe-b: env(safe-area-inset-bottom, 0px);
+
+  /* ---- 字体 ----
+   * 正文黑体：中文优先雅黑（Windows）/ 苹方（macOS）。雅黑小字号可读性
+   * 明显好于宋体系，也不像思源黑笔画那么硬。
+   * 标题宋体：卷宗的笔迹特征在这儿。Windows 命中 SimSun，macOS 命中 Songti SC。 */
+  --font: 'Microsoft YaHei', 'PingFang SC', -apple-system, system-ui, sans-serif;
+  --font-title: 'Source Han Serif SC', 'Noto Serif SC', 'Songti SC', 'SimSun', 'STSong', Georgia,
+    serif;
+  /* 数字一律等宽：到处是计数和百分比，非等宽的字宽跳动看着很不专业 */
+  --font-mono: 'Cascadia Code', 'JetBrains Mono', Consolas, monospace;
+
+  /* ---- 字号阶梯。改字号改这里，不要在组件里写 px ---- */
+  --fs-xs: 13px;
+  --fs-sm: 14px;
+  --fs-md: 16px;
+  --fs-lg: 18px;
+  --fs-xl: 22px;
+  --fs-2xl: 29px;
+  --fs-hero: 46px;
+}
+
+/* ============================================================
+ * Element Plus 覆盖
+ *
+ * EP 的暗色由 **html.dark 类**控制，而我们这一版根本不加这个类，
+ * 所以 dark/css-vars.css 也不会生效（main.js 里已不再 import 它，省 30KB）。
+ * 这里只在一处把主色、圆角、字体掰过来。
+ * ============================================================ */
+:root {
+  --el-color-primary: var(--ac);
+  --el-color-success: var(--ac);
+  --el-color-warning: var(--amber);
+  --el-color-danger: var(--red);
+  --el-color-error: var(--red);
+  --el-color-info: var(--mu);
+
+  --el-bg-color: var(--panel);
+  --el-bg-color-page: var(--bg);
+  --el-bg-color-overlay: var(--panel);
+
+  --el-text-color-primary: var(--tx);
+  --el-text-color-regular: var(--mu);
+  --el-text-color-secondary: var(--mu);
+  --el-text-color-placeholder: var(--dim);
+
+  --el-border-color: var(--line);
+  --el-border-color-light: var(--line);
+  --el-border-color-lighter: var(--line);
+  --el-border-color-extra-light: var(--line);
+  --el-border-color-dark: var(--line2);
+  --el-border-color-darker: var(--line2);
+
+  --el-fill-color: var(--panel2);
+  --el-fill-color-light: var(--panel2);
+  --el-fill-color-lighter: var(--panel);
+  --el-fill-color-blank: var(--panel);
+
+  --el-border-radius-base: var(--radius-sm);
+  --el-font-family: var(--font);
+  --el-font-size-base: var(--fs-md);
+}
+
+/* ============================================================
+ * 基础排版
+ * ============================================================ */
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+}
+
+html {
+  background: var(--bg);
+}
+
+body {
+  /* 显式声明 block 是**护栏**，不是废话：index.html 里那段首屏骨架样式
+     是全局且永久生效的，一旦有人在那里写 display:grid / place-items:center，
+     #app 就会被挤成 fit-content 的居中 grid item，全站页面两侧留白。
+     这行保证无论骨架样式怎么写，body 的布局都不会被劫持。 */
+  display: block;
+  background: var(--bg);
+  color: var(--tx);
+  font-family: var(--font);
+  font-size: var(--fs-md);
+  font-weight: 400;
+  line-height: 1.72;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+/* ============================================================
+ * 滚动条
+ *
+ * 默认滚动条在牛皮纸上是一条灰白塑料条，跟纸的物料感不是一回事。
+ * 这里做成「纸面上的一道窄槽」：滑块用加深的折痕色，轨道透明。
+ * 不用半透明滑块 —— 叠在纸纹上会显脏；也不用系统蓝，那是另一个语系。
+ *
+ * 只覆盖 WebKit（Chrome / Edge / 小程序 webview 都走这套）；
+ * Firefox 用下面两行标准属性，样式随系统，够用。
+ * ============================================================ */
+:root {
+  scrollbar-color: var(--line2) transparent;
+  scrollbar-width: thin;
+}
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  /* 用透明边框把滑块"缩窄"成细条 —— 比直接改 width 稳，
+     因为 width 还会影响布局占位 */
+  border: 3px solid transparent;
+  border-radius: 6px;
+  background-color: var(--line2);
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background-color: var(--dim);
+}
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+button {
+  font-family: inherit;
+  font-size: inherit;
+}
+
+input,
+textarea,
+select {
+  font-family: inherit;
+  font-size: inherit;
+}
+
+/* 标题：卷宗笔迹（宋体）+ 统一字重。宋体没有真粗体，600 由浏览器合成，
+   在 17px 以上是清晰的；再小就交给正文黑体，别硬上宋体 */
+h1,
+h2,
+h3,
+h4 {
+  font-family: var(--font-title);
+  font-weight: 600;
+  line-height: 1.42;
+}
+
+/* 滚动条 */
+::-webkit-scrollbar {
+  width: 9px;
+  height: 9px;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--line2);
+  border-radius: 5px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--mu);
+  background-clip: content-box;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* ---- 工具箱：跨页面复用的小类 ---- */
+.muted {
+  color: var(--mu);
+}
+.dim {
+  color: var(--dim);
+}
+.mono {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+.center {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* 小标题：12px 起步（上一版 11.5px 且有 1.6px 字距，中文下必然糊），
+ * 字距只留给纯英文标签 —— 这里改成 0.6px 上限 */
+.eyebrow {
+  font-size: var(--fs-xs);
+  font-weight: 500;
+  letter-spacing: 0.6px;
+  color: var(--dim);
+}
+
+/* ============================================================
+ * 卷宗排版件
+ *
+ * 「卷宗」不是换套颜色就成立的，得有几件具体的物件：
+ * 档号、印章、分栏线、栏目头。这几件在这里定义一次，
+ * 各页面只写自己独有的布局，通用外观一律用这里的类。
+ * ============================================================ */
+
+/* 分栏线小标题：文字 + 一条拉到头的细线，像档案页的分栏。
+   比一个加粗标题克制，也比纯标题更能分隔区域 */
+.rule {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-family: var(--font-title);
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  letter-spacing: 1px;
+  color: var(--mu);
+}
+.rule::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--line2);
+}
+
+/* 档号：卷宗右上角那种「求职·AI/0007」。等宽 + 极淡，只做定位不做强调 */
+.dno {
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  letter-spacing: 0.5px;
+  color: var(--dim);
+  white-space: nowrap;
+}
+
+/* 印章：只用在「这一页/这一项已定稿」这类确定状态上。
+   朱砂方框 + 宋体，歪一点点 —— 正的会像按钮，歪的才像盖上去的。
+   别拿它做装饰：一页两个以上就不像印章，像贴纸 */
+.stamp {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px 8px;
+  border: 1.5px solid var(--red);
+  border-radius: 6px;
+  font-family: var(--font-title);
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  letter-spacing: 2px;
+  line-height: 1.5;
+  color: var(--red);
+  transform: rotate(-3deg);
+  opacity: 0.88;
+}
+
+/* ============================================================
+ * 跨页面通用组件类
+ *
+ * 为什么要沉淀成全局类而不是每个页面各写一遍：卡片列「面板 + 标题 + 操作」
+ * 这种结构在八个页面里重复了八次，各自写的结果是圆角差 2px、间距差 4px、
+ * hover 一个有一个没有。集中定义一次，改版只需要动这十来行。
+ * ============================================================ */
+.panel {
+  padding: 18px 20px;
+  border-radius: var(--radius);
+  border: 1px solid var(--line);
+  background: var(--panel);
+  min-width: 0;
+  /* 顶部一道极淡亮边：纸叠在纸上的厚度感。没有它，同色系的
+     面板和底面就糊成一片，只能靠边框认边界 */
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.62);
+  transition:
+    border-color 0.18s,
+    box-shadow 0.18s;
+}
+.panel.hoverable:hover {
+  border-color: var(--line2);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.62),
+    var(--shadow);
+}
+
+/* 面板标题行：左边标题、右边一句说明或操作。
+   底下压一条分栏线 —— 这是卷宗感最省力的一处：光换配色是「米色的网页」，
+   加上这条线才像「档案的栏目」 */
+.panel-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--line);
+}
+.panel-head h3 {
+  font-size: var(--fs-lg);
+  font-weight: 600;
+  letter-spacing: 0.5px;
+}
+.panel-head .hint {
+  font-size: var(--fs-xs);
+  color: var(--dim);
+  white-space: nowrap;
+}
+
+/* 页面内容的通用容器：竖直堆叠，间距一致 */
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* 多行同一行的两栏：左侧撑满、右侧固定 */
+.row-between {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+/* ---- 按钮 ----
+ * 三个变体就够：primary（这一页唯一的主动作）、ghost（次动效）、bare（文字链）。
+ * 再多的变体最后一定会有人用错。 */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 9px 18px;
+  border-radius: var(--radius-sm);
+  border: 1px solid transparent;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition:
+    background 0.16s,
+    color 0.16s,
+    border-color 0.16s,
+    transform 0.16s;
+}
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.btn:not(:disabled):hover {
+  transform: translateY(-1px);
+}
+.btn svg {
+  width: 15px;
+  height: 15px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.9;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.btn-primary {
+  background: var(--ac);
+  color: #fdfaf3;
+}
+.btn-primary:not(:disabled):hover {
+  background: var(--ac-dim);
+}
+
+.btn-ghost {
+  background: var(--panel2);
+  border-color: var(--line2);
+  color: var(--tx);
+}
+.btn-ghost:not(:disabled):hover {
+  color: var(--ac);
+  border-color: var(--ac-dim);
+}
+
+.btn-bare {
+  padding: 0;
+  background: none;
+  border: 0;
+  color: var(--ac);
+}
+.btn-bare:hover {
+  text-decoration: underline;
+}
+
+.btn-danger {
+  background: transparent;
+  border-color: transparent;
+  color: var(--red);
+}
+.btn-danger:not(:disabled):hover {
+  background: var(--red);
+  color: #fdfaf3;
+}
+
+/* ---- 标签/胶囊 ---- */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 10px;
+  border-radius: 20px;
+  border: 1px solid var(--line2);
+  background: var(--panel2);
+  font-size: var(--fs-xs);
+  color: var(--mu);
+  white-space: nowrap;
+}
+.chip.accent {
+  color: var(--ac);
+  border-color: var(--ac-dim);
+  background: var(--ac-glow);
+}
+
+/* 可点的筛选项：选中态用填充，未选中只有边框。
+   两者差别要够大，否则用户看不出自己选了哪个 */
+.filter-chip {
+  padding: 5px 13px;
+  border-radius: 20px;
+  border: 1px solid var(--line2);
+  background: transparent;
+  color: var(--mu);
+  font-size: var(--fs-sm);
+  cursor: pointer;
+  transition:
+    background 0.16s,
+    color 0.16s,
+    border-color 0.16s;
+}
+.filter-chip:hover {
+  color: var(--tx);
+  border-color: var(--mu);
+}
+.filter-chip.on {
+  background: var(--ac);
+  border-color: var(--ac);
+  color: #fdfaf3;
+  font-weight: 600;
+}
+
+/* ---- 空状态 ---- */
+.empty {
+  display: grid;
+  place-items: center;
+  gap: 10px;
+  padding: 46px 24px;
+  text-align: center;
+  color: var(--dim);
+  font-size: var(--fs-sm);
+}
+.empty .big {
+  font-family: var(--font-title);
+  font-size: var(--fs-lg);
+  color: var(--mu);
+  font-weight: 600;
+}
+
+/* ---- 分隔 ---- */
+.sep {
+  width: 100%;
+  height: 1px;
+  background: var(--line);
+  border: 0;
+}
+
+/* ---- 键值表格（管理页的状态展示用）---- */
+.kv {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 10px 20px;
+  font-size: var(--fs-sm);
+}
+.kv dt {
+  color: var(--mu);
+  white-space: nowrap;
+}
+.kv dd {
+  margin: 0;
+  min-width: 0;
+  word-break: break-all;
+}
+
+/* 入场动画。放在全局而不是各页面里，是为了让所有页面节奏一致 ——
+ * 每个页面自己写一遍 animation-delay，最后一定是快慢不一的杂乱感。 */
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.rise {
+  animation: rise 0.44s cubic-bezier(0.22, 0.7, 0.28, 1) both;
+}
+
+/* 尊重系统的「减少动态效果」。这条不是可选项：
+ * 前庭功能敏感的人被满屏位移晃到会真的难受。 */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    /* ⚠️ delay 必须一起清。只压 duration 的话，`.rise` 那串
+     * `animation-delay: (gi*4+ii)*34+60ms` 仍然生效 —— 动画要等最多
+     * ~700ms 才开始，而 `animation-fill-mode: both` 让元素在这段时间里
+     * **停在 opacity:0**。侧栏一屏十几个菜单项，延迟长的整片看不见。
+     * 这不只是截图环境的假象：真实用户在「减少动态效果」下打开，
+     * 也会看到菜单先空一块再逐条冒出来。 */
+    animation-delay: 0s !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    transition-delay: 0s !important;
+  }
+}

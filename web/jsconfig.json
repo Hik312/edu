@@ -1,0 +1,19 @@
+/* 给编辑器看的路径映射（Vite 的 @ 别名在 vite.config.js 里也配了一份）。
+ *
+ * 两份必须一致，否则编辑器能跳转到 @/api/cards 而构建报「找不到模块」——
+ * 这种「我这里好使」的问题最难发现，所以改动别名时两处一起改。
+ */
+{
+  "compilerOptions": {
+    "target": "ESNext",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "checkJs": false,
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["src/*"]
+    }
+  },
+  "include": ["src/**/*.js", "src/**/*.vue"],
+  "exclude": ["node_modules", "dist", "public"]
+}

@@ -1,0 +1,50 @@
+# 原理卡片学习平台 —— 后端依赖
+#
+#   pip install -r requirements.txt
+#   python run.py 8080            # 本机 http://127.0.0.1:8080
+#   python run.py 8080 --lan      # 手机同 WiFi 访问
+#
+# 版本下限的由来：
+#   fastapi 0.110 起 response_model 与 Annotated 依赖注入才稳定，再低会有弃用警告
+#   uvicorn 0.27 起才默认支持 --host 写多个地址时的行为修正
+fastapi>=0.110
+uvicorn>=0.27
+
+# 鉴权。JWT 的签发/验签**不要手写** —— 手写版必须自己校验 header 里的 alg，
+# 漏了就是 alg:none 伪造 token 的入口（JWT 的经典漏洞）。PyJWT 从接口上
+# 强制要求显式传 algorithms 白名单，等于把这条路堵死。
+# 注意：装了它，后端就不再是「零依赖」了 —— 这是 2026-09-26 的刻意取舍，
+# 详见 core/security.py 的模块说明。
+PyJWT>=2.8
+
+# 开发期静态检查（运行时不 import 它，不装也能起服务）。
+# check.js 会调它查「import 了但没用到」这类 py_compile 看不见的死代码，
+# 只提示、不判失败 —— 它会误报「再导出」，硬拦会逼人删错东西。
+# 手动跑：.venv/Scripts/python.exe -m pyflakes back_study/core back_study/app
+pyflakes>=3.2
+
+# ---- 可选增强，都不是必须 ----
+#
+# 1) PDF 导入：让 /api/import/doc 能直接吃 PDF。不装就只能导入 md / txt。
+#    （后端现在只有 FastAPI 一条线，走的是同一个可选依赖）
+pypdf>=4.0
+#
+# 2) MySQL 存储后端：装了它才能把 STORE 设成 mysql。
+#    没装的话服务照样起 —— 会自动回退到 data/store/*.json，
+#    只是 /api/health 里的 store 显示 json、degraded 里写明原因。
+#
+#    为什么用 pymysql 而不是 SQLAlchemy：这是单人用的背卡工具，核心查询
+#    就一个到期队列。上 ORM 换来 10MB 依赖加一层需要调试的抽象，不划算。
+#    纯 Python 驱动 300KB，不装也完全不影响开服务。
+pymysql>=1.1
+#
+# 3) AI Agent 层（back_study/agent/）：装了才能跑多步 agent / 工具调用。
+#    不装完全不影响开服务 —— agent 模块把所有 langchain 的 import 都写在
+#    函数内部，缺依赖只在真正调用 AI 时才报错。
+#    这是目前最重的一组（30+ 间接依赖，含 httpx / orjson / langsmith），
+#    所以放在可选段：主链路至今只依赖 fastapi + uvicorn + PyJWT，
+#    这个克制让「clone 下来就能起服务」始终成立。
+#    本地模型走 Ollama，不需要任何 API key。
+langgraph>=1.0
+langchain>=1.0
+langchain-ollama>=0.3
