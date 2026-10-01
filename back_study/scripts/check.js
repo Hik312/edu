@@ -164,10 +164,10 @@ console.log(structBad === 0 ? 'ALL CHECKS PASSED' : 'ISSUES FOUND: ' + structBad
 const pyFiles = [
   // 入口（零依赖版 server.py 已于 2026-09-26 移除，只剩 FastAPI 这一条线）
   'back_study/run.py',
-  // 核心模块（数据层 / 导入 / 大模型 / 网络探测 / 鉴权）
+  // 核心模块（数据层 / 导入 / 大模型 / 网络探测 / 鉴权 / 文件解析）
   'back_study/core/db.py', 'back_study/core/importer.py',
   'back_study/core/llm.py', 'back_study/core/netinfo.py',
-  'back_study/core/security.py',
+  'back_study/core/security.py', 'back_study/core/docparse.py',
   // 存储层：base 是契约，jsonfile / mysql 是两套实现
   'back_study/core/store/__init__.py', 'back_study/core/store/base.py',
   'back_study/core/store/jsonfile.py', 'back_study/core/store/mysql.py',
@@ -197,6 +197,9 @@ const pyFiles = [
   // 业务层 · 路径规划（write 节点待填）
   'back_study/agent/planner/__init__.py', 'back_study/agent/planner/planner.py',
   'back_study/agent/planner/run.py',
+  // 业务层 · 文档转卡（structure 结构精修 + chapter 逐章出卡，2026-10-01 加）
+  'back_study/agent/cards/__init__.py', 'back_study/agent/cards/nodes.py',
+  'back_study/agent/cards/graph.py', 'back_study/agent/cards/runtime.py',
   // 脚本 · 大纲批量造卡（按 catalog 让本地 Ollama 生成卡片，2026-09-29 加）
   'back_study/scripts/gen_cards.py',
   // 脚本 · 文档批量摄取（data/docs 下 md/pdf 走 parse_document→enrich→to_card→草稿，2026-09-29 加）
@@ -345,7 +348,8 @@ async function smoke(py) {
                                 o.headers || {});
     }
     const r = await fetch(B + u, o);
-    return { code: r.status, body: await r.json().catch(() => null) };
+    // headers 一起返回：图片端点要看 content-type（FileResponse），其余用不到
+    return { code: r.status, body: await r.json().catch(() => null), headers: r.headers };
   };
   let up = false;
   // ★ 等待窗口必须够长。原先是 40 × 150ms ≈ 6 秒，而本机冷启动实测要
@@ -722,6 +726,87 @@ sys.stdout.write(base64.b64encode(b.getvalue()).decode())
     const draft = r.body && r.body.draft;
     if (draft) await call('/api/drafts/' + draft.id, { method: 'DELETE' });   // 清理测试草稿
     return r.code === 200 && draft && draft.deck === '卡片组校验文档' && draft.deckId === did;
+  });
+
+  // ---------- 卡片 Agent + 图片链路：只测不碰模型的确定路径 ----------
+  // 真模型（结构精修 / 逐章出卡）在 deck_e2e 脚本里跑，不塞进校验 ——
+  // 几十秒/章 + 结果不固定，进 check 只会又慢又飘。
+  await t('cards Agent 端点：缺参 400 / 文档不存在 404 / 下标越界 400', async () => {
+    const a = await post('/api/agent/cards/structure', {});
+    const b = await post('/api/agent/cards/structure', { docId: 'zz-none' });
+    const md = '# t\n\n## 一章\n' + '这章正文足够长，用来测越界下标在进线程池之前就被拦下来。'.repeat(3);
+    const imp = await call('/api/import/doc', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text: md, title: 'agent校验文档' }) });
+    if (!imp.body || !imp.body.ok) return false;
+    const c = await post('/api/agent/cards/chapter', { docId: imp.body.doc.id, index: 99 });
+    await call('/api/docs/' + imp.body.doc.id, { method: 'DELETE' });
+    return a.code === 400 && b.code === 404 && c.code === 400;
+  });
+  await t('parse 端点：缺参 400 / 不存在 404 / 未解析就勾选 400', async () => {
+    // 不测存在文档的 POST parse —— 那会真调模型（几十秒 + 结果不固定），
+    // 真模型在 e2e 脚本里跑。这里只走 db 查不到 / 没解析过两条快速路径。
+    const a = await post('/api/agent/cards/parse', {});
+    const b = await post('/api/agent/cards/parse', { docId: 'zz-none' });
+    const c = await call('/api/agent/cards/parse', {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ docId: 'zz-none', keeps: {} })
+    });
+    const md = '# t\n\n## 一章\n' + '这章正文足够长，确保导入后有章节可以做勾选保存测试。'.repeat(3);
+    const imp = await call('/api/import/doc', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text: md, title: 'parse校验文档' })
+    });
+    if (!imp.body || !imp.body.ok) return false;
+    const d = await call('/api/agent/cards/parse', {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ docId: imp.body.doc.id, keeps: { '0': true } })
+    });
+    await call('/api/docs/' + imp.body.doc.id, { method: 'DELETE' });
+    return a.code === 400 && b.code === 404 && c.code === 404 && d.code === 400;
+  });
+  await t('docx 带图：占位符进正文 / 图片可读 / 删文档连图删', async () => {
+    // 现场拼一个带 word/media 的最小 docx：标题 + 段落里引用一张 1x1 PNG。
+    // a:blip 直接挂在 w:p 下（docparse 按命名空间找 r:embed，不校验 Word 语义）
+    const pyCode = `
+import io, zipfile, base64, sys
+PNG = base64.b64decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==')
+xml = ('<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+       '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"'
+       ' xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"'
+       ' xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><w:body>'
+       '<w:p><w:pPr><w:pStyle w:val="Heading1"/></w:pPr><w:r><w:t>图示章节</w:t></w:r></w:p>'
+       '<w:p><w:r><w:t>这段正文足够长，长到能通过导入时的字数校验，配图就接在后面。</w:t></w:r>'
+       '<a:blip r:embed="rId2"/></w:p>'
+       '</w:body></w:document>')
+rels = ('<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+        '<Relationship Id="rId2"'
+        ' Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image"'
+        ' Target="media/image1.png"/></Relationships>')
+b = io.BytesIO()
+with zipfile.ZipFile(b, 'w') as z:
+    z.writestr('word/document.xml', xml)
+    z.writestr('word/_rels/document.xml.rels', rels)
+    z.writestr('word/media/image1.png', PNG)
+sys.stdout.write(base64.b64encode(b.getvalue()).decode())
+`;
+    const r0 = spawnSync(py, ['-c', pyCode], { encoding: 'utf8' });
+    if (r0.status !== 0 || !r0.stdout) return false;
+    const r = await call('/api/import/doc', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ filename: 'zz-img.docx', dataB64: r0.stdout.trim() }) });
+    if (!r.body || !r.body.ok) return false;
+    const did = r.body.doc.id;
+    const body0 = ((r.body.doc.chapters || [])[0] || {}).body || '';
+    const hasToken = body0.indexOf('![](media:image1.png)') >= 0;
+    const img = await call('/api/media/' + did + '/image1.png');
+    const noAuth = await call('/api/media/' + did + '/image1.png', { auth: false });
+    await call('/api/docs/' + did, { method: 'DELETE' });          // 删文档应连图一起删
+    const gone = await call('/api/media/' + did + '/image1.png');
+    // 路径穿越：owner 带反斜杠（%5c），SAFE_NAME 挡在 media_path 里
+    const traversal = await call('/api/media/zz%5c../a.png');
+    const ctype = img.headers ? (img.headers.get('content-type') || '') : '';
+    return hasToken && img.code === 200 && ctype.indexOf('image/png') >= 0
+      && noAuth.code === 401 && gone.code === 404 && traversal.code === 404;
   });
 
   // 本地大模型：只测「确定路径」——状态接口、错误分支、以及精读后落盘。

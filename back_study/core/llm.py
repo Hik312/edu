@@ -144,8 +144,77 @@ def status():
                         '② 设 LLM_PROVIDER=cloud + LLM_API_KEY 走云端；③ 设 AI=off 直接关掉精读。'
                         '关掉不影响背卡、复习、导入分章') % OLLAMA}
     m = pick_model(models)
-    return {'ok': True, 'provider': 'ollama', 'base': OLLAMA, 'model': m,
-            'models': models, 'msg': '本地模型 %s（离线、免费）' % m}
+    st = {'ok': True, 'provider': 'ollama', 'base': OLLAMA, 'model': m,
+          'models': models, 'msg': '本地模型 %s（离线、免费）' % m}
+    # 视觉模型单列一个字段：cards Agent 看图要用，前端据此提示
+    # 「图注生成不可用」而不是等转卡时才发现
+    st['vlm'] = vlm_model()
+    return st
+
+
+# ---------- 视觉模型（图片 → 图注） ----------
+_tags_cache = {'at': 0.0, 'list': []}
+_TAGS_TTL = 20
+
+
+def _tags():
+    """GET /api/tags 的原始模型列表（带 capabilities），20 秒缓存。
+    list_models 只要名字；挑视觉模型要 capabilities，所以单独缓存一份。"""
+    now = time.time()
+    if now - _tags_cache['at'] < _TAGS_TTL:
+        return _tags_cache['list']
+    try:
+        j = _get(OLLAMA + '/api/tags', timeout=4)
+        out = [m for m in (j.get('models') or []) if isinstance(m, dict)]
+    except Exception:
+        out = []
+    _tags_cache['at'] = now
+    _tags_cache['list'] = out
+    return out
+
+
+def vlm_model():
+    """本机可用的视觉模型名；没装返回空串。
+
+    顺序：LLM_VLM_MODEL 环境变量（指定了就用，装没装让调用方报错去）
+    → 按 tags 里 capabilities 含 vision 的挑第一个。
+    Ollama 的视觉模型叫 qwen2.5vl（没有中间横杠），拉的时候别打错。"""
+    env = (os.environ.get('LLM_VLM_MODEL') or '').strip()
+    if env:
+        return env
+    for m in _tags():
+        if 'vision' in (m.get('capabilities') or []):
+            return m.get('name') or ''
+    return ''
+
+
+def vlm_caption(img_b64, context='', model=None, timeout=300):
+    """看图说一句：返回 <=60 字的中文图注。失败抛 RuntimeError。
+
+    只做「看图写一句」这一件事 —— 图注要落到卡片的 images[].caption 上，
+    让人扫一眼卡片就知道图在讲什么。OCR 级别的精细识别不是这个链路的活。"""
+    if AI_OFF:
+        raise RuntimeError('ai_off')
+    model = model or vlm_model()
+    if not model:
+        raise RuntimeError('no_vlm')
+    prompt = '用一句中文说明这张图在讲什么'
+    if context:
+        prompt += '（它出现在「%s」的正文里）' % str(context)[:60]
+    prompt += '，60 字以内，只输出这一句，不要任何解释、不要标点开头。'
+    payload = {'model': model, 'prompt': prompt, 'images': [img_b64],
+               'stream': False,
+               'options': {'temperature': 0.2, 'num_predict': 200}}
+    try:
+        j = _post(OLLAMA + '/api/generate', payload, None, timeout)
+    except urllib.error.HTTPError as e:
+        # 模型名指定了但没 pull、或 Ollama 版本太老不支持 images
+        if e.code == 404:
+            raise RuntimeError('no_vlm')
+        raise RuntimeError('llm_http:%s' % e.code)
+    cap = (j.get('response') or '').strip()
+    cap = re.sub(r'^["\'「」]|["\'「」]$', '', cap).strip()
+    return cap[:80]
 
 
 # ---------- 调用 + 解析 ----------
@@ -407,3 +476,131 @@ def to_card(chapter, ai, opts=None):
         card['deck'] = str(opts['deck'])[:60]
         card['deckId'] = opts.get('deckId') or ''
     return card
+
+
+# ---------- 文档结构精修（cards Agent 的 structure 阶段） ----------
+# 为什么要有这一步：规则分章（importer.parse_document 的五级降级）对排版
+# 花哨的大文档经常切错 —— 漏标题、层级错、碎块没合并。用户反馈的
+# 「不能准确弄成卡片」一半出在这里。修法不是再堆正则，而是把规则切出来的
+# **候选清单**交给模型定夺：输入只有标题+字数+开头几十字，不塞全文，
+# 所以几千字的文档也不会爆上下文。
+STRUCT_SYS = '''你是文档结构专家。用户给的是「规则初切」的章节清单（编号 | 层级 | 标题 | 字数 | 正文开头）。
+规则切分的常见错误：漏标题（该是章节的行被当成正文）、层级错、该合并的碎块没合并、不该切的被切开。
+
+输出严格 JSON：
+{"docTitle":"文档总标题（<=30字）","chapters":[{"idx":[0],"title":"小节标题","level":1}, ...]}
+
+硬性要求：
+- chapters 是对 0..N-1 的**顺序划分**：每个下标恰好出现一次、组内升序、组间按顺序衔接；
+  不许漏下标、不许重复、不许乱序（违反整份作废）。
+- 相邻且同属一节的碎块合并成一章；正文太长的块不要拆（拆分是后面按章出卡的事）。
+- title 给准确的中文标题（<=30字）：原本有标题就修顺，无标题的块要起一个能看懂内容的标题。
+- level 只用 1（大章）/ 2（小节）/ 3（子节）。
+- 原结构大部分是对的：只修明显的错，不要为改而改。
+- 只输出 JSON，不要 markdown 代码块，不要解释。'''
+
+
+def refine_structure(items, doc_title='', model=None, timeout=300):
+    """规则初切的章节摘要 → LLM 结构方案。
+
+    items: [{'title','level','chars','head'}]（parse_document 的结果，不带正文）
+    返回 plan：{'docTitle': str, 'chapters': [{'idx':[..],'title','level'}]}
+    结构是否真的成立由 importer.apply_structure 校验 —— 模型抽风时那一步
+    会拒绝执行并保留原结构，所以这里只管拿回 JSON。失败抛 RuntimeError。"""
+    if AI_OFF:
+        raise RuntimeError('ai_off')
+    p = provider()
+    model = model or (CLOUD_MODEL if p == 'cloud' else pick_model())
+    if not model:
+        raise RuntimeError('no_model')
+    if not items:
+        raise RuntimeError('too_short')
+
+    lines = []
+    for i, it in enumerate(items):
+        lines.append('[%d] 层级%s | %s | %d字 | 开头：%s' % (
+            i, it.get('level'), (it.get('title') or '（无标题）')[:40],
+            int(it.get('chars') or 0), (it.get('head') or '')[:60]))
+    user = '文档标题：%s\n\n规则初切的章节清单（共%d块）：\n%s' % (
+        (doc_title or '（未知）')[:60], len(items), '\n'.join(lines))
+
+    msgs = [{'role': 'system', 'content': STRUCT_SYS},
+            {'role': 'user', 'content': user}]
+    raw = _call(msgs, model, timeout, temperature=0.1, max_tokens=2500)
+    out = _clean_json(raw)
+    if not isinstance(out, dict) or not isinstance(out.get('chapters'), list) \
+            or not out['chapters']:
+        raise RuntimeError('llm_not_json')
+    return {'docTitle': str(out.get('docTitle') or '')[:60],
+            'chapters': out['chapters']}
+
+
+# ---------- 内容解析（cards Agent 的 parse 阶段） ----------
+# 为什么要有这一步：「导入 → 直接出卡」会把目录、封面、参考文献一起出成卡。
+# 用户要的是**先读一遍内容、剔掉没用的、给他过目**，确认后才出卡。
+# 判定和结构精修一样只喂清单（标题+字数+开头）不塞全文 —— 同一个理由：
+# 几千字的文档也不会爆上下文；而且「这章有没有用」看标题+开头基本够了。
+PARSE_SYS = '''你是文档内容审查员。用户给的是学习资料的章节清单（编号 | 标题 | 字数 | 正文开头），判断每一章对备考学习有没有用。
+
+该判 keep:false（剔除）的典型：
+- 目录、页眉页脚、页码、封面、扉页、版权页；
+- 前言、序言、致谢、免责声明这类非正文；
+- 参考文献、引用列表、广告、过期通知；
+- 与学习无关的大段闲文（编者闲聊、与考点无关的插科打诨）。
+
+有知识点的正文一律 keep:true —— 拿不准的宁可保留，剔错了用户就再也出不了这章的卡。
+
+输出严格 JSON：
+{"chapters":[{"idx":0,"keep":false,"reason":"目录，非正文"}, ...]}
+
+硬性要求：
+- 每个下标 0..N-1 恰好出现一次：不许漏、不许重复、不许编造下标（违反作废）；
+- keep 只用 true / false；剔除时 reason 给一句话（<=20字），保留时 reason 留空；
+- 只输出 JSON，不要 markdown 代码块，不要解释。'''
+
+
+def parse_content(items, doc_title='', model=None, timeout=300):
+    """章节清单 → LLM 的有用/没用判定。
+
+    items 同 refine_structure（{'title','level','chars','head'}，不带正文）。
+    返回 {'chapters': [{'idx','keep','reason'}]}（覆盖全部下标）。
+    校验在这里做：越界/重复的下标丢掉（模型幻觉），模型漏判的下标按
+    keep=True 补齐 —— 漏判只是多出一张卡，误剔是丢内容，不对称。"""
+    if AI_OFF:
+        raise RuntimeError('ai_off')
+    p = provider()
+    model = model or (CLOUD_MODEL if p == 'cloud' else pick_model())
+    if not model:
+        raise RuntimeError('no_model')
+    if not items:
+        raise RuntimeError('too_short')
+
+    lines = []
+    for i, it in enumerate(items):
+        lines.append('[%d] %s | %d字 | 开头：%s' % (
+            i, (it.get('title') or '（无标题）')[:40],
+            int(it.get('chars') or 0), (it.get('head') or '')[:60]))
+    user = '文档标题：%s\n\n章节清单（共%d块）：\n%s' % (
+        (doc_title or '（未知）')[:60], len(items), '\n'.join(lines))
+
+    msgs = [{'role': 'system', 'content': PARSE_SYS},
+            {'role': 'user', 'content': user}]
+    raw = _call(msgs, model, timeout, temperature=0.1, max_tokens=2500)
+    out = _clean_json(raw)
+    if not isinstance(out, dict) or not isinstance(out.get('chapters'), list) \
+            or not out['chapters']:
+        raise RuntimeError('llm_not_json')
+
+    n = len(items)
+    got = {}
+    for row in out['chapters']:
+        if not isinstance(row, dict):
+            continue
+        idx = row.get('idx')
+        if not isinstance(idx, int) or not (0 <= idx < n) or idx in got:
+            continue                      # 越界 / 重复 = 模型幻觉，丢掉
+        got[idx] = {'idx': idx,
+                    'keep': bool(row.get('keep')),
+                    'reason': str(row.get('reason') or '')[:40]}
+    return {'chapters': [got.get(i, {'idx': i, 'keep': True, 'reason': ''})
+                         for i in range(n)]}

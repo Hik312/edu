@@ -23,15 +23,53 @@ export function getAgentStatus() {
   return client.get('/agent/status')
 }
 
-/** 非流式问答（flow 模式用，能拿到 sources 溯源）。 */
+/* ---- cards Agent（文档 → 卡片，LangGraph）----
+ * 两个阶段分开调，中间前端要拿 structure 的结果刷新章节列表再逐章跑 ——
+ * 合成一个端点就没法在「结构变了」之后把新分章显示出来了。
+ * timeout 各自放宽：本地 8B 结构分析 20~60s、一章出卡（含看图）可能到分钟级，
+ * 全局 20s 会在模型慢一点时把正常请求掐断。 */
+
+/** 阶段一：LLM 看规则初切的清单定切分点，合法才重切落库（返回 {refined,msg,doc}）。 */
+export function cardsStructure(docId) {
+  return client.post('/agent/cards/structure', { docId }, { timeout: 300000 })
+}
+
+/** 阶段二：一章跑完整张图（图注 → 生成 → 对齐自检），落一张草稿。
+ *  幂等：已有同章草稿返回 {skipped:true}（断点续跑）。 */
+export function cardsChapter(docId, index, force = false) {
+  return client.post('/agent/cards/chapter', { docId, index, force }, { timeout: 600000 })
+}
+
+/** 内容解析：规则预判 + AI 判定每章有用/没用，报告落库（出卡前的确认关卡）。
+ *
+ * timeout 放宽到 5 分钟：判定要读完整份章节清单，大文档比结构精修还慢；
+ * 而且它在 structure 之后串行调，等的是两段模型时间。 */
+export function parseDoc(docId) {
+  return client.post('/agent/cards/parse', { docId }, { timeout: 300000 })
+}
+
+/** 保存报告页的勾选调整。keeps: {章节下标(字符串): 是否保留} */
+export function putParseKeeps(docId, keeps) {
+  return client.put('/agent/cards/parse', { docId, keeps })
+}
+
+/** 非流式问答（flow 模式用，能拿到 sources 溯源）。
+ *
+ * timeout 单独放宽到 2 分钟：带多轮 history 的 flow 实测 31 秒
+ * （单轮也要 17 秒），全局 20 秒会把正常问答掐成
+ * 「timeout of 20000ms exceeded」—— 表现就是「问答不出来了」。 */
 export function ask(question, mode = 'flow', opts = {}) {
-  return client.post('/agent/ask', {
-    question,
-    mode,
-    stream: false,
-    history: opts.history || [],
-    profile: opts.profile || undefined
-  })
+  return client.post(
+    '/agent/ask',
+    {
+      question,
+      mode,
+      stream: false,
+      history: opts.history || [],
+      profile: opts.profile || undefined
+    },
+    { timeout: 120000 }
+  )
 }
 
 /** 长期档案（L3）：跟着登录用户走，服务端存一份。
@@ -76,6 +114,11 @@ export function cleanAnswer(text) {
   // 中英混排的技术回答里这类词很常见，属于「清洗把答案改坏了」。
   // 后端 agent/qa/runtime.py 是同一份正则，两边必须一起改。
   s = s.replace(/(?:卡\s*片?\s*id\s*[:：为]?\s*|\bid\s*[:：]\s*)[A-Za-z][A-Za-z0-9_-]{1,60}/gi, '')
+  // 「（参考《xxx》…）」这类括号出处标注：正文里读着突兀（用户反馈）。
+  // 出处走 sources 引用条，不靠正文括注。只删括号包住且以参考/参见/引自/
+  // 出自开头的 —— 正常引用《手册》安装不带这个开头，不会误伤。
+  // back_study/agent/qa/runtime.py 的 clean_answer 是同一份正则，两边必须一起改。
+  s = s.replace(/[（(]\s*(?:参考|参见|引自|出自|出处\s*[:：])[^（()）]{0,100}[）)]/g, '')
   s = s.replace(/\n{3,}/g, '\n\n')
   return s.trim()
 }

@@ -114,4 +114,8 @@ def delete_card(cid: str, user=Depends(current_user)):
     # （内置卡在 data/*.js 里，接口删不掉）会变成一个查不出原因的现象。
     before = len(db.load_custom())
     db.save_custom([x for x in db.load_custom() if x.get('id') != cid])
+    if before != len(db.load_custom()):
+        # 卡片的配图（agent 转卡时拷进来的）随卡删掉，不留孤儿文件
+        import docparse
+        docparse.delete_media('card-' + str(cid))
     return {'ok': True, 'removed': before - len(db.load_custom())}

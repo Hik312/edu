@@ -7,9 +7,11 @@
 import base64
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, Header, HTTPException, Query
+from fastapi.responses import FileResponse
 
 import db
+import docparse
 import importer
 from ..deps import current_user
 from ..schemas import DocImportIn
@@ -52,7 +54,26 @@ def get_doc(did: str, user=Depends(current_user)):
 
 @router.delete('/docs/{did}', summary='删除文档')
 def delete_doc(did: str, user=Depends(current_user)):
-    return {'ok': db.delete_doc(did)}
+    ok = db.delete_doc(did)
+    docparse.delete_media(did)          # 图片和文档同生命周期（卡片的图不在这，
+    return {'ok': ok}                   # 转卡时拷进了 card-<id> 目录）
+
+
+@router.get('/media/{owner}/{name}', summary='读图片（文档 / 卡片）')
+def get_media(owner: str, name: str,
+              t: Optional[str] = Query(None, description='token（<img> 发不了 Authorization 头）'),
+              authorization: str = Header(None)):
+    """登录后可读。鉴权复用 current_user —— 只是把取 token 的地方放宽到
+    `?t=`：页面里 `<img src="/api/media/...">` 浏览器不会带 Authorization 头，
+    逐张 fetch 转 blob 又要处理一大堆加载状态，不值。
+
+    owner/name 的路径穿越在 docparse.media_path 里挡（只放行 SAFE_NAME）。"""
+    auth = authorization or (('Bearer ' + t) if t else None)
+    current_user(authorization=auth)            # 没登录 → 401，同其它文档端点
+    p = docparse.media_path(owner, name)
+    if not p:
+        raise HTTPException(404, '图片不存在')
+    return FileResponse(p, media_type=docparse.mime_of(name))
 
 
 @router.post('/import/doc', summary='导入整份文档')
@@ -69,35 +90,34 @@ def import_doc(body: DocImportIn, user=Depends(current_user)):
     data = body.model_dump(exclude_none=True)
     text = (body.text or '').strip()
     fname = body.filename or ''
+    media = []
 
     if not text and body.dataB64:
         try:
             raw = base64.b64decode(body.dataB64)
         except Exception:
             raise HTTPException(400, '文件解码失败')
-        # 后缀看不出 PDF 就看文件头 —— 有人会把 pdf 存成 .txt
-        if fname.lower().endswith('.pdf') or raw[:4] == b'%PDF':
-            try:
-                text = importer.extract_pdf_bytes(raw)
-            except RuntimeError as e:
-                if str(e) == 'no_pypdf':
-                    # 给路，不只是报错：扫描版 PDF 本来也抽不出文字
-                    raise HTTPException(400, 'PDF 解析需要 pypdf：pip install pypdf'
-                                             '（或把文档存成 md/txt，或复制文字粘贴导入）')
-                raise
-        elif fname.lower().endswith('.doc'):
-            # 老 .doc 是 OLE 二进制，读不了 —— 明确给路，别让它掉进 utf-8
-            # 解码出一堆乱码，然后报「没提到有效文字」这种驴唇不对马嘴的错
+        low = fname.lower()
+        # 老 .doc 是 OLE 二进制，读不了 —— 明确给路，别让它掉进 utf-8
+        # 解码出一堆乱码，然后报「没提到有效文字」这种驴唇不对马嘴的错
+        if low.endswith('.doc') and not low.endswith('.docx'):
             raise HTTPException(400, '老版 .doc 读不了：用 Word「另存为」选 .docx 再上传')
-        elif fname.lower().endswith('.docx') or raw[:4] == b'PK\x03\x04':
-            # PK 魔数兜底：有人传 .docx 但后缀改成了别的
-            try:
-                text = importer.extract_docx_bytes(raw)
-            except RuntimeError:
+        try:
+            # 统一走 docparse：pdf/docx 抽文字并抠图（按原文顺序插占位符），
+            # 其它后缀当纯文本（有人把 pdf 存成 .txt，docparse 看文件头兜底）
+            out = docparse.extract(raw, fname)
+        except RuntimeError as e:
+            code = str(e)
+            if code == 'no_pypdf':
+                # 给路，不只是报错：扫描版 PDF 本来也抽不出文字
+                raise HTTPException(400, 'PDF 解析需要 pypdf：pip install pypdf'
+                                         '（或把文档存成 md/txt，或复制文字粘贴导入）')
+            if code == 'no_docx':
                 raise HTTPException(400, '这份 Word 解析失败：只支持 .docx'
                                          '（xlsx / 老 .doc 不行，把文字粘贴进来也行）')
-        else:
-            text = raw.decode('utf-8', 'ignore')
+            raise HTTPException(400, '文件解析失败，把文字粘贴进来也行')
+        text = out['text']
+        media = out['media']
 
     text = (text or '').strip()
     if len(text) < 20:
@@ -108,4 +128,9 @@ def import_doc(body: DocImportIn, user=Depends(current_user)):
     doc['subject'] = body.subject or ''
     doc['domain'] = body.domain or ''
     doc['source'] = fname
-    return {'ok': True, 'doc': db.upsert_doc(doc)}
+    doc = db.upsert_doc(doc)
+    # 图片在拿到 doc id 之后才落盘 → data/store/media/<docId>/。
+    # 正文里的 `![](media:x)` 占位就是靠这个目录显示出来的（GET /api/media/…）
+    if media:
+        docparse.save_media(doc['id'], media)
+    return {'ok': True, 'doc': doc}

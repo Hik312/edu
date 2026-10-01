@@ -7,8 +7,25 @@
  * 列表里只留轻字段。
  */
 import { defineStore } from 'pinia'
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 import * as cardsApi from '@/api/cards'
+
+const FILTER_DEFAULTS = { category: '', subject: '', domain: '', deckId: '', q: '' }
+
+/** 筛选条件刷新不丢：store 只活在内存里，上面注释说的「返回列表不丢筛选」
+ *  挡得住返回键，挡不住刷新。读坏了就用默认值，绝不让坏数据拦住开页。 */
+function loadFilters() {
+  try {
+    const s = JSON.parse(localStorage.getItem('edu.cardFilters') || '{}')
+    const out = { ...FILTER_DEFAULTS }
+    for (const k of Object.keys(FILTER_DEFAULTS)) {
+      if (typeof s[k] === 'string') out[k] = s[k]
+    }
+    return out
+  } catch {
+    return { ...FILTER_DEFAULTS }
+  }
+}
 
 export const useCardsStore = defineStore('cards', () => {
   const list = ref([])
@@ -25,7 +42,19 @@ export const useCardsStore = defineStore('cards', () => {
 
   // 筛选条件。改任一项都要调 fetchList() 才会生效 —— 刻意不让组件直接改 list
   // deckId = 卡片组（文件夹）：文档转出来的卡都挂在这份文档的 id 下
-  const filters = ref({ category: '', subject: '', domain: '', deckId: '', q: '' })
+  // 组件可以直接改 filters.q（搜索框），所以持久化用 deep watch 兜住所有改法
+  const filters = ref(loadFilters())
+  watch(
+    filters,
+    v => {
+      try {
+        localStorage.setItem('edu.cardFilters', JSON.stringify(v))
+      } catch {
+        /* 忽略 */
+      }
+    },
+    { deep: true }
+  )
 
   const hasFilter = computed(() => {
     const f = filters.value
@@ -85,7 +114,7 @@ export const useCardsStore = defineStore('cards', () => {
   }
 
   function resetFilter() {
-    filters.value = { category: '', subject: '', domain: '', deckId: '', q: '' }
+    filters.value = { ...FILTER_DEFAULTS }
   }
 
   async function createCard(body) {

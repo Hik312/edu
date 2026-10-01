@@ -36,6 +36,16 @@ NUM_PREDICT = int(_env('AGENT_NUM_PREDICT', 2048))
 # 自检没过时最多重来几次。本地 8B 的自检能力有限，重太多次只是在烧时间。
 MAX_TRIES = int(_env('AGENT_MAX_TRIES', 2))
 
+# ---- cards Agent（文档 → 卡片）----
+# 对齐自检的及格线：卡面文字与原文的字符二元组重合度（llm.align_score）。
+# 0.08 比 enrich 的 0.10 略松 —— 卡片会用自己的话写类比/场景（本来就不该
+# 和原文重合），压太死会把好卡也打回去。主要防的是「换章抄袭」这种硬伤。
+CARDS_MIN_ALIGN = _env('AGENT_CARDS_MIN_ALIGN', 0.08)
+
+# 一章正文喂给卡片生成的上限（字符）。超长的章不截会拖慢且容易被
+# 模型开头带偏；6000 字对一章来说已经很富余。
+CARDS_MAX_BODY = int(_env('AGENT_CARDS_MAX_BODY', 6000))
+
 # ReAct 的步数上限。小模型偶尔会陷入「调同一个工具 → 不满意 → 再调」的循环，
 # 不设上限能跑到天荒地老。这是**必须**的保险，不是优化项。
 RECURSION_LIMIT = int(_env('AGENT_RECURSION_LIMIT', 12))

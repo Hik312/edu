@@ -15,10 +15,25 @@ const notes = ref([])
 const loading = ref(false)
 const saving = ref(false)
 
-const q = ref('')
+// 搜索词从 localStorage 起：setup 期赋初值，下面的 watch(q) 不会误触发一次搜索
+const q = ref(localStorage.getItem('edu.noteQ') || '')
 /** 当前正在编辑的笔记。id 为空串表示「新建且还没存过」。 */
 const form = ref({ id: '', title: '', body: '', tags: '', cardId: '' })
 const dirty = ref(false)
+
+/** 未保存的正文刷新不该没 —— 写了一半的字丢了是最招人烦的一类事故。
+ *  只在 dirty 时存；保存 / 丢弃 / 新建都会把 dirty 置回 false → 自动清掉。 */
+function persist() {
+  try {
+    if (q.value) localStorage.setItem('edu.noteQ', q.value)
+    else localStorage.removeItem('edu.noteQ')
+    if (dirty.value) localStorage.setItem('edu.noteDraft', JSON.stringify(form.value))
+    else localStorage.removeItem('edu.noteDraft')
+  } catch {
+    /* 配额满了就不存 */
+  }
+}
+watch([q, form, dirty], persist, { deep: true })
 
 /** 搜索防抖。每敲一个字就打一次接口，本地跑没事，
  *  换成云上 MySQL 会把连接池占满。 */
@@ -150,7 +165,18 @@ function fmt(t) {
 
 const isNew = computed(() => !form.value.id)
 
-onMounted(fetchList)
+onMounted(() => {
+  try {
+    const d = JSON.parse(localStorage.getItem('edu.noteDraft') || 'null')
+    if (d && typeof d === 'object' && (d.title || d.body)) {
+      form.value = { id: '', title: '', body: '', tags: '', cardId: '', ...d }
+      dirty.value = true // 恢复出来的是没保存的稿子，「未保存」角标要亮着
+    }
+  } catch {
+    /* 坏数据不恢复 */
+  }
+  fetchList()
+})
 </script>
 
 <template>

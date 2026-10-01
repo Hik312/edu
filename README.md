@@ -359,6 +359,9 @@ study/
 | GET | `/api/llm/status` | 本地模型状态（可用性 / 模型名） |
 | POST | `/api/llm/enrich` | 精读若干章（单章逐次调用，见上文） |
 | POST | `/api/llm/to-card` | 把某章的精读结果落成卡片草稿（自动挂当前文档的卡片组） |
+| POST | `/api/agent/cards/structure` | 卡片 Agent：LLM 精修分章（定切分点，规则切的只当底稿） |
+| POST | `/api/agent/cards/chapter` | 卡片 Agent：一章出一张草稿卡（带原图 + VLM 图注 + 对齐自检） |
+| GET | `/api/media/:owner/:name` | 读文档 / 卡片的图片（`?t=` 或 Authorization 带 token） |
 | GET | `/api/roles` | 目标岗位列表（`data/roles.js`） |
 | GET | `/api/plan?role=` 或 `?subjects=` | 岗位知识地图：技能组覆盖率、卡片掌握、缺哪些考点 |
 | GET | `/api/directions` | 学习方向预设（`data/directions.js`）+ 每个方向能推出多少张卡 |
@@ -386,7 +389,7 @@ study/
 
 ---
 
-## 大模型：两件事，两条通道
+## 大模型：两条通道，模型只在这些地方用
 
 通道优先级（`back_study/core/llm.py` 里的 `provider()`）：
 1. `AI=off` —— 直接关闭精读模块（服务器上没显卡 / 不想付费时用）
@@ -455,7 +458,8 @@ curl -X POST localhost:8080/api/llm/to-card -H "Content-Type: application/json" 
    引框架会给零依赖后端塞进几十 MB 依赖，而收益是负的 ——
    单次 LLM 调用不需要编排，编排的价值在「多步、有分支、要维护状态」的场景。
    真要跑多步 agent（抽取 → 自检 → 修补 → 合并），那应该是独立脚本，
-   而不是塞进平台主链路。整个后端仍然只用标准库 `urllib`。
+   而不是塞进平台主链路 —— 精读这条链至今只用标准库 `urllib`；
+   真正的多步编排在 `agent/`（LangGraph，可选依赖，见下「卡片 Agent」与问答）。
 
 ### 三、PDF / docx 说明
 
@@ -464,6 +468,32 @@ curl -X POST localhost:8080/api/llm/to-card -H "Content-Type: application/json" 
 标准库 `zipfile` + `ElementTree` 直接拆 `word/document.xml`，`outlineLvl` /
 `Heading` 样式按层级转 markdown `#` 复用同一套分章规则，不依赖 Word 和第三方库；
 老 `.doc` 会被明确要求另存为 `.docx`。
+
+### 四、卡片 Agent（文档 → 草稿卡，LangGraph，2026-10 新增）
+
+上面第二条的「精读 → 转卡」是老链路，保留并行。新链是 `agent/cards/`，
+在文档页手动点「卡片 Agent 解析」触发，两步都单独可跑、可断点续跑：
+
+```bash
+curl -X POST localhost:8080/api/agent/cards/structure -H "Content-Type: application/json" \
+  -H "Authorization: Bearer <token>" -d '{"docId":"doc-20261001-1"}'   # LLM 精修分章
+curl -X POST localhost:8080/api/agent/cards/chapter -H "Content-Type: application/json" \
+  -H "Authorization: Bearer <token>" -d '{"docId":"doc-20261001-1","index":0}'  # 一章出一张卡
+```
+
+- **分章 LLM 主导**：规则先按标题切一版当候选清单，LLM 定切分点（可改标题、可合并），
+  合并回正文时扁平下标必须严格等于 `range(n)`，对不上就原样返回 —— 精修只可能变好。
+- **一章一张卡，生成后先自检再落盘**：对齐分（字符二元组重合度）≥ 阈值、
+  keywords 必须出自原文才 `ok:true`；重试 2 次不过照样落草稿，但标「需人工把关」。
+- **图片原样进卡**：docx 里的图解析期存 `data/store/media/<docId>/`，正文留
+  `![](media:名)` 占位；卡片定稿后图拷进 `card-<卡id>/`，配 `qwen2.5vl:7b`
+  生成的图注（caption）。展示走 `GET /api/media/...?t=<token>`（`<img>` 不带
+  Authorization 头，token 走 query）。
+- **agent 只出草稿**：发布仍在「生成」页补 `scene` 后走同一条 `/api/drafts/publish`
+  检查 —— 半自动的脏数据进不了卡库。
+
+真模型 e2e 全绿：精修 refined、两章 grounding 0.38/0.44、图注生成、图片 200/401、
+重复跑幂等 skipped、发布 2/2、删文档连图删。
 
 ---
 
@@ -584,9 +614,6 @@ DOM 属性，手机上肉眼可见地卡。现在换成 Canvas 2D，一次绘制
 它把帧数 / FPS 写进标签标题。另一招是截 `--virtual-time-budget=7000` 和 `=11000`
 两张图做像素 diff：实测有 32.9% 的像素发生变化（4.07% 为强变化），
 说明收敛之后画面仍在持续演进。
-
-> 旧单文件版（`web/public/legacy.html`）里那份**仍是 SVG**，只同步了上面那三条布局规则。
-> 粒子效果和双指缩放手势需要真机调试，无头环境验不了手感，所以没跟着改。
 
 ---
 

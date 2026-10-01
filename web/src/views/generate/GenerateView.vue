@@ -16,7 +16,7 @@
  * 这不是刁难：一张没有场景的技术卡，背下来也不知道什么时候该说。
  * 前端在这里把门槛讲清楚，而不是等接口报 400 才让用户猜。
  */
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   clearDrafts,
@@ -27,8 +27,18 @@ import {
   publishDraft
 } from '@/api/imports'
 import { getLlmStatus } from '@/api/ai'
+import { getToken } from '@/api/client'
 
-const text = ref('')
+/** 草稿配图地址 + 登录态（<img> 不发 Authorization 头，token 走 ?t=）。 */
+function imgSrc(im) {
+  const sep = String(im.src || '').includes('?') ? '&' : '?'
+  const t = getToken()
+  return (im.src || '') + (t ? sep + 't=' + encodeURIComponent(t) : '')
+}
+
+/** 贴了一半的正文刷新不该没：setup 期直接从 localStorage 起。
+ *  截 1MB —— localStorage 总配额才 5MB，整份文件塞进来是给别人的数据腾地方。 */
+const text = ref(localStorage.getItem('edu.genText') || '')
 const useLLM = ref(false)
 const splitting = ref(false)
 const drafts = ref([])
@@ -41,6 +51,33 @@ const llm = ref({ ok: false, provider: '', msg: '' })
 /** 表单缓存。key 是草稿 id，value 是正在编辑的字段。
  *  不直接改 drafts 里的对象：发布失败了要能原样退回去 */
 const form = ref({})
+
+function saveText() {
+  try {
+    if (text.value && text.value.length < 1024 * 1024) {
+      localStorage.setItem('edu.genText', text.value)
+    } else localStorage.removeItem('edu.genText') // 空或超大都不留
+  } catch {
+    /* 配额满了就不存 */
+  }
+}
+
+/** 展开中的表单连着编辑进度一起存；关掉/保存后清掉（editing 变空即触发）。 */
+function saveForm() {
+  try {
+    if (editing.value && form.value[editing.value]) {
+      localStorage.setItem(
+        'edu.genForm',
+        JSON.stringify({ editing: editing.value, form: form.value })
+      )
+    } else localStorage.removeItem('edu.genForm')
+  } catch {
+    /* 忽略 */
+  }
+}
+
+watch(text, saveText)
+watch([editing, form], saveForm, { deep: true })
 
 /** 占位符识别：`（待补充...）` 这类文本不算真正补齐。
  *  不判断的话用户原样提交占位符也能发布，门槛就形同虚设。 */
@@ -55,7 +92,22 @@ const llmTip = computed(() => {
 })
 
 onMounted(async () => {
+  // 恢复上次没写完的编辑框；草稿可能已被发布/丢弃，对着不存在的草稿
+  // 展开表单没有意义，拉完列表对不上就直接清
+  try {
+    const saved = JSON.parse(localStorage.getItem('edu.genForm') || 'null')
+    if (saved && saved.editing && saved.form && saved.form[saved.editing]) {
+      editing.value = saved.editing
+      form.value = saved.form
+    }
+  } catch {
+    /* 坏数据不恢复 */
+  }
   await Promise.all([fetchDrafts(), fetchLlm()])
+  if (editing.value && !drafts.value.some(d => d.id === editing.value)) {
+    editing.value = ''
+    form.value = {}
+  }
 })
 
 async function fetchDrafts() {
@@ -246,6 +298,7 @@ async function onClear() {
               <h4 class="d-title">{{ d.title }}</h4>
               <span class="chip">{{ d.domain || '待归类' }}</span>
               <span v-if="d._from === 'llm'" class="chip accent">AI 抽词</span>
+              <span v-if="d._from === 'agent-cards'" class="chip accent">Agent 出卡</span>
               <!-- 卡片组：这份草稿来自哪份上传的文档 -->
               <span v-if="d.deck" class="chip" :title="`来自《${d.deck}》`">《{{ d.deck }}》</span>
             </div>
@@ -280,6 +333,14 @@ async function onClear() {
           </p>
 
           <p class="d-oneline">{{ d.oneLine }}</p>
+
+          <!-- Agent 出的卡带原文配图：发布前先在这看一眼图和图注对不对 -->
+          <div v-if="d.images?.length" class="d-imgs">
+            <figure v-for="(im, i) in d.images" :key="i">
+              <img :src="imgSrc(im)" :alt="im.name || '配图'" loading="lazy" />
+              <figcaption v-if="im.caption">{{ im.caption }}</figcaption>
+            </figure>
+          </div>
 
           <details class="d-more">
             <summary>切出的 {{ (d.mechanism || []).length }} 个步骤</summary>
@@ -446,6 +507,33 @@ async function onClear() {
   color: var(--mu);
   line-height: 1.7;
   margin: 8px 0;
+}
+
+/* 草稿配图：横排小缩略图，图注在下。发布前肉眼校验图和图注对不对 */
+.d-imgs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 6px 0;
+}
+.d-imgs figure {
+  margin: 0;
+  max-width: 220px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.d-imgs img {
+  max-width: 100%;
+  max-height: 140px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--bg2);
+}
+.d-imgs figcaption {
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--dim);
 }
 
 .d-more {

@@ -46,6 +46,8 @@ LLM_ERR = {
     'no_model': '没找到可用模型。跑 `ollama pull qwen2.5:7b-instruct` 再试',
     'too_short': '这一章太短，没啥可精读的',
     'llm_not_json': '模型没吐出合法 JSON，多半是模型太小或提示被截断，换个模型再试',
+    'no_vlm': ('没装视觉模型，看不了图。`ollama pull qwen2.5vl:7b` 装一次即可'
+               '（装完图注才会生成，图片本身不受影响）'),
 }
 
 # 共用数据目录 study/data 单独挂在 /data 上（网页里 `<script src="data/xx.js">` 要用），

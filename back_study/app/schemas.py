@@ -44,6 +44,8 @@ class CardIn(Loose):
     tags: Optional[List[str]] = None
     related: Optional[List[Dict[str, Any]]] = Field(
         None, description='关联卡：[{id, kind: prereq|extends|compare, note}]，note 必填')
+    images: Optional[List[Dict[str, Any]]] = Field(
+        None, description='配图：[{name, src, caption}]，src 是 /api/media/... 直链')
 
 
 class ProgressIn(BaseModel):
@@ -111,6 +113,32 @@ class ToCardIn(BaseModel):
     docId: str
     index: int = Field(..., description='章节下标')
     ai: Optional[Dict[str, Any]] = Field(None, description='覆盖章节上已存的精读结果')
+
+
+# ---------- cards Agent（文档 → 卡片，LangGraph）----------
+class CardsStructureIn(BaseModel):
+    """structure 阶段：LLM 看规则初切的章节清单，定切分点后重切。"""
+    docId: str
+
+
+class CardsChapterIn(BaseModel):
+    """chapter 阶段：一章跑完整张图（图注 → 生成 → 对齐自检），落一张草稿。
+
+    幂等：同章草稿已存在就跳过（断点续跑）；force=true 覆盖重生成。"""
+    docId: str
+    index: int = Field(..., description='章节下标')
+    force: bool = Field(False, description='已有草稿也重新生成（覆盖）')
+
+
+class CardsParseIn(BaseModel):
+    """parse 阶段：内容解析 —— 规则预判 + LLM 判定每章有用/没用，报告落库。"""
+    docId: str
+
+
+class CardsParseKeepsIn(BaseModel):
+    """保存解析报告上的勾选调整（出卡前的确认环节）。"""
+    docId: str
+    keeps: Dict[str, bool] = Field(..., description='章节下标（字符串键）→ 是否保留')
 
 
 # ---------- AI Agent（back_study/agent/，可选依赖）----------

@@ -27,7 +27,9 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { getDoc, importDoc, listDocs, removeDoc } from '@/api/docs'
 import { getLlmStatus, toCard } from '@/api/ai'
 import { enrich } from '@/api/ai'
-import { listDrafts } from '@/api/imports'
+import { bodySegs, makeDocAgent, mediaSrc } from './docAgent'
+import { makeDocAuto } from './docAuto'
+import ParseReport from './ParseReport.vue'
 
 const docs = ref([])
 const loading = ref(false)
@@ -47,24 +49,44 @@ const showImport = ref(false)
 const importForm = ref({ title: '', text: '' })
 const importing = ref(false)
 
-/** 一键全量状态。按钮上直接显示进度（精读 3/12… / 转卡 2/10…），
- *  再点一次是请求停止 —— 长任务没有停止按钮的话用户只能刷新页面。 */
-const auto = ref({ on: false, stop: false, phase: 'enrich', i: 0, n: 0 })
-const autoLabel = computed(() => {
-  const a = auto.value
-  if (!a.on) return '全部转卡'
-  const phase = a.phase === 'enrich' ? '精读 ' : '转卡 '
-  return phase + a.i + '/' + a.n + (a.stop ? ' 停止中…' : '…')
+/** 两条一键流程都拆在旁边文件里（本文件 max-lines 到顶了）：
+ *  auto = 旧链路（精读 + to-card，./docAuto.js），
+ *  agent = LangGraph 新链路（定分章 + grounding，./docAgent.js）。
+ *  两者互斥运行（busy / agentBusy 互相把关），按钮和进度各自独立，文案别混。
+ *  两个闭包都是点击时才求值，声明顺序不用纠结谁先谁后。 */
+const { auto, autoLabel, toggleAuto } = makeDocAuto({
+  opened,
+  llm,
+  fetchList,
+  agentBusy: () => agent.value.on
+})
+const {
+  agent,
+  agentLabel,
+  toggleAgent,
+  startAfterImport,
+  parsing,
+  hasParse,
+  runParseFlow,
+  toggleKeep
+} = makeDocAgent({
+  opened,
+  llm,
+  fetchList,
+  busy: () => auto.value.on,
+  openDoc
 })
 
 onMounted(async () => {
   await Promise.all([fetchList(), fetchLlm()])
   // ?doc=<id> 直接展开某一份。这个地址可以贴给别人（「你看这份第 7 章的拆解」），
   // 也让截图脚本能抓到展开态 —— 纯点击是脚本进不去的场景。
-  const want = route.query.doc
+  // 没带参数就恢复上次在读的那份（刷新不该把正在看的文档弹回列表）。
+  const want = route.query.doc || localStorage.getItem('edu.doc') || ''
   if (want) {
     const hit = docs.value.find(d => String(d.id) === String(want))
     if (hit) await openDoc(hit)
+    else localStorage.removeItem('edu.doc') // 文档被删了，清掉过期记忆
   }
 })
 
@@ -101,6 +123,7 @@ async function onImport() {
     importForm.value = { title: '', text: '' }
     showImport.value = false
     await fetchList()
+    await startAfterImport(r.doc) // 导完直接展开 + 自动出卡，不再让人手点「Agent 解析」
   } finally {
     importing.value = false
   }
@@ -110,6 +133,7 @@ async function openDoc(d) {
   opened.value = null
   const r = await getDoc(d.id)
   opened.value = r.doc
+  localStorage.setItem('edu.doc', String(r.doc.id))
 }
 
 /** 支持的上传后缀。老 .doc 不收 —— 后端解析不了，先在前端就说清楚。 */
@@ -145,7 +169,7 @@ async function onFile(ev) {
     importForm.value = { title: '', text: '' }
     showImport.value = false
     await fetchList()
-    if (r.doc) await openDoc(r.doc) // 导完直接展开，省一次点击
+    await startAfterImport(r.doc) // 同上：展开 + 自动出卡
   } finally {
     importing.value = false
   }
@@ -178,7 +202,10 @@ async function onRemove(d) {
     return
   }
   await removeDoc(d.id)
-  if (opened.value?.id === d.id) opened.value = null
+  if (opened.value?.id === d.id) {
+    opened.value = null
+    localStorage.removeItem('edu.doc')
+  }
   ElMessage.success('已删除')
   await fetchList()
 }
@@ -209,100 +236,6 @@ async function onToCard(idx) {
     ElMessage.success('已生成草稿卡，去「生成」页补齐后发布')
   } finally {
     turning.value = ''
-  }
-}
-
-/** 这一章算不算「已精读」：enrich 落盘的 ai 至少要有结论或原理拆解。
- *  比单看 analogy 宽一点 —— 模型偶尔不给类比，但结果本身是可用的。 */
-function hasAi(c) {
-  const a = c.ai || {}
-  return Boolean(a.oneLine || a.analogy || (a.mechanism && a.mechanism.length))
-}
-
-async function toggleAuto() {
-  if (auto.value.on) {
-    auto.value.stop = true
-    return
-  }
-  await runAuto()
-}
-
-/** 一键全量：逐章精读 → 逐章转草稿卡（生成的卡都挂当前文档的卡片组）。
- *
- * 两条边界，都是踩过坑才加的：
- * 1. 精读仍然一次一章（见文件头），循环写在这里而不是把下标一把梭给批量接口；
- * 2. 已精读的章跳过、已有草稿的章也跳过 —— 跑一半点了停止，再点一次是
- *    **断点续跑**，不会重复精读，更不会生成两条同 id 的重复草稿。
- *  单步失败只记账不断整轮：拦截器已经把错误弹给用户了，整轮中断更烦人。
- *  拆成两个阶段方法不是为了好看 —— 合在一起 eslint 复杂度 16 超了上限 15。 */
-async function runAuto() {
-  if (!llm.value.ok) {
-    ElMessage.warning('AI 未启用：' + (llm.value.msg || '没配置模型'))
-    return
-  }
-  const docId = opened.value.id
-  auto.value = { on: true, stop: false, phase: 'enrich', i: 0, n: 0 }
-  const stat = { enriched: 0, made: 0, failed: 0 }
-  try {
-    await enrichAll(docId, stat)
-    await convertAll(docId, stat)
-    ElMessage.success(
-      (auto.value.stop ? '已停止。' : '完成：') +
-        `精读 ${stat.enriched} 章、生成 ${stat.made} 张草稿卡` +
-        (stat.failed ? `、失败 ${stat.failed} 项` : '') +
-        '。去「生成」页补齐 scene 后发布'
-    )
-  } finally {
-    auto.value.on = false
-    auto.value.stop = false
-    const r = await getDoc(docId).catch(() => null)
-    if (r) opened.value = r.doc
-    await fetchList()
-  }
-}
-
-/** 阶段一：逐章精读（正文 <20 字的纯标题章跳过）。 */
-async function enrichAll(docId, stat) {
-  const need = (opened.value.chapters || [])
-    .map((c, i) => ({ c, i }))
-    .filter(x => (x.c.body || '').trim().length >= 20)
-  auto.value.n = need.length
-  for (let k = 0; k < need.length && !auto.value.stop; k++) {
-    auto.value.i = k + 1
-    const { c, i } = need[k]
-    if (hasAi(c)) continue
-    try {
-      await enrich({ docId, index: i })
-      stat.enriched++
-    } catch {
-      stat.failed++ // 单章失败不断整轮
-    }
-  }
-}
-
-/** 阶段二：把有精读结果、还没转过卡的章转成草稿。 */
-async function convertAll(docId, stat) {
-  const r = await getDoc(docId)
-  opened.value = r.doc
-  auto.value.phase = 'convert'
-  const drafts = (await listDrafts()).drafts || []
-  // 已有草稿按「同组 + 同标题」认（llm.to_card 的标题截断到 60 字，跟着截）
-  const have = new Set(
-    drafts.filter(d => d.deckId === docId).map(d => String(d.title || '').slice(0, 60))
-  )
-  const targets = (opened.value.chapters || [])
-    .map((c, i) => ({ c, i }))
-    .filter(x => hasAi(x.c) && !have.has(String(x.c.title || '').slice(0, 60)))
-  auto.value.n = targets.length
-  auto.value.i = 0
-  for (let k = 0; k < targets.length && !auto.value.stop; k++) {
-    auto.value.i = k + 1
-    try {
-      await toCard(docId, targets[k].i)
-      stat.made++
-    } catch {
-      stat.failed++
-    }
   }
 }
 
@@ -413,9 +346,22 @@ function aiOf(c) {
         <div class="hd-right">
           <span class="hint">{{ chapters.length }} 章</span>
           <button
+            v-if="parsing || agent.on || (llm.ok && hasParse)"
+            class="btn btn-ghost"
+            :disabled="auto.on || parsing || (agent.on && agent.stop)"
+            :title="
+              hasParse
+                ? '按解析报告逐章出卡（只跑保留的章，含图注+对齐自检）；再点一次可停止'
+                : '内容解析进行中'
+            "
+            @click="toggleAgent"
+          >
+            {{ agentLabel }}
+          </button>
+          <button
             v-if="llm.ok"
             class="btn btn-ghost"
-            :disabled="auto.on && auto.stop"
+            :disabled="auto.on ? auto.stop : agent.on || parsing"
             :title="'逐章精读，再把每章转成草稿卡（挂到本卡片组）；再点一次可停止'"
             @click="toggleAuto"
           >
@@ -429,7 +375,21 @@ function aiOf(c) {
         左边点一下，这里会列出它的全部章节
       </p>
 
-      <ol v-else class="chapters">
+      <!-- 内容解析报告：出卡前的确认关卡（拆在 ./ParseReport.vue）：
+           未解析 → 解析按钮；已解析 → 逐章勾选 + 出卡入口。 -->
+      <ParseReport
+        v-else
+        :opened="opened"
+        :parsing="parsing"
+        :agent="agent"
+        :agent-label="agentLabel"
+        :busy-auto="auto.on"
+        @run-parse="runParseFlow"
+        @toggle-keep="toggleKeep"
+        @toggle-agent="toggleAgent"
+      />
+
+      <ol v-if="opened" class="chapters">
         <li v-for="(c, i) in chapters" :key="i" class="chapter">
           <div class="c-head">
             <span class="c-idx mono">{{ String(i + 1).padStart(2, '0') }}</span>
@@ -453,8 +413,18 @@ function aiOf(c) {
             </div>
           </div>
 
+          <!-- 正文预览：文字截 260 字，图片占位按原文位置插图（带 ?t= 登录态） -->
           <p class="c-text">
-            {{ (c.body || '').slice(0, 260) }}{{ (c.body || '').length > 260 ? '…' : '' }}
+            <template v-for="(seg, si) in bodySegs(c.body)" :key="si">
+              <img
+                v-if="seg.img"
+                class="c-img"
+                :src="mediaSrc(opened?.id, seg.img)"
+                :alt="seg.img"
+                loading="lazy"
+              />
+              <span v-else>{{ seg.text }}</span>
+            </template>
           </p>
 
           <!-- 精读结果 -->
@@ -714,6 +684,16 @@ function aiOf(c) {
   color: var(--mu);
   line-height: 1.8;
   white-space: pre-wrap;
+}
+/* 文档里的配图（docx/pdf 抠出来的）：小图预览，点不开也不挡文字 */
+.c-img {
+  display: block;
+  max-width: 260px;
+  max-height: 180px;
+  margin: 8px 0 4px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--panel);
 }
 
 .ai {

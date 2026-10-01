@@ -13,6 +13,7 @@ import json
 import re
 
 import db
+import docparse
 import llm
 
 TITLE_RES = [
@@ -275,94 +276,68 @@ def parse_document(text, opts=None):
 
 def extract_pdf_bytes(data):
     """PDF 抽文字。标准库做不到，靠可选的 pypdf。
-    没装就抛 no_pypdf，让上层给出「pip install pypdf」的提示，而不是 500。"""
-    try:
-        import io
-        try:
-            from pypdf import PdfReader
-        except ImportError:
-            from PyPDF2 import PdfReader       # 老包名，兼容一下
-    except ImportError:
-        raise RuntimeError('no_pypdf')
-    reader = PdfReader(io.BytesIO(data))
-    out = []
-    for pg in reader.pages:
-        try:
-            out.append(pg.extract_text() or '')
-        except Exception:
-            out.append('')
-    return '\n'.join(out)
+    没装就抛 no_pypdf，让上层给出「pip install pypdf」的提示，而不是 500。
+    （实现已搬到 core/docparse.py —— 那边还负责把 PDF 里的图片抠出来。
+     这个名字留给 scripts/gen_docs.py 这类只要文字的调用方。）"""
+    return docparse.extract_pdf_bytes(data)
 
 
 def extract_docx_bytes(data):
-    """Word(.docx) 抽文字。docx 本质是个 zip，正文都在 word/document.xml 里，
-    标准库 zipfile + ElementTree 就能拆 —— 不装 python-docx：为「抽一段文字」
-    多背一个跨机器要装的依赖，不值。
+    """Word(.docx) 抽文字。实现已搬到 core/docparse.py（那边还负责把
+    word/media 里的图片抠出来、按顺序插占位符）—— 这里只留转调，
+    免得有第二个「解析 docx」的真相源。"""
+    return docparse.extract_docx_bytes(data)
 
-    标题识别走 Word 自己的大纲标记（w:outlineLvl / Heading 样式 id），比事后
-    正则猜「第X章」准；认出来的标题转成 markdown `#`，直接喂给 parse_document
-    里优先级最高的那条规则 —— 分章逻辑全项目只有一套，不为 docx 单写一套。
 
-    老 .doc（OLE 二进制，文件头 D0 CF 11 E0）和 zip 但不是 docx 的文件
-    （xlsx 之类）都抛 no_docx，上层负责把话说清楚（另存为 .docx）。"""
-    import io
-    import zipfile
+# ---------- 结构精修（cards Agent 的 structure 阶段用） ----------
+def structure_items(chapters):
+    """把章节摘要成给 llm.refine_structure 的清单：标题/层级/字数/开头。
+    正文不带（占上下文），图片占位符从开头里滤掉。"""
+    out = []
+    for c in chapters:
+        body = c.get('body') or ''
+        head = re.sub(r'!\[[^\]]*\]\([^)]*\)', '', body).strip()
+        out.append({'title': c.get('title') or '',
+                    'level': c.get('level') or 1,
+                    'chars': len(body),
+                    'head': head[:60]})
+    return out
 
-    if data[:4] != b'PK\x03\x04':
-        raise RuntimeError('no_docx')
-    try:
-        with zipfile.ZipFile(io.BytesIO(data)) as z:
-            xml = z.read('word/document.xml')
-    except Exception:
-        raise RuntimeError('no_docx')
 
-    from xml.etree import ElementTree as ET
-    W = '{http://schemas.openxmlformats.org/wordprocessingml/2006/main}'
-    try:
-        root = ET.fromstring(xml)
-    except ET.ParseError:
-        raise RuntimeError('no_docx')
+def apply_structure(chapters, plan):
+    """按结构方案重切章节。返回 (new_chapters, docTitle)。
 
-    def para_text(p):
-        # 按文档顺序收 w:t；w:tab / w:br 当空格 —— 表格单元格里的制表符丢了
-        # 不影响阅读，但完全不收会把两个词黏在一起。
-        out = []
-        for node in p.iter():
-            if node.tag == W + 't':
-                out.append(node.text or '')
-            elif node.tag in (W + 'tab', W + 'br'):
-                out.append(' ')
-        return ''.join(out).strip()
+    方案合法性在这里**严格校验**：idx 必须是 0..n-1 的一个顺序划分
+    （每个下标恰好一次、组内升序、组间衔接）。不合法就原样返回 ——
+    结构精修是增强不是地基，模型抽风时保留规则初切的结果，别把导入链弄断。
+    图片占位符是正文里的普通行，合并 body 时自然跟着走，不需要特殊处理。"""
+    groups = (plan or {}).get('chapters') or []
+    flat = []
+    for g in groups:
+        if not isinstance(g, dict) or not isinstance(g.get('idx'), list) \
+                or not g['idx']:
+            return chapters, ''
+        for i in g['idx']:
+            if not isinstance(i, int) or i < 0 or i >= len(chapters):
+                return chapters, ''
+            flat.append(i)
+    if flat != list(range(len(chapters))):
+        return chapters, ''                     # 漏了 / 重复了 / 乱序 → 拒绝执行
 
-    def heading_level(p):
-        """返回 1~6 的标题层级，不是标题返回 0。"""
-        pr = p.find(W + 'pPr')
-        if pr is None:
-            return 0
-        # 大纲级别最准（0-5 对应一级~六级）。6 级以上当普通正文，
-        # 层级太深在分章里没有意义。
-        ol = pr.find(W + 'outlineLvl')
-        if ol is not None:
-            v = ol.get(W + 'val')
-            if v is not None and v.isdigit() and int(v) <= 5:
-                return int(v) + 1
-        # 样式 id：内建标题即使界面是中文，id 仍是 Heading1（也有文档存成「标题1」）
-        st = pr.find(W + 'pStyle')
-        if st is not None:
-            v = (st.get(W + 'val') or '').strip()
-            m = re.match(r'^(?:[Hh]eading|标题)\s*([1-6])$', v)
-            if m:
-                return int(m.group(1))
-        return 0
+    out = []
+    for g in groups:
+        mem = [chapters[i] for i in g['idx']]
+        level = g.get('level')
+        if not isinstance(level, int) or not 1 <= level <= 3:
+            level = mem[0].get('level') or 1
+        title = str(g.get('title') or '').strip() or (mem[0].get('title') or '')
+        body = '\n\n'.join((m.get('body') or '').strip() for m in mem).strip()
+        out.append({'level': level, 'title': title[:80], 'body': body[:20000]})
 
-    lines = []
-    for p in root.iter(W + 'p'):
-        txt = para_text(p)
-        if not txt:
-            continue
-        lvl = heading_level(p)
-        lines.append(('#' * lvl + ' ' + txt) if lvl else txt)
-    return '\n'.join(lines)
+    base = min(c['level'] for c in out)
+    for c in out:
+        c['level'] = max(1, c['level'] - base + 1)
+    return out, str((plan or {}).get('docTitle') or '').strip()
 
 
 SYS = ('你是技术面试考点结构化助手。把用户给的资料拆成多张「原理卡」，'
@@ -452,11 +427,17 @@ def list_drafts():
 
 
 def clear_drafts():
+    for d in db.load_drafts():
+        docparse.delete_media('card-' + str(d.get('id') or ''))
     db.save_drafts([])
 
 
 def drop_draft(did):
     db.save_drafts([d for d in list_drafts() if d.get('id') != did])
+    # 配图随草稿删掉；但同 id 的卡**已发布**时不能删 —— 发布过的卡还指着
+    # card-<id> 这个目录（重导入同一份资料会造出同 id 草稿）。
+    if did and not any(c.get('id') == did for c in db.load_custom()):
+        docparse.delete_media('card-' + str(did))
 
 
 def validate(c):
@@ -492,5 +473,7 @@ def publish(did):
                        '或先在卡片库里删掉那张再发布' % copy['id']}
     custom.append(copy)
     db.save_custom(custom)
-    drop_draft(did)
+    # 从草稿列表移除，但**不删配图**（drop_draft 会删）：发布的卡还要读
+    # card-<id> 目录。直接改列表，语义 = 这张卡搬去正式卡库了。
+    db.save_drafts([d for d in list_drafts() if d.get('id') != did])
     return {'ok': True, 'card': copy}

@@ -14,6 +14,7 @@
 import { computed } from 'vue'
 import DiagramView from './DiagramView.vue'
 import { relationOf } from '@/api/cards'
+import { getToken } from '@/api/client'
 
 const props = defineProps({
   card: { type: Object, required: true }
@@ -26,6 +27,14 @@ const interviewQ = computed(() => props.card.interviewQ || [])
 const scene = computed(() => props.card.scene || [])
 const keywords = computed(() => props.card.keywords || [])
 const related = computed(() => props.card.related || [])
+const images = computed(() => props.card.images || [])
+
+/** 配图地址 + 登录态：浏览器 <img> 不发 Authorization 头，token 走 ?t=。 */
+function imgSrc(im) {
+  const sep = String(im.src || '').includes('?') ? '&' : '?'
+  const t = getToken()
+  return (im.src || '') + (t ? sep + 't=' + encodeURIComponent(t) : '')
+}
 </script>
 
 <template>
@@ -56,6 +65,17 @@ const related = computed(() => props.card.related || [])
     <section v-if="card.diagram" class="sec">
       <h4>过程演示</h4>
       <DiagramView :spec="card.diagram" />
+    </section>
+
+    <!-- 卡片配图（agent 转卡时从文档拷出来的）：caption 是 VLM 看图写的一句图注 -->
+    <section v-if="images.length" class="sec">
+      <h4>原文配图</h4>
+      <div class="figs">
+        <figure v-for="(im, i) in images" :key="i">
+          <img :src="imgSrc(im)" :alt="im.name || '配图'" loading="lazy" />
+          <figcaption v-if="im.caption">{{ im.caption }}</figcaption>
+        </figure>
+      </div>
     </section>
 
     <section v-if="interviewQ.length" class="sec">
@@ -223,6 +243,31 @@ const related = computed(() => props.card.related || [])
   border: 1px solid var(--line);
   background: var(--bg2);
   color: var(--mu);
+}
+
+/* 配图：图注在下，像相册的说明文字。宽度自适应，不撑破抽屉 */
+.figs {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.figs figure {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.figs img {
+  max-width: 100%;
+  max-height: 320px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--bg2);
+}
+.figs figcaption {
+  font-size: 13px;
+  line-height: 1.7;
+  color: var(--dim);
 }
 
 .rel {

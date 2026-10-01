@@ -9,7 +9,7 @@
  两块为什么放在一页：地图回答「我该学什么」，队列回答「今天先学哪个」。
  拆成两页的话，选完岗位还得自己跳过去找队列。
 */
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { useLearningStore } from '@/stores/learning'
@@ -43,6 +43,20 @@ const plan = ref(null)
 const mapLoading = ref(false)
 const savedRole = ref('') // 服务端档案里的岗位名（用来显示"已存"）
 
+/** 自定义勾选的科目也记下来 —— 勾了十个科目然后刷新就没了，是最直接的劝退。
+ *  勾选状态和岗位选择分开存：岗位那份在「存进我的档案」时才写（要进 L3）。 */
+function savePathSel() {
+  try {
+    localStorage.setItem(
+      'edu.pathSubs',
+      JSON.stringify({ customOn: customOn.value, picked: picked.value })
+    )
+  } catch {
+    /* 忽略 */
+  }
+}
+watch([customOn, picked], savePathSel, { deep: true })
+
 async function loadMap() {
   try {
     const [r, c] = await Promise.all([getRoles(), catalog()])
@@ -71,8 +85,20 @@ function flatSubjects(c) {
   return flat
 }
 
-/** 上次选的岗位记住（localStorage，不占后端）；没记过就默认第一个。 */
+/** 上次选的岗位记住（localStorage，不占后端）；没记过就默认第一个。
+ *  自定义勾选优先恢复 —— 用户上次明确勾过科目，就不该被塞回预置岗位。 */
 function restoreLast() {
+  try {
+    const s = JSON.parse(localStorage.getItem('edu.pathSubs') || 'null')
+    if (s && s.customOn && Array.isArray(s.picked) && s.picked.length) {
+      customOn.value = true
+      picked.value = s.picked
+      loadPlan()
+      return
+    }
+  } catch {
+    /* 坏数据当作没存过 */
+  }
   const last = localStorage.getItem('edu.role') || ''
   if (last && roles.value.some(x => x.id === last)) {
     mapRole.value = last

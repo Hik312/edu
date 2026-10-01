@@ -25,8 +25,11 @@ import time
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 
+from ..config import LLM_ERR
 from ..deps import current_user
-from ..schemas import AgentAskIn, AgentAskOut, AgentProfileIn
+from ..schemas import (AgentAskIn, AgentAskOut, AgentProfileIn,
+                       CardsChapterIn, CardsParseIn, CardsParseKeepsIn,
+                       CardsStructureIn)
 
 router = APIRouter(prefix='/api', tags=['AI Agent'])
 
@@ -143,6 +146,115 @@ def _sse(rt, question, hist=None, prof=None):
         yield 'event: done\ndata: \n\n'
     except Exception as e:
         yield 'event: error\ndata: %s\n\n' % str(e).replace('\n', ' ')
+
+
+# ---------------------------------------------------------------------------
+# cards Agent（文档 → 卡片）：structure / chapter 两个阶段分开调
+# ---------------------------------------------------------------------------
+def _cards():
+    """延迟导入 cards Agent 的执行层。没装 langgraph → 503（同 _runtime）。"""
+    try:
+        from agent.cards import runtime
+    except ImportError as e:
+        raise HTTPException(503, '%s（%s）' % (MISSING, e))
+    return runtime
+
+
+def _llm_fail(e):
+    """RuntimeError('no_model' 这类内部代号) → 人话 502。同 ai._llm_fail。"""
+    return HTTPException(502, LLM_ERR.get(str(e), str(e)))
+
+
+@router.post('/agent/cards/structure', summary='卡片 Agent：LLM 结构精修（定切分点）')
+async def cards_structure(body: CardsStructureIn, user=Depends(current_user)):
+    """把规则初切的章节清单交给 LLM 定切分点，合法才重切落库。
+
+    返回 200 + refined:false 是正常结果（没装模型 / 方案不合法），
+    msg 里写了理由 —— 前端提示「保留规则分章」即可，不是错误。"""
+    import db
+    if not db.get_doc(body.docId):
+        raise HTTPException(404, '文档不存在')
+    rt = _cards()
+    t0 = time.time()
+    try:
+        out = await asyncio.to_thread(rt.run_structure, body.docId)
+    except RuntimeError as e:
+        raise _llm_fail(e)
+    except Exception as e:
+        raise HTTPException(502, '结构精修失败：%s' % e)
+    return {'ok': True, 'ms': int((time.time() - t0) * 1000),
+            'refined': out.get('refined'), 'msg': out.get('msg', ''),
+            'chapters': out.get('chapters'), 'chars': out.get('chars'),
+            'doc': out.get('doc')}
+
+
+@router.post('/agent/cards/chapter', summary='卡片 Agent：一章出一张草稿卡（带图）')
+async def cards_chapter(body: CardsChapterIn, user=Depends(current_user)):
+    """跑一章的完整图（图注 → 生成 → 对齐自检，不合格重写），落一张草稿。
+
+    幂等：同章草稿已存在就返回 skipped（前端逐章轮询 = 断点续跑）；
+    force=true 覆盖重生成。ok=false 表示重写到上限也没对齐，
+    草稿照样落了，发布前要人工把关。"""
+    import db
+    doc = db.get_doc(body.docId)
+    if not doc:
+        raise HTTPException(404, '文档不存在')
+    n = len(doc.get('chapters') or [])
+    if not (0 <= body.index < n):
+        raise HTTPException(400, '章节下标超出范围（0..%d）' % max(0, n - 1))
+    rt = _cards()
+    t0 = time.time()
+    try:
+        out = await asyncio.to_thread(rt.run_chapter, body.docId, body.index,
+                                      body.force)
+    except RuntimeError as e:
+        raise _llm_fail(e)
+    except KeyError as e:
+        raise HTTPException(404, '文档或章节不存在: %s' % e)
+    except Exception as e:
+        raise HTTPException(502, '卡片生成失败：%s' % e)
+    return {'ok': True, 'ms': int((time.time() - t0) * 1000), **out}
+
+
+@router.post('/agent/cards/parse', summary='卡片 Agent：内容解析（有用/没用报告）')
+async def cards_parse(body: CardsParseIn, user=Depends(current_user)):
+    """规则预判 + LLM 判定每章有用与否，报告落库到 doc.parse。
+
+    必须在 structure 之后调：精修会重切章节，报告基于最终下标。
+    模型不可用**不 502** —— 规则部分（封面/目录/参考文献）照样出，
+    modelOk:false + msg 带回原因，前端提示「已用规则初筛」。"""
+    import db
+    if not db.get_doc(body.docId):
+        raise HTTPException(404, '文档不存在')
+    rt = _cards()
+    t0 = time.time()
+    try:
+        out = await asyncio.to_thread(rt.run_parse, body.docId)
+    except KeyError as e:
+        if str(e).strip("'") == 'no_chapters':
+            raise HTTPException(400, '文档没有章节，无从解析')
+        raise HTTPException(404, '文档不存在')
+    except Exception as e:
+        raise HTTPException(502, '内容解析失败：%s' % e)
+    return {'ok': True, 'ms': int((time.time() - t0) * 1000),
+            'modelOk': out.get('model_ok'), 'msg': out.get('msg', ''),
+            'parse': out.get('parse'), 'doc': out.get('doc')}
+
+
+@router.put('/agent/cards/parse', summary='保存解析报告的勾选调整')
+async def cards_parse_keeps(body: CardsParseKeepsIn, user=Depends(current_user)):
+    """报告页勾选「保留/剔除」的即时保存（出卡前的确认环节）。"""
+    import db
+    if not db.get_doc(body.docId):
+        raise HTTPException(404, '文档不存在')
+    rt = _cards()
+    try:
+        out = await asyncio.to_thread(rt.run_parse_keeps, body.docId, body.keeps)
+    except KeyError:
+        raise HTTPException(400, '还没解析过，先跑一次内容解析')
+    except Exception as e:
+        raise HTTPException(502, '保存失败：%s' % e)
+    return {'ok': True, 'parse': out.get('parse'), 'doc': out.get('doc')}
 
 
 # ---------------------------------------------------------------------------
