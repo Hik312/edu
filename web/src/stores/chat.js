@@ -18,6 +18,7 @@ export const useChatStore = defineStore('chat', () => {
   const messages = ref([]) // {role, text, sources, streaming}
   const input = ref('')
   const mode = ref('flow') // 'flow' | 'react'
+  const webSearch = ref(false) // 联网开关：true 时资料追加【网页】搜索结果
   const sending = ref(false)
   const profile = ref(null) // L3 长期档案 {role, topics, weak}，拿不到就是 null
 
@@ -94,7 +95,7 @@ export const useChatStore = defineStore('chat', () => {
     if (mode.value === 'flow') {
       const m = pushAssistant()
       try {
-        const r = await ask(q, 'flow', { history: hist, profile: prof })
+        const r = await ask(q, 'flow', { history: hist, profile: prof, webSearch: webSearch.value })
         m.text = r.answer || ''
         m.sources = r.sources || []
       } catch (e) {
@@ -109,6 +110,7 @@ export const useChatStore = defineStore('chat', () => {
       askStream(q, {
         history: hist,
         profile: prof,
+        webSearch: webSearch.value,
         onText: t => {
           m.text = t
         },
@@ -132,5 +134,5 @@ export const useChatStore = defineStore('chat', () => {
     messages.value = [] // watch 会把空数组写进 localStorage（等于清掉记忆）
   }
 
-  return { messages, input, mode, sending, profile, send, clearChat }
+  return { messages, input, mode, webSearch, sending, profile, send, clearChat }
 })

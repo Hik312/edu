@@ -42,6 +42,33 @@ export const useLearningStore = defineStore('learning', () => {
 
   const stats = ref(null)
 
+  // ---- 今日自选清单（一天 311 张刷不完，用户自己点名今天刷哪些） ----
+  /** 清单里的卡片 id。空 = 没挑过（复习页回退到每日目标的普通队列）。 */
+  const picked = ref([])
+  /** 清单是否生效。空清单不当生效 —— 路径页要据此显示「去挑」引导而不是 0。 */
+  const pickActive = computed(() => picked.value.length > 0)
+
+  /** 拉今日清单（跨天作废由后端判，前端只读结果）。失败当没挑过。 */
+  async function fetchPick() {
+    const r = await learningApi.getPick().catch(() => null)
+    picked.value = (r && r.ids) || []
+    return picked.value
+  }
+
+  /** 覆盖写清单。用服务端返回的那份回填（过滤/去重/截 100 在后端做）。 */
+  async function savePick(ids) {
+    const r = await learningApi.putPick(ids)
+    picked.value = (r && r.ids) || []
+    return picked.value
+  }
+
+  /** 单张加入/移出今日清单。 */
+  async function togglePick(cid) {
+    const on = picked.value.includes(cid)
+    const next = on ? picked.value.filter(x => x !== cid) : picked.value.concat(cid)
+    return savePick(next)
+  }
+
   // ---- 今日学习设置（后端档案里的 dailyTarget / directions） ----
   /** 方向目录（data/directions.js，含每个方向的 count）。 */
   const directions = ref([])
@@ -81,12 +108,14 @@ export const useLearningStore = defineStore('learning', () => {
    * 而登出只清了 auth store。同一 SPA 会话里换账号后，
    * `pickedDirs` 还是上一个人的方向，`fetchDue` 会把它注入**新用户**的队列；
    * `dailyTarget` 同理。刷新页面才会恢复 —— 这正是「换个人登录，怎么推的
-   * 还是他的内容」那类说不清的 bug。AppLayout 的登出流程会调这里。 */
+   *  还是他的内容」那类说不清的 bug。AppLayout 的登出流程会调这里。
+   *  `picked` 同理：上一个人挑的清单绝不能出现在下一个人的队列里。 */
   function resetSettings() {
     settingsP = null
     directions.value = []
     dailyTarget.value = DAILY_DEFAULT
     pickedDirs.value = []
+    picked.value = []
   }
 
   /** 改设置：写后端档案，成功后用**服务端返回的那份**回填本地
@@ -205,6 +234,11 @@ export const useLearningStore = defineStore('learning', () => {
     directions,
     dailyTarget,
     pickedDirs,
+    picked,
+    pickActive,
+    fetchPick,
+    savePick,
+    togglePick,
     dirNames,
     dirText,
     ensureSettings,

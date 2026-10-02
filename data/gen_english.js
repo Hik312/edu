@@ -67,7 +67,28 @@ var CARDS_ENGLISH = [
       "长难句",
       "结构分析"
     ],
-    "related": []
+    "related": [
+      {
+        "id": "english-grammar",
+        "kind": "prereq",
+        "note": "掌握长难句的主干结构后，能更好分析复杂句子的逻辑"
+      },
+      {
+        "id": "english-kaoyanlongsentence",
+        "kind": "compare",
+        "note": "长难句拆分和结构分析是同一主题的两个不同角度"
+      },
+      {
+        "id": "english-虚拟语气用法",
+        "kind": "compare",
+        "note": "虚拟语气和非谓语动词是长难句分析中的两种语法现象"
+      },
+      {
+        "id": "english-非谓语动词用法",
+        "kind": "compare",
+        "note": "非谓语动词和虚拟语气是长难句分析中的两种语法现象"
+      }
+    ]
   },
   {
     "id": "english-虚拟语气用法",
@@ -134,7 +155,28 @@ var CARDS_ENGLISH = [
       "虚拟语气",
       "条件句"
     ],
-    "related": []
+    "related": [
+      {
+        "id": "english-非谓语动词用法",
+        "kind": "compare",
+        "note": "非谓语动词和虚拟语气是长难句分析中的两种语法现象"
+      },
+      {
+        "id": "english-kaoyanlongsentence",
+        "kind": "compare",
+        "note": "虚拟语气和非谓语动词是长难句分析中的两种语法现象"
+      },
+      {
+        "id": "english-考研高频长难句结构",
+        "kind": "compare",
+        "note": "虚拟语气和非谓语动词是长难句分析中的两种语法现象"
+      },
+      {
+        "id": "english-grammar",
+        "kind": "compare",
+        "note": "虚拟语气和非谓语动词是长难句分析中的两种语法现象"
+      }
+    ]
   },
   {
     "id": "english-非谓语动词用法",
@@ -202,7 +244,28 @@ var CARDS_ENGLISH = [
       "非谓语动词",
       "动词形式"
     ],
-    "related": []
+    "related": [
+      {
+        "id": "english-虚拟语气用法",
+        "kind": "compare",
+        "note": "非谓语动词和虚拟语气是长难句分析中的两种语法现象"
+      },
+      {
+        "id": "english-kaoyanlongsentence",
+        "kind": "compare",
+        "note": "非谓语动词和虚拟语气是长难句分析中的两种语法现象"
+      },
+      {
+        "id": "english-考研高频长难句结构",
+        "kind": "compare",
+        "note": "非谓语动词和虚拟语气是长难句分析中的两种语法现象"
+      },
+      {
+        "id": "english-grammar",
+        "kind": "compare",
+        "note": "非谓语动词和虚拟语气是长难句分析中的两种语法现象"
+      }
+    ]
   },
   {
     "id": "english-grammar",
@@ -261,7 +324,23 @@ var CARDS_ENGLISH = [
       "考研英语",
       "长难句"
     ],
-    "related": []
+    "related": [
+      {
+        "id": "english-考研高频长难句结构",
+        "kind": "extends",
+        "note": "掌握长难句的主干结构后，能更好分析复杂句子的逻辑"
+      },
+      {
+        "id": "english-虚拟语气用法",
+        "kind": "compare",
+        "note": "虚拟语气和非谓语动词是长难句分析中的两种语法现象"
+      },
+      {
+        "id": "english-非谓语动词用法",
+        "kind": "compare",
+        "note": "非谓语动词和虚拟语气是长难句分析中的两种语法现象"
+      }
+    ]
   },
   {
     "id": "english-kaoyanlongsentence",
@@ -321,7 +400,23 @@ var CARDS_ENGLISH = [
       "考研英语",
       "长难句分析"
     ],
-    "related": []
+    "related": [
+      {
+        "id": "english-考研高频长难句结构",
+        "kind": "compare",
+        "note": "长难句拆分和结构分析是同一主题的两个不同角度"
+      },
+      {
+        "id": "english-虚拟语气用法",
+        "kind": "compare",
+        "note": "虚拟语气和非谓语动词是长难句分析中的两种语法现象"
+      },
+      {
+        "id": "english-非谓语动词用法",
+        "kind": "compare",
+        "note": "非谓语动词和虚拟语气是长难句分析中的两种语法现象"
+      }
+    ]
   }
 ];
 

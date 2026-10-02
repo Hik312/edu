@@ -204,12 +204,78 @@ def detect_heading(line):
     return None
 
 
+#: 分章粒度目标。一章 ≈ 一张卡的素材：5000 字够写清一个考点；
+#: 超了说明这一层太粗，往细一层再切（子标题并入后的正文会变小）。
+MAX_CHAPTER_CHARS = 5000
+
+
+def _fold_at(heads, lines, split_lvl):
+    """在层级 split_lvl 切一刀：level ≤ split_lvl 的标题开新章，
+    内容到下一个「同级或更浅」的标题为止 —— 更深的标题行**原样留在正文里**，
+    子层内容完整并进父章，不产生「只有标题没正文」的空壳章。
+
+    返回 (chapters, pre)：pre = 第一个分章标题之前的正文（前言候选，
+    比首标题更浅的前导内容也在这里，不丢）。"""
+    start = next(k for k, (_, lvl, _) in enumerate(heads) if lvl <= split_lvl)
+    pre = '\n'.join(lines[:heads[start][0]]).strip()
+    chs = []
+    for idx in range(start, len(heads)):
+        li, lvl, h = heads[idx]
+        if lvl > split_lvl:
+            continue                        # 深层标题：不是边界，内容留在本章
+        end = len(lines)
+        for li2, lvl2, _ in heads[idx + 1:]:
+            if lvl2 <= split_lvl:
+                end = li2
+                break
+        chs.append({'level': lvl, 'title': h,
+                    'body': '\n'.join(lines[li + 1:end]).strip()})
+    return chs, pre
+
+
+def _fold_chapters(heads, lines):
+    """多级标题 → 选一个切分层级折叠成章节。返回 (chapters, pre)。
+
+    选层规则（由粗到细）：先看最粗的层级，切出来**每章正文都不超
+    MAX_CHAPTER_CHARS 且至少 2 章**就定下 —— 章越大内容越完整。
+    没有任何层够 2 章时（单节文档）取**最细的**尺寸合格层：单节文档里
+    最深的标题才是正文的真章名（`# 组标题 / ## 一章` 该切成「一章」，
+    而不是把整节折进「组标题」）；每层都塞爆就取最深层，超长由单章上限截。
+    正文为空的壳章丢掉（留着只会在解析报告和出卡里变成永远出不了内容的
+    死章）；整份文档只有标题没正文的退化情形保留原章，别把 chapters 弄空。"""
+    levels = sorted({lvl for _, lvl, _ in heads})
+    picked = None                               # 最粗的「≥2 章且尺寸合格」层
+    size_ok = None                              # 最细的尺寸合格层（兜底）
+    for lvl in levels:
+        chs, pre = _fold_at(heads, lines, lvl)
+        live = [c for c in chs if (c['body'] or '').strip()]
+        if not live:
+            continue
+        if max(len(c['body']) for c in live) > MAX_CHAPTER_CHARS:
+            continue                            # 这一层太粗，往细走
+        if len(live) >= 2:
+            picked = (chs, pre)
+            break                               # 又够粗又够章数 → 定了
+        size_ok = (chs, pre)                    # 只有 1 章：继续往细找 ≥2 的
+    if picked:
+        chs, pre = picked
+    elif size_ok:
+        chs, pre = size_ok
+    else:
+        # 每一层都有超大章（标题层级不够深）→ 取最细一层，超长由单章上限截
+        chs, pre = _fold_at(heads, lines, levels[-1])
+    live = [c for c in chs if (c['body'] or '').strip()]
+    return (live or chs), pre
+
+
 def parse_document(text, opts=None):
     """把一整份文档切成章节树。
     返回 {title, chapters:[{level,title,body}], stats:{chapters,chars,headings}}。
 
     分章优先级：markdown 标题 > 第X章/节 > 多级编号(N.M) > 括号/中文序号 > 兜底按长度分块。
-    层级只按「编号深度」粗分，够用了——再细的语义层级纯文本也猜不准。"""
+    切法是**按层级折叠**（见 _fold_chapters）：只在选定层级切，子标题和它的
+    内容整块并进父章 —— 一章内容完整，没有空壳章；层级只按「编号深度」粗分，
+    够用了——再细的语义层级纯文本也猜不准。"""
     opts = opts or {}
     lines = text.replace('\r\n', '\n').replace('\r', '\n').split('\n')
     stripped = [l.strip() for l in lines]
@@ -232,14 +298,9 @@ def parse_document(text, opts=None):
     chapters = []
     title = (opts.get('title') or '').strip()
     if heads:
-        first = heads[0][0]
-        pre = '\n'.join(lines[:first]).strip()
-        if len(pre) > 20:                       # 首个标题前有正文 → 当作前言
-            chapters.append({'level': 1, 'title': '前言', 'body': pre})
-        for idx, (li, lvl, h) in enumerate(heads):
-            end = heads[idx + 1][0] if idx + 1 < len(heads) else len(lines)
-            body = '\n'.join(lines[li + 1:end]).strip()
-            chapters.append({'level': lvl, 'title': h, 'body': body})
+        chapters, pre = _fold_chapters(heads, lines)
+        if len(pre) > 20:                       # 首个分章标题前有正文 → 当作前言
+            chapters.insert(0, {'level': 1, 'title': '前言', 'body': pre})
         if not title:
             # 文档名取「层级最浅、位置最靠前」的那个标题
             title = min(heads, key=lambda x: (x[1], x[0]))[2]

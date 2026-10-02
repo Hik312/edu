@@ -22,6 +22,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 
 from .. import config as C
 from . import retrieval
+from . import websearch
 from .graph import build_qa, build_react, recursion_config
 
 
@@ -217,36 +218,41 @@ def _ids_in(text):
 # ---------------------------------------------------------------------------
 # 执行
 # ---------------------------------------------------------------------------
-def ask(question: str, mode: str = 'flow') -> str:
-    """最简单的入口：问一句，拿回答。不保留上下文，每次独立。"""
+def ask(question: str, mode: str = 'flow', web: bool = False) -> str:
+    """最简单的入口：问一句，拿回答。不保留上下文，每次独立。
+
+    web  联网开关（可选增强）：true 时检索追加【网页】资料，搜不到不影响回答"""
     if mode == 'react':
-        return run_react(question)['answer']
+        return run_react(question, web=web)['answer']
     st = qa_app().invoke(
         {'question': question, 'context': '', 'answer': '', 'sources': [],
-         'tries': 0, 'ok': False, 'history': '', 'profile': ''},
+         'tries': 0, 'ok': False, 'history': '', 'profile': '', 'web': web},
         config=recursion_config(),
     )
     return st.get('answer') or ''
 
 
-def ask_full(question: str, mode: str = 'flow', history=None, profile=None):
+def ask_full(question: str, mode: str = 'flow', history=None, profile=None,
+             web: bool = False):
     """带溯源的入口：返回 {'answer', 'sources', 'steps'}。
 
     history  L1 会话历史（[{role, content}]），超预算自动裁剪
     profile  L3 长期档案（{role, topics, weak}），注入 system
+    web      联网开关：true 时资料追加【网页】搜索结果（可选增强）
 
     sources 是这次回答引用到的卡片 id：flow 由 retrieve 节点写入 state；
     react 这次改成**从工具返回里抽** —— 模型自己查的卡本来就是引用，
     以前留空等于白给了引用能力却没接上（用户反馈"知识库没有带引用"）。
     前端拿 sources 渲染「引用卡片」，点开跳到对应卡片详情。"""
     if mode == 'react':
-        out = run_react(question, history=history, profile=profile)
+        out = run_react(question, history=history, profile=profile, web=web)
         return {'answer': out['answer'], 'sources': out['sources'],
                 'steps': out['steps']}
     st = qa_app().invoke(
         {'question': question, 'context': '', 'answer': '', 'sources': [],
          'tries': 0, 'ok': False,
-         'history': format_history(history), 'profile': format_profile(profile)},
+         'history': format_history(history), 'profile': format_profile(profile),
+         'web': web},
         config=recursion_config(),
     )
     return {'answer': clean_answer(st.get('answer')),
@@ -254,7 +260,7 @@ def ask_full(question: str, mode: str = 'flow', history=None, profile=None):
             'steps': None}
 
 
-def _react_ground(question):
+def _react_ground(question, web=False):
     """react 的"先搜后答"——在代码里替模型把底料搜好塞进上下文。
 
     提示词里写了"先 search_cards 再答"，实测 qwen3:8b 两轮都没查：直接凭参数
@@ -262,14 +268,15 @@ def _react_ground(question):
     毫秒级的，没有理由指望 8B 自觉 —— 直接搜好喂给它，和 flow 模式的 retrieve
     节点**同一套检索、同一套口径**（sources 也按命中的算）。
 
+    web 开着时把【网页】块也拼进底料（同 flow 的 retrieve 节点）——网页结果
+    不进 sources（sources 只认卡片 id，前端要拿去跳卡片详情的）。
+
     返回 (text, ids)：text 是给模型看的检索结果，ids 是这次要登记成 sources 的
-    卡 id。没命中返回 ('', set())，别把空提示塞进去占地方。"""
+    卡 id。卡片没命中、也没开联网时返回 ('', set())，别把空提示塞进去占地方。"""
     try:
         hits = retrieval.retrieve(question, C.TOP_K)
     except Exception:
-        return '', set()
-    if not hits:
-        return '', set()
+        hits = []
     lines = []
     for h in hits:
         c = h.card or {}
@@ -280,13 +287,21 @@ def _react_ground(question):
         if c.get('why'):
             block += '\n  为什么：' + c['why']
         if c.get('mechanism'):
-            block += '\n  原理：' + (' / '.join(c['mechanism']))[:180]
+            block += '\n  原理：' + ' / '.join(c['mechanism'])[:180]
         lines.append(block)
-    return ('卡片库检索结果（回答优先依据这些卡；细节不够用 card_detail 按 id 查）：\n'
-            + '\n'.join(lines)), {h.id for h in hits}
+    parts = []
+    if lines:
+        parts.append('卡片库检索结果（回答优先依据这些卡；细节不够用 '
+                     'card_detail 按 id 查）：\n' + '\n'.join(lines))
+    if web:
+        parts.append(websearch.web_context(question))
+    if not parts:
+        return '', set()
+    return '\n\n'.join(parts), {h.id for h in hits}
 
 
-def run_react(question: str, history=None, profile=None, on_step=None):
+def run_react(question: str, history=None, profile=None, on_step=None,
+              web: bool = False):
     """跑一次 ReAct，返回 {'answer', 'history', 'steps', 'sources'}。
 
     history：上一轮的 messages 列表（[{role,content}] 或 langchain 消息），
@@ -310,7 +325,7 @@ def run_react(question: str, history=None, profile=None, on_step=None):
         else:
             msgs.append(_ai(m['content']))
     # 底料拼在问题后面（不进 history）：下一轮不重复带，用户也看不到
-    gtext, gids = _react_ground(question)
+    gtext, gids = _react_ground(question, web=web)
     msgs.append(HumanMessage(content=question if not gtext
                              else question + '\n\n' + gtext))
 
@@ -356,7 +371,8 @@ def _ai(text):
     return AIMessage(content=text or '')
 
 
-def stream_react(question: str, history=None, profile=None, on_sources=None):
+def stream_react(question: str, history=None, profile=None, on_sources=None,
+                 web: bool = False):
     """流式版本：一边生成一边 yield 文本块，给 FastAPI 的 StreamingResponse / SSE 用。
 
     本地 8B 模型出字慢（实测整答要 20 秒以上），让用户盯着空白等 20 秒
@@ -373,7 +389,7 @@ def stream_react(question: str, history=None, profile=None, on_sources=None):
         msgs.append(HumanMessage(content=m['content']) if m['role'] == 'user'
                     else _ai(m['content']))
     # 同 run_react：底料拼在问题后面，命中的卡直接算进 sources
-    gtext, gids = _react_ground(question)
+    gtext, gids = _react_ground(question, web=web)
     msgs.append(HumanMessage(content=question if not gtext
                              else question + '\n\n' + gtext))
 

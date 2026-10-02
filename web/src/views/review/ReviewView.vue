@@ -26,6 +26,7 @@ import { useCardsStore } from '@/stores/cards'
 import { levelColor, levelLabel } from '@/config/theme'
 import CardBody from '@/components/CardBody.vue'
 import LevelPicker from '@/components/LevelPicker.vue'
+import ReviewSetup from '@/views/review/ReviewSetup.vue'
 
 const learning = useLearningStore()
 const cards = useCardsStore()
@@ -61,14 +62,25 @@ const summary = computed(() => {
 
 onMounted(async () => {
   // 两件事必须按这个顺序：
-  // 1. 先等档案（每日目标 + 方向）—— 反过来会先取一张按默认设置排的队列，
-  //    档案一到又要重排，卡片会在眼皮底下换一批。
+  // 1. 先等档案（每日目标 + 方向）+ 今日自选清单 —— 反过来会先取一张按默认
+  //    设置排的队列，档案一到又要重排，卡片会在眼皮底下换一批。
   // 2. 每次进本页都重取 —— 驾驶舱那次 fetchDue({limit:8}) 只是滚动榜的 8 条，
   //    顺手拿来当今日队列就会只显示 8 张。
   await learning.ensureSettings()
-  await learning.fetchDue({ limit: learning.dailyTarget })
+  await learning.fetchPick()
+  await fetchQueue()
   await loadDetail()
 })
+
+/** 按当前模式取队列：挑过清单就只推清单，没挑按每日目标取前 N 张。
+ *  两种模式的字段/顺序同一套（后端同一份 due_list 排序），这里只挑参数。 */
+async function fetchQueue() {
+  if (learning.pickActive) {
+    await learning.fetchDue({ pick: '1', limit: 500 }) // 500 = 后端上限，清单上限 100 用不满
+  } else {
+    await learning.fetchDue({ limit: learning.dailyTarget })
+  }
+}
 
 /** 取当前卡的完整内容。store 里有缓存，来回翻不会重复请求。 */
 async function loadDetail() {
@@ -120,44 +132,54 @@ function restart() {
   revealed.value = false
 }
 
-/* ---------- 今日设置：每天学几张、学什么 ---------- */
-
-/** 点完把焦点还给页面。否则设置按钮一直持有焦点，接下来按空格是「点这个
- *  按钮」而不是「看答案」，键盘流（空格/1/2/3）会莫名其妙失灵。 */
-function blur(e) {
-  if (e && e.currentTarget) e.currentTarget.blur()
-}
+/* ---------- 今日设置：每天学几张、学什么 ----------
+   按钮和焦点管理在 ReviewSetup.vue（它点完自己把焦点还给页面），
+   这里只接事件、写档案、决定要不要重排队列。 */
 
 /** 改设置 = 换一批卡：写档案 → 重取队列 → 从头开始这一轮。
- *  本轮进度留着没意义（卡都不一样了），所以直接 restart。 */
+ *  本轮进度留着没意义（卡都不一样了），所以直接 restart。
+ *  ★ 清单模式下设置照存但队列不变（队列 = 清单，和方向/目标无关），
+ *  所以不 restart —— 否则用户调个目标，自己挑的卡会莫名跳回第一张。 */
 async function applySettings(patch) {
   if (savingSettings.value) return
   savingSettings.value = true
   try {
     await learning.saveSettings(patch)
-    restart()
-    await learning.fetchDue({ limit: learning.dailyTarget })
+    if (!learning.pickActive) {
+      restart()
+      await fetchQueue()
+    }
   } finally {
     savingSettings.value = false
   }
 }
 
-async function bumpTarget(step, e) {
-  blur(e)
+/** 回到自动队列（清空清单后按每日目标重取）。 */
+async function useAutoQueue() {
+  if (savingSettings.value) return
+  savingSettings.value = true
+  try {
+    await learning.savePick([])
+    restart()
+    await fetchQueue()
+  } finally {
+    savingSettings.value = false
+  }
+}
+
+async function bumpTarget(step) {
   const v = Math.min(DAILY_MAX, Math.max(DAILY_MIN, learning.dailyTarget + step))
   if (v !== learning.dailyTarget) await applySettings({ dailyTarget: v })
 }
 
-async function toggleDir(id, e) {
-  blur(e)
+async function toggleDir(id) {
   const cur = learning.pickedDirs
   const next = cur.includes(id) ? cur.filter(x => x !== id) : cur.concat(id)
   await applySettings({ directions: next })
 }
 
 /** 「全部」= 清空方向（后端 dirs 为空就不筛）。再点一次没有反应。 */
-async function pickAll(e) {
-  blur(e)
+async function pickAll() {
   if (!learning.pickedDirs.length) return
   await applySettings({ directions: [] })
 }
@@ -211,6 +233,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKey))
         <span class="rv-sub">
           <template v-if="finished">本轮结束</template>
           <template v-else-if="queue.length">{{ idx + 1 }} / {{ queue.length }}</template>
+          <template v-else-if="learning.pickActive">清单为空</template>
           <template v-else>今天没有到期的卡</template>
         </span>
       </div>
@@ -220,63 +243,31 @@ onUnmounted(() => window.removeEventListener('keydown', onKey))
       </div>
     </header>
 
-    <!-- ===== 今日设置：每天学几张、学什么（改完立刻重排队列） ===== -->
-    <div class="rv-setup rise">
-      <div class="setup-row">
-        <span class="setup-label">每天</span>
-        <div class="step">
-          <button
-            class="sbtn"
-            type="button"
-            :disabled="savingSettings || learning.dailyTarget <= DAILY_MIN"
-            @click="bumpTarget(-5, $event)"
-          >
-            −
-          </button>
-          <span class="snum mono">{{ learning.dailyTarget }}</span>
-          <span class="sunit">张</span>
-          <button
-            class="sbtn"
-            type="button"
-            :disabled="savingSettings || learning.dailyTarget >= DAILY_MAX"
-            @click="bumpTarget(5, $event)"
-          >
-            ＋
-          </button>
-        </div>
-        <span class="setup-label">方向</span>
-        <div class="chips">
-          <button
-            class="chip"
-            type="button"
-            :class="{ on: !learning.pickedDirs.length }"
-            :disabled="savingSettings"
-            @click="pickAll($event)"
-          >
-            全部
-          </button>
-          <button
-            v-for="d in learning.directions"
-            :key="d.id"
-            class="chip"
-            type="button"
-            :class="{ on: learning.pickedDirs.includes(d.id) }"
-            :title="d.desc"
-            :disabled="savingSettings"
-            @click="toggleDir(d.id, $event)"
-          >
-            {{ d.name }}<i class="cnt">{{ d.count }}</i>
-          </button>
-        </div>
-      </div>
-    </div>
+    <!-- ===== 今日清单提示 + 今日设置（拆在 ReviewSetup.vue，改完立刻重排队列） ===== -->
+    <ReviewSetup
+      :daily-target="learning.dailyTarget"
+      :picked-dirs="learning.pickedDirs"
+      :directions="learning.directions"
+      :pick-active="learning.pickActive"
+      :pick-count="learning.picked.length"
+      :busy="savingSettings"
+      @bump="bumpTarget"
+      @toggle-dir="toggleDir"
+      @pick-all="pickAll"
+      @use-auto="useAutoQueue"
+      @go-pick="$router.push({ name: 'path' })"
+    />
 
     <!-- ===== 空队列 ===== -->
     <div v-if="!queue.length && !learning.loading" class="blank rise">
-      <p v-if="learning.pickedDirs.length">「{{ learning.dirText }}」今天没有到期的卡。</p>
+      <p v-if="learning.pickActive">今日清单的 {{ learning.picked.length }} 张都刷完了。</p>
+      <p v-else-if="learning.pickedDirs.length">「{{ learning.dirText }}」今天没有到期的卡。</p>
       <p v-else>今天的卡都复习完了。</p>
       <div class="blank-actions">
-        <button v-if="learning.pickedDirs.length" class="go ghost" @click="pickAll()">
+        <button v-if="learning.pickActive" class="go ghost" @click="useAutoQueue()">
+          改用自动队列
+        </button>
+        <button v-else-if="learning.pickedDirs.length" class="go ghost" @click="pickAll()">
           看全部方向
         </button>
         <button class="go" @click="$router.push('/cards')">去卡片页预习</button>
@@ -396,112 +387,6 @@ onUnmounted(() => window.removeEventListener('keydown', onKey))
   font-family: var(--font-mono);
   font-size: 13px;
   color: var(--mu);
-}
-
-/* ---- 今日设置条 ---- */
-.rv-setup {
-  margin-bottom: 16px;
-  padding: 12px 16px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  background: var(--panel);
-}
-.setup-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
-}
-.setup-label {
-  font-size: var(--fs-sm);
-  color: var(--mu);
-}
-.step {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding-right: 14px;
-  border-right: 1px dashed var(--line);
-}
-.sbtn {
-  width: 26px;
-  height: 26px;
-  border: 1px solid var(--line2);
-  border-radius: var(--radius-sm);
-  background: var(--bg2);
-  color: var(--tx);
-  font-size: 15px;
-  line-height: 1;
-  cursor: pointer;
-  transition:
-    border-color 0.16s,
-    background 0.16s;
-}
-.sbtn:hover:not(:disabled) {
-  border-color: var(--ac);
-  background: var(--ac-glow);
-}
-.sbtn:disabled {
-  opacity: 0.4;
-  cursor: default;
-}
-.snum {
-  font-family: var(--font-mono);
-  font-size: 17px;
-  font-weight: 600;
-  min-width: 26px;
-  text-align: center;
-  color: var(--ac);
-}
-.sunit {
-  font-size: var(--fs-xs);
-  color: var(--mu);
-}
-.chips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-.chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 4px 11px;
-  border: 1px solid var(--line);
-  border-radius: 20px;
-  background: var(--bg2);
-  color: var(--mu);
-  font-size: var(--fs-sm);
-  cursor: pointer;
-  transition:
-    color 0.16s,
-    border-color 0.16s,
-    background 0.16s;
-}
-.chip:hover:not(:disabled) {
-  color: var(--tx);
-  border-color: var(--ac-dim);
-}
-.chip.on {
-  color: var(--ac);
-  border-color: var(--ac-dim);
-  background: var(--ac-glow);
-}
-.chip:disabled {
-  opacity: 0.55;
-  cursor: default;
-}
-/* 方向后面的小数字 = 这个方向库里有多少张卡。写成 i 而不是 span：
-   位置和斜体都借的是「角标」的读法，不想让它跟名字争主次 */
-.chip .cnt {
-  font-family: var(--font-mono);
-  font-size: var(--fs-xs);
-  font-style: normal;
-  color: var(--dim);
-}
-.chip.on .cnt {
-  color: var(--ac);
-  opacity: 0.75;
 }
 
 /* ---- 抽卡纸张 ---- */

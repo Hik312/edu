@@ -11,8 +11,8 @@ from fastapi import APIRouter, Depends, HTTPException
 import db
 import importer
 import llm
-from ..deps import current_user
-from ..schemas import DraftPatch, ImportTextIn, PublishIn
+from ...deps import current_user
+from ...schemas import DraftPatch, ImportTextIn, PublishIn
 
 router = APIRouter(prefix='/api', tags=['导入'])
 

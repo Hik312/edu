@@ -17,6 +17,7 @@ import docparse      # core/docparse.py
 import importer      # core/importer.py
 import llm           # core/llm.py
 
+from . import dedup
 from . import graph
 
 _G = {}               # 图编译一次缓存住（编译有成本，invoke 很便宜）
@@ -175,6 +176,14 @@ def run_chapter(doc_id, index, force=False):
     if not card:
         # draft 里 RuntimeError(llm_not_json) 会先抛到这；这里是兜底
         raise RuntimeError(out.get('msg') or '生成失败')
+
+    # 出卡前去重：同一份资料重复导入、相邻章内容重叠时别再进池。
+    # embedding 不可用时 find_dup 返回 None → 照常放行（去重是增强不是闸门）
+    dup = dedup.find_dup(card)
+    if dup:
+        return {'skipped': True, 'reason': 'duplicate',
+                'msg': '和已有卡《%s》重复（相似度 %.2f），已跳过'
+                       % (dup['title'] or dup['id'], dup['sim'])}
 
     # 图片在**这一章的最终卡**定稿后才拷：id 稳定，重试不会留孤儿图。
     # 拷到 card-<id> 目录 → 卡片不随源文档删除而丢图。

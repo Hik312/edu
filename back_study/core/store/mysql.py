@@ -86,6 +86,7 @@ DDL_TABLES = [
       `subject`     VARCHAR(48)  NOT NULL DEFAULT '',
       `domain`      VARCHAR(48)  NOT NULL DEFAULT '',
       `chapters`    JSON             NULL,
+      `parse`       JSON             NULL,
       `ai_done`     INT          NOT NULL DEFAULT 0,
       `ai_total`    INT          NOT NULL DEFAULT 0,
       `ai_model`    VARCHAR(96)  NOT NULL DEFAULT '',
@@ -265,6 +266,7 @@ class MySQLStore(Store):
     #: 格式：表名 → [(列名, 列定义)]
     _ADDED_COLUMNS = (
         ('documents', 'stats', 'JSON NULL'),
+        ('documents', 'parse', 'JSON NULL'),
     )
 
     def _migrate_schema(self, dbname):
@@ -464,13 +466,13 @@ class MySQLStore(Store):
         d = dict(doc)
         self._q("""
             INSERT INTO documents (id, title, source, category, subject, domain,
-                                   chapters, stats, ai_done, ai_total, ai_model,
+                                   chapters, stats, parse, ai_done, ai_total, ai_model,
                                    ai_provider, created_at, updated_at)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
             ON DUPLICATE KEY UPDATE
               title=VALUES(title), source=VALUES(source), category=VALUES(category),
               subject=VALUES(subject), domain=VALUES(domain),
-              chapters=VALUES(chapters), stats=VALUES(stats),
+              chapters=VALUES(chapters), stats=VALUES(stats), parse=VALUES(parse),
               ai_done=VALUES(ai_done),
               ai_total=VALUES(ai_total), ai_model=VALUES(ai_model),
               ai_provider=VALUES(ai_provider), updated_at=VALUES(updated_at)
@@ -483,6 +485,7 @@ class MySQLStore(Store):
               # 存进 MySQL 就没了 → 列表恒显示「0 章 · 0 字」。
               # 首页「已经入库的文档」也跟着少一块信息。
               json_dumps(d.get('stats')),
+              json_dumps(d.get('parse')) if d.get('parse') else None,
               int(d.get('aiDone') or 0), int(d.get('aiTotal') or 0),
               (d.get('aiModel') or '')[:96], (d.get('aiProvider') or '')[:32],
               d.get('createdAt') or None, d.get('updatedAt') or None))
@@ -694,6 +697,9 @@ def _doc_of(r):
          # （补列由 init_schema 的 _migrate_schema 做，但要允许它失败），
          # 缺列时给 None，与 json 后端「没有 stats 就是没有」一致。
          'stats': json_loads(r.get('stats'), None),
+         # parse = 内容解析报告（{at,modelOk,msg,chapters}）。老库补列前
+         # r.get('parse') 是 None → 不写进 dict，与 json 后端「没有就没有」一致。
+         'parse': json_loads(r.get('parse'), None),
          'aiDone': int(r['ai_done'] or 0),
          'aiTotal': int(r['ai_total'] or 0),
          'createdAt': _dstr(r['created_at']),

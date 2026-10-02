@@ -38,3 +38,12 @@ export function importDoc(body) {
 export function removeDoc(did) {
   return client.delete('/docs/' + encodeURIComponent(did))
 }
+
+/** 重命名文档 = 重命名它的卡片组：级联改已发布卡和草稿里的 deck。
+ * @param {string} did 文档 id（即 deckId）
+ * @param {string} title 新组名（1-60 字）
+ * @returns {Promise<{ok:boolean, title:string, cards:number, drafts:number}>}
+ */
+export function renameDoc(did, title) {
+  return client.put('/docs/' + encodeURIComponent(did), { title })
+}

@@ -17,7 +17,8 @@ var CARDS_PYTHON = [
     "mechanism": [
       "① GIL 保证同一时间只有一个线程执行 Python 字节码。",
       "② 线程切换需要释放 GIL，导致实际运行时间增加。",
-      "③ GIL 无法被绕过，因此 Python 多线程无法真正并行。"
+      "③ 默认安装的 Python 绕不开 GIL，多线程无法真正并行（PEP 703 的 free-threaded 构建可去掉 GIL，但要专门装 t 版）。",
+      "④ GIL 只卡 CPU 密集型：I/O 密集型（网络、文件）期间线程在等 I/O，多线程依然有效。"
     ],
     "diagram": {
       "kind": "pipeline",
@@ -37,12 +38,12 @@ var CARDS_PYTHON = [
         },
         {
           "s": 2,
-          "note": "GIL 无法被绕过，导致多线程无法真正并行"
+          "note": "默认构建绕不开 GIL，多线程无法真正并行"
         }
       ]
     },
     "interviewQ": [
-      "GIL 为什么不能被绕过？",
+      "GIL 能被绕过吗？free-threaded 版本是怎么回事？",
       "多线程在 Python 中的应用场景有哪些？"
     ],
     "keywords": [
@@ -60,7 +61,33 @@ var CARDS_PYTHON = [
       "线程",
       "性能"
     ],
-    "related": []
+    "related": [
+      {
+        "id": "python-free-threading",
+        "kind": "extends",
+        "note": "免 GIL 的实现是理解 GIL 限制的延伸"
+      },
+      {
+        "id": "java-virtual-threads",
+        "kind": "compare",
+        "note": "对比 Python 与 Java 的多线程实现方式"
+      },
+      {
+        "id": "java-redisq27",
+        "kind": "compare",
+        "note": "对比 Redis 与 Python 的多线程限制"
+      },
+      {
+        "id": "java-redis-multithread-after-6",
+        "kind": "compare",
+        "note": "对比 Redis 与 Python 的多线程演进"
+      },
+      {
+        "id": "python-decorator",
+        "kind": "compare",
+        "note": "对比函数增强与多线程限制的机制"
+      }
+    ]
   },
   {
     "id": "python-gc",
@@ -121,7 +148,33 @@ var CARDS_PYTHON = [
       "垃圾回收",
       "引用计数"
     ],
-    "related": []
+    "related": [
+      {
+        "id": "java-garbage-collection-algorithm",
+        "kind": "compare",
+        "note": "对比 Python 与 Java 的垃圾回收机制"
+      },
+      {
+        "id": "python-asyncio",
+        "kind": "compare",
+        "note": "对比内存管理与异步编程的资源管理方式"
+      },
+      {
+        "id": "python-contextmanager",
+        "kind": "compare",
+        "note": "对比内存回收与资源管理的机制"
+      },
+      {
+        "id": "python-decorator",
+        "kind": "compare",
+        "note": "对比内存管理与函数增强的实现方式"
+      },
+      {
+        "id": "python-generator",
+        "kind": "compare",
+        "note": "生成器减少内存占用，与垃圾回收机制共同作用，对比看内存管理全貌"
+      }
+    ]
   },
   {
     "id": "python-decorator",
@@ -182,7 +235,33 @@ var CARDS_PYTHON = [
       "语法糖",
       "闭包"
     ],
-    "related": []
+    "related": [
+      {
+        "id": "python-generator",
+        "kind": "compare",
+        "note": "对比函数增强与惰性求值的实现方式"
+      },
+      {
+        "id": "python-asyncio",
+        "kind": "compare",
+        "note": "对比函数增强与异步编程的实现方式"
+      },
+      {
+        "id": "python-gc",
+        "kind": "compare",
+        "note": "对比函数增强与内存管理的机制"
+      },
+      {
+        "id": "python-gil",
+        "kind": "compare",
+        "note": "对比函数增强与多线程限制的机制"
+      },
+      {
+        "id": "python-contextmanager",
+        "kind": "extends",
+        "note": "装饰器是理解上下文管理器机制的基础，装饰器帮助实现上下文管理器的函数增强"
+      }
+    ]
   },
   {
     "id": "python-generator",
@@ -243,7 +322,33 @@ var CARDS_PYTHON = [
       "惰性求值",
       "迭代器"
     ],
-    "related": []
+    "related": [
+      {
+        "id": "python-decorator",
+        "kind": "prereq",
+        "note": "装饰器是理解生成器机制的基础，装饰器帮助实现生成器的函数增强"
+      },
+      {
+        "id": "python-asyncio",
+        "kind": "compare",
+        "note": "生成器和异步编程都涉及非阻塞操作，对比看不同方式的并发实现"
+      },
+      {
+        "id": "python-gc",
+        "kind": "compare",
+        "note": "生成器减少内存占用，与垃圾回收机制共同作用，对比看内存管理全貌"
+      },
+      {
+        "id": "python-deferred-annotations",
+        "kind": "compare",
+        "note": "生成器和延迟求值都涉及惰性处理，对比看不同场景下的惰性实现"
+      },
+      {
+        "id": "python-contextmanager",
+        "kind": "compare",
+        "note": "生成器和上下文管理器都涉及资源控制，对比看如何管理不同类型的资源"
+      }
+    ]
   },
   {
     "id": "python-contextmanager",
@@ -304,7 +409,33 @@ var CARDS_PYTHON = [
       "上下文管理器",
       "with"
     ],
-    "related": []
+    "related": [
+      {
+        "id": "python-gc",
+        "kind": "compare",
+        "note": "上下文管理器释放资源，与垃圾回收机制共同作用，对比看内存管理全貌"
+      },
+      {
+        "id": "python-asyncio",
+        "kind": "compare",
+        "note": "上下文管理器和异步编程都涉及非阻塞操作，对比看不同方式的并发实现"
+      },
+      {
+        "id": "python-generator",
+        "kind": "compare",
+        "note": "上下文管理器和生成器都涉及资源控制，对比看不同资源管理方式"
+      },
+      {
+        "id": "python-decorator",
+        "kind": "prereq",
+        "note": "装饰器是理解上下文管理器机制的基础，装饰器帮助实现上下文管理器的函数增强"
+      },
+      {
+        "id": "python-deferred-annotations",
+        "kind": "compare",
+        "note": "上下文管理器和延迟求值都涉及惰性处理，对比看不同场景下的惰性实现"
+      }
+    ]
   },
   {
     "id": "python-asyncio",
@@ -365,7 +496,33 @@ var CARDS_PYTHON = [
       "事件循环",
       "协程"
     ],
-    "related": []
+    "related": [
+      {
+        "id": "python-generator",
+        "kind": "extends",
+        "note": "异步编程基于生成器实现，生成器是协程的基础，理解生成器有助于理解异步编程"
+      },
+      {
+        "id": "python-decorator",
+        "kind": "prereq",
+        "note": "装饰器是理解异步编程机制的基础，装饰器帮助实现异步函数的增强"
+      },
+      {
+        "id": "python-gc",
+        "kind": "compare",
+        "note": "异步编程涉及内存管理，与垃圾回收机制共同作用，对比看内存管理全貌"
+      },
+      {
+        "id": "python-contextmanager",
+        "kind": "compare",
+        "note": "异步编程和上下文管理器都涉及非阻塞操作，对比看不同方式的并发实现"
+      },
+      {
+        "id": "python-deferred-annotations",
+        "kind": "compare",
+        "note": "异步编程和延迟求值都涉及惰性处理，对比看不同场景下的惰性实现"
+      }
+    ]
   }
 ];
 

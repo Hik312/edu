@@ -48,23 +48,38 @@ class ChapterState(TypedDict, total=False):
 # 提示词（和用它的节点放一起，理由同 qa/nodes.py）
 # ---------------------------------------------------------------------------
 CARD_SYS = '''你是「原理卡片」出题人。把用户给的一章资料整理成一张学习卡片，只输出 JSON：
-{"title":"卡片标题","oneLine":"一句话结论(<=40字)","analogy":"生活类比(<=40字)",
- "why":"为什么是这样(<=60字)","mechanism":["原理步骤，3-5条，每条<=40字，按因果顺序"],
- "keywords":["原文里真实出现的术语，3-6个"],"scene":["场景1(>=15字)","场景2(>=15字)"],
- "interviewQ":["面试官可能的追问，1-2个"]}
+{"title":"卡片标题","oneLine":"定义式结论(30-60字)","analogy":"生活类比(40-90字)",
+ "why":"为什么是这样(80-150字)","mechanism":["原理步骤，6-8条，每条60-120字"],
+ "keywords":["原文里真实出现的术语，3-6个"],"scene":["场景1","场景2","场景3"],
+ "interviewQ":["追问1（答：要点）","追问2（答：要点）"]}
 
-硬性要求：
+内容要充足 —— 这张卡是讲义不是目录，每个字段都得写够：
 - title 抓本章最核心的考点（<=30字），不是照抄章节标题；
-- **所有事实必须来自原文**：oneLine / why / mechanism / keywords 里的名词和数字
-  必须在原文中出现过，不许编造原文没有的接口名、版本号、数字；
-- keywords 只挑**原文出现过**的术语，原样抄写，不许同义替换、不许翻成英文；
-- scene 至少 2 条，每条要具体（什么系统、什么情况下、有什么坑），
+- oneLine 是**定义**：先讲清「这个知识点是什么、干什么用」，30-60字；
+- mechanism 6-8 条、每条 60-120 字、**总字数不少于 400 字**：第①条先给出
+  定义/本质（它到底是什么），之后按因果顺序讲「它怎么跑」，把因果链讲完整
+  —— 读者只看 mechanism 就该懂这个原理怎么工作；不许把 oneLine 换个说法抄一遍；
+  每条写成完整的一句话：做了什么/怎么做的 + 为什么这样/结果如何，短于 40 字
+  视为没写完（只写半句步骤名不算）；
+- why 80-150 字：讲透「为什么需要它、为什么是这样」（问题背景→为什么旧办法
+  不行→它解决在哪），不许只写一句"为了解决xx问题"；
+- scene 至少 3 条、每条 40-80 字：真实场景（什么系统、什么情况下用、有什么坑），
   禁止「广泛应用」「在实际开发中很重要」这类空话；
-- mechanism 讲「它怎么跑」的因果链，不许把 oneLine 换个说法抄一遍；
+- interviewQ 3-4 条：面试官真会问的追问，每条后面跟「（答：…）」给出答案要点
+  （要点 40-80 字），不是只列问题；
+- 整张卡正文（oneLine+why+mechanism+scene+interviewQ 合计）目标 **1000 字左右**
+  —— 字数是目标，下面的事实红线优先：原文较短时写到信息量的极限即可，
+  绝不注水、不许车轱辘话重复、不许编造原文没有的内容；
+事实红线：
+- **所有事实必须来自原文**：oneLine / why / mechanism / keywords 里的名词和数字
+  必须在原文中出现过，不许编造原文没有的接口名、版本号、数字；定义也从原文概括；
+- keywords 只挑**原文出现过**的术语，原样抄写，不许同义替换、不许翻成英文；
 - analogy 必须是日常生活场景（排队/图书馆/快递/做饭/开车/整理房间），
   不许出现任何技术词；
 - 正文里的【图注：…】是原文配图的说明：图里展示的流程或结构可以融进 mechanism，
   但仍然不许编造图注以外的内容。
+提交前自检：把 oneLine+why+mechanism+scene+interviewQ 加起来数一遍，
+不足 800 字就是没写够 —— 回去把短条扩长再输出。
 只输出 JSON，不要 markdown 代码块，不要任何解释。'''
 
 REWRITE = ('上一版没有通过对齐自检：%s\n'
@@ -163,13 +178,13 @@ def _clean_card(out):
 
     return {
         'title': s(out.get('title') or out.get('卡片标题'), 60) or '未命名',
-        'oneLine': s(out.get('oneLine') or out.get('一句话'), 90),
-        'analogy': s(out.get('analogy') or out.get('类比'), 90),
-        'why': s(out.get('why'), 140),
-        'mechanism': arr(out.get('mechanism') or out.get('原理步骤'), 6, 80),
+        'oneLine': s(out.get('oneLine') or out.get('一句话'), 140),
+        'analogy': s(out.get('analogy') or out.get('类比'), 140),
+        'why': s(out.get('why'), 200),
+        'mechanism': arr(out.get('mechanism') or out.get('原理步骤'), 10, 180),
         'keywords': arr(out.get('keywords'), 8, 30),
-        'scene': arr(out.get('scene'), 4, 120),
-        'interviewQ': arr(out.get('interviewQ'), 3, 120),
+        'scene': arr(out.get('scene'), 5, 160),
+        'interviewQ': arr(out.get('interviewQ'), 4, 200),
     }
 
 
@@ -247,8 +262,11 @@ def ground(state: ChapterState) -> dict:
     ch = state['chapter']
     card = state['card']
     body = re.sub(r'!\[[^\]]*\]\([^)]*\)', '', ch.get('body') or '')
-    low = body.lower()
-    kept = [k for k in (card.get('keywords') or []) if k.lower() in low]
+    # 关键词匹配先把空白去掉再比：中文 md 常在词中间硬折行（「疏忽\n概率」），
+    # 不去空白会把原文里明明有的关键词误判成不存在 → 整章被打成 ok=False
+    low = re.sub(r'\s+', '', body).lower()
+    kept = [k for k in (card.get('keywords') or [])
+            if re.sub(r'\s+', '', k).lower() in low]
     dropped = [k for k in (card.get('keywords') or []) if k not in kept]
     card['keywords'] = kept
     score = llm.align_score(body, {'oneLine': card.get('oneLine'),
@@ -264,6 +282,20 @@ def ground(state: ChapterState) -> dict:
         reasons.append('关键词全部不在原文里')
     if not card.get('scene') or len(card['scene']) < 2:
         reasons.append('场景不足 2 条')
+    # 内容长度闸门（用户口径：正文合计 1000 字左右）。固定下限会把源文很短的
+    # 章打成不合格，所以下限跟着源文走（源文的 55%，封顶 800）。命中后走
+    # REWRITE 重写 —— 差距以具体数字喂回去，模型第二版基本能写够。
+    total = (len(card.get('oneLine') or '') + len(card.get('why') or '')
+             + sum(len(x) for x in (card.get('mechanism') or []))
+             + sum(len(x) for x in (card.get('scene') or []))
+             + sum(len(x) for x in (card.get('interviewQ') or [])))
+    src_chars = len(re.sub(r'\s+', '', ch.get('body') or ''))
+    floor = min(800, int(src_chars * 0.55))
+    if total < floor:
+        reasons.append(
+            '正文合计 %d 字偏短（目标1000，本章下限 %d）：'
+            'mechanism 每条扩到 60-120 字、why 展开到 80-150 字、'
+            'scene 每条 40-80 字、追问答案 40-80 字' % (total, floor))
     ok = not reasons
     return {'card': card, 'ok': ok,
             'msg': '；'.join(reasons) if reasons else '对齐通过（%.2f）' % score}

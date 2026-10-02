@@ -65,7 +65,28 @@ var CARDS_AI = [
       "自然语言处理",
       "注意力机制"
     ],
-    "related": []
+    "related": [
+      {
+        "id": "ai-transformer-position-encoding",
+        "kind": "prereq",
+        "note": "理解位置编码能更好设计自注意力机制的实现"
+      },
+      {
+        "id": "ai-position-encoding",
+        "kind": "compare",
+        "note": "位置编码涉及自注意力机制，对比看如何实现位置感知"
+      },
+      {
+        "id": "ai-multiagent",
+        "kind": "compare",
+        "note": "多 Agent 协作涉及自注意力机制，对比看如何实现信息交互"
+      },
+      {
+        "id": "ai-lora-low-rank-micro-tuning",
+        "kind": "compare",
+        "note": "LoRA微调是模型参数更新的一种方式，对比自注意力机制如何实现参数更新。"
+      }
+    ]
   },
   {
     "id": "ai-transformer-position-encoding",
@@ -77,13 +98,14 @@ var CARDS_AI = [
       "位置编码的作用"
     ],
     "title": "位置编码是怎么让Transformer理解位置信息的？",
-    "oneLine": "位置编码帮助模型理解序列中词的位置关系。",
+    "oneLine": "位置编码让注意力看到顺序：原始 Transformer 用正弦波，现代大模型主流是 RoPE。",
     "analogy": "在快递站，每个包裹有唯一的地址标识。",
     "why": "解决Transformer无法处理序列顺序的问题。",
     "mechanism": [
-      "① 用正弦和余弦函数生成位置编码",
+      "① 原始 Transformer 用正弦和余弦函数生成位置编码",
       "② 每个位置的编码包含不同频率的正弦波",
-      "③ 编码与词向量相加作为模型输入"
+      "③ 编码与词向量相加作为模型输入",
+      "④ 现代大模型（GPT、LLaMA 等）主流改用 RoPE 旋转位置编码，直接编码相对位置"
     ],
     "diagram": {
       "kind": "pipeline",
@@ -109,7 +131,8 @@ var CARDS_AI = [
     },
     "interviewQ": [
       "位置编码和自注意力机制有什么关系？",
-      "如何生成位置编码？"
+      "如何生成位置编码？",
+      "现在的大模型还在用正弦位置编码吗？"
     ],
     "keywords": [
       "位置编码",
@@ -125,7 +148,18 @@ var CARDS_AI = [
       "位置编码",
       "自然语言处理"
     ],
-    "related": []
+    "related": [
+      {
+        "id": "ai-position-encoding",
+        "kind": "prereq",
+        "note": "位置编码是理解Transformer位置信息的基础，先了解位置编码再看位置编码如何让Transformer理解位置信息。"
+      },
+      {
+        "id": "ai-transformer-self-attention",
+        "kind": "compare",
+        "note": "自注意力机制需要位置信息来理解序列顺序，对比位置编码如何实现这一目标。"
+      }
+    ]
   },
   {
     "id": "ai-lora-low-rank-micro-tuning",
@@ -185,7 +219,18 @@ var CARDS_AI = [
       "LoRA",
       "模型优化"
     ],
-    "related": []
+    "related": [
+      {
+        "id": "ai-lora-low-rank",
+        "kind": "prereq",
+        "note": "LoRA低秩微调的原理是理解LoRA微调如何工作的基础，先了解原理再看具体实现。"
+      },
+      {
+        "id": "ai-transformer-self-attention",
+        "kind": "compare",
+        "note": "LoRA微调是模型参数更新的一种方式，对比自注意力机制如何实现参数更新。"
+      }
+    ]
   },
   {
     "id": "ai-position-encoding",
@@ -203,7 +248,8 @@ var CARDS_AI = [
     "mechanism": [
       "① 在输入嵌入向量中加入位置信息。",
       "② 位置信息与输入向量相加，形成位置编码。",
-      "③ 位置编码帮助模型理解元素在序列中的相对位置。"
+      "③ 位置编码帮助模型理解元素在序列中的相对位置。",
+      "④ 实现不止一种：加性正弦/可学习编码（原始 Transformer）与 RoPE 旋转编码（现代大模型主流）。"
     ],
     "diagram": {
       "kind": "pipeline",
@@ -246,7 +292,18 @@ var CARDS_AI = [
       "位置编码",
       "NLP"
     ],
-    "related": []
+    "related": [
+      {
+        "id": "ai-transformer-position-encoding",
+        "kind": "extends",
+        "note": "位置编码是Transformer理解位置信息的实现方式，深入看位置编码如何具体实现。"
+      },
+      {
+        "id": "ai-transformer-self-attention",
+        "kind": "compare",
+        "note": "自注意力机制需要位置信息来理解序列顺序，对比位置编码如何实现这一目标。"
+      }
+    ]
   },
   {
     "id": "ai-lora-low-rank",
@@ -300,14 +357,20 @@ var CARDS_AI = [
     ],
     "scene": [
       "在大模型微调任务中，LoRA 能显著减少训练时间和资源消耗。",
-      "在模型部署时，LoRA 可以提高推理速度并降低计算成本。"
+      "训练侧只更新低秩矩阵、单卡也能微调大模型；部署侧把适配器合回基座或热插拔，一个基座服务多组微调结果（推理本身不提速）"
     ],
     "tags": [
       "LoRA",
       "微调",
       "大模型"
     ],
-    "related": []
+    "related": [
+      {
+        "id": "ai-lora-low-rank-micro-tuning",
+        "kind": "extends",
+        "note": "LoRA低秩微调是LoRA原理的具体应用，深入看微调如何实现。"
+      }
+    ]
   }
 ];
 

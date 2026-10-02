@@ -7,7 +7,7 @@
  * analogy 压根没有。直接入库的结果是库里混进一批半成品，
  * 而用户往往要等很久才会发现某张卡是残的 —— 那时已经用它复习过了。
  *
- * 所以流程是单向的：文本 → 草稿 →（人工补齐）→ 发布。
+ * 所以流程是单向的：文本 → 草稿 →（人工或 AI 补齐）→ 发布。
  * 草稿单独一张表，不出现在正式卡列表里。
  *
  * ## 发布门槛
@@ -26,8 +26,9 @@ import {
   patchDraft,
   publishDraft
 } from '@/api/imports'
-import { getLlmStatus } from '@/api/ai'
+import { fillDraft, getLlmStatus } from '@/api/ai'
 import { getToken } from '@/api/client'
+import { job as fillJob, runFillAll, cancelFill } from './fillJob'
 
 /** 草稿配图地址 + 登录态（<img> 不发 Authorization 头，token 走 ?t=）。 */
 function imgSrc(im) {
@@ -142,7 +143,15 @@ async function onSplit() {
 
 function startEdit(d) {
   editing.value = d.id
-  form.value[d.id] = {
+  syncForm(d.id)
+}
+
+/** 草稿 → 表单缓存（新建或覆盖）。startEdit 和「AI 补齐」共用：
+ *  补齐会改字段，正在编辑的表单不同步就会把刚补上的内容盖回旧的。 */
+function syncForm(did) {
+  const d = drafts.value.find(x => x.id === did)
+  if (!d) return
+  form.value[did] = {
     title: d.title || '',
     oneLine: d.oneLine || '',
     scene: (d.scene || []).join('\n'),
@@ -208,6 +217,71 @@ async function onPublish(d) {
   } finally {
     delete busy.value[d.id]
   }
+}
+
+/** AI 补齐：整张卡通读一遍 —— 缺的补上、占位/偏薄的重写（后端尽力找回原文，
+ *  有原文时事实以原文为准）。单张跑：一次只补这一张，结果报「补了什么」。 */
+async function onFill(d) {
+  if (!llm.value.ok) {
+    ElMessage.warning('AI 未启用：' + (llm.value.msg || '没配置模型'))
+    return
+  }
+  busy.value[d.id] = 'fill'
+  try {
+    const r = await fillDraft(d.id)
+    await fetchDrafts()
+    if (editing.value === d.id) syncForm(d.id) // 正在编辑就同步进表单，别盖回旧值
+    const names = {
+      title: '标题',
+      oneLine: '一句话',
+      analogy: '类比',
+      why: '为什么',
+      mechanism: '原理步骤',
+      keywords: '关键词',
+      scene: '场景',
+      interviewQ: '追问'
+    }
+    const what = (r.changed || []).map(k => names[k] || k)
+    if (what.length) ElMessage.success(`已补齐：${what.join('、')}`)
+    // changed 空 = 模型没给任何可更新的值（字段名对不上 / 内容没变）。
+    // 从前这里报成功，用户明明看到表单没变，读起来就是「补齐是空的」
+    else ElMessage.warning('AI 通读后没有补出新内容，试试「手工补齐」')
+  } catch (e) {
+    ElMessage.error(e?.message || 'AI 补齐失败')
+  } finally {
+    delete busy.value[d.id]
+  }
+}
+
+/** AI 补齐（全部）：逐张排进 fillJob 队列 —— 页面切走队列照跑，单张失败不
+ *  断队。串行是刻意的：本地 8B 一次只跑一路，并发只是互相抢显存。 */
+async function onFillAll() {
+  if (!llm.value.ok) {
+    ElMessage.warning('AI 未启用：' + (llm.value.msg || '没配置模型'))
+    return
+  }
+  if (!drafts.value.length || (fillJob.value && fillJob.value.running)) return
+  const list = drafts.value.map(d => ({ id: d.id, title: d.title }))
+  const sum = await runFillAll(list, {
+    start: id => {
+      busy.value[id] = 'fill'
+    },
+    // 每张跑完刷新一次：用户看着字段一张张被补上，正在编辑的表单同步新值
+    after: async id => {
+      delete busy.value[id]
+      await fetchDrafts()
+      if (editing.value === id) syncForm(id)
+    }
+  })
+  if (sum.skipped) return
+  if (sum.failed.length) {
+    const f = sum.failed[0]
+    ElMessage.error(
+      `补齐完成 ${sum.ok}/${list.length}：${sum.failed.length} 张失败（${f.title}：${f.msg}）`
+    )
+  } else if (sum.ok) {
+    ElMessage.success(`补齐完成：${sum.ok} 张有新内容${sum.empty ? `，${sum.empty} 张没变化` : ''}`)
+  } else ElMessage.warning('AI 通读后没有补出新内容，试试「手工补齐」')
 }
 
 async function onDrop(d) {
@@ -283,7 +357,29 @@ async function onClear() {
         <h3>
           草稿 <span class="count">{{ drafts.length }} 条</span>
         </h3>
-        <button v-if="drafts.length" class="btn btn-bare" @click="onClear">清空</button>
+        <div class="head-acts">
+          <span v-if="fillJob?.running" class="fill-prog">
+            补齐中 {{ fillJob.done }}/{{ fillJob.total }}
+          </span>
+          <button v-if="fillJob?.running" class="btn btn-bare" @click="cancelFill">取消</button>
+          <button
+            v-else-if="drafts.length"
+            class="btn btn-ghost"
+            :disabled="!llm.ok"
+            :title="llm.ok ? '逐张通读排队补齐，可以切去别的页面，回来看进度' : llmTip"
+            @click="onFillAll"
+          >
+            AI 补齐全部
+          </button>
+          <button
+            v-if="drafts.length"
+            class="btn btn-bare"
+            :disabled="fillJob?.running"
+            @click="onClear"
+          >
+            清空
+          </button>
+        </div>
       </header>
 
       <p v-if="!drafts.length" class="empty">
@@ -310,7 +406,14 @@ async function onClear() {
                 </button>
               </template>
               <template v-else>
-                <button class="btn btn-ghost" @click="startEdit(d)">补齐</button>
+                <button
+                  class="btn btn-ghost"
+                  :disabled="busy[d.id] || fillJob?.running"
+                  @click="onFill(d)"
+                >
+                  {{ busy[d.id] === 'fill' ? 'AI 补齐中…' : 'AI 补齐' }}
+                </button>
+                <button class="btn btn-ghost" @click="startEdit(d)">手工补齐</button>
                 <button
                   class="btn btn-primary"
                   :disabled="!ready(d) || busy[d.id]"
@@ -482,6 +585,18 @@ async function onClear() {
   font-size: var(--fs-xs);
   font-weight: 400;
   color: var(--dim);
+}
+
+/* 标题行右侧的批量操作：进度 + 取消 / 补齐全部 / 清空 */
+.head-acts {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+.fill-prog {
+  font-size: var(--fs-xs);
+  color: var(--ac);
+  font-variant-numeric: tabular-nums;
 }
 
 .blockers {

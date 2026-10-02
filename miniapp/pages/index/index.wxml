@@ -1,0 +1,70 @@
+<view wx:if="{{loading}}" class="empty">加载中…</view>
+
+<block wx:elif="{{error}}">
+  <view class="card">
+    <view class="title">加载失败</view>
+    <view class="oneLine">{{error}}</view>
+    <button class="btn" bindtap="load" style="margin-top:20rpx">重试</button>
+  </view>
+</block>
+
+<block wx:else>
+  <!-- 未登录引导 -->
+  <view wx:if="{{!loggedIn}}" class="card" bindtap="goMine">
+    <view class="title">未登录</view>
+    <view class="oneLine">登录后同步复习进度 →</view>
+  </view>
+
+  <!-- 统计四宫格 -->
+  <view class="stats" wx:if="{{stats}}">
+    <view class="stat card">
+      <view class="num">{{stats.total}}</view>
+      <view class="muted">全部卡片</view>
+    </view>
+    <view class="stat card">
+      <view class="num lv3">{{stats.known}}</view>
+      <view class="muted">已掌握</view>
+    </view>
+    <view class="stat card">
+      <view class="num lv2">{{stats.fuzzy}}</view>
+      <view class="muted">模糊</view>
+    </view>
+    <view class="stat card">
+      <view class="num lv1">{{stats.weak}}</view>
+      <view class="muted">薄弱</view>
+    </view>
+  </view>
+
+  <!-- 今日 CTA：挑过清单按清单口径（一天 311 张刷不完，挑了才来得及） -->
+  <view class="card cta" bindtap="goLearn" wx:if="{{stats}}">
+    <view>
+      <view class="title" wx:if="{{pick.length}}">今日自选 {{pick.length}} 张</view>
+      <view class="title" wx:else>今日待复习 {{stats.dueToday}} 张</view>
+      <view class="oneLine">{{pick.length ? '按清单复习，刷完就收工' : '间隔重复，先复习再学新'}}</view>
+    </view>
+    <view class="arrow">→</view>
+  </view>
+
+  <!-- 分类 → 科目 -->
+  <view class="card" wx:for="{{catalog}}" wx:key="id" wx:for-item="cat">
+    <view class="title">{{cat.name}}</view>
+    <view class="oneLine">{{cat.desc}}</view>
+    <view style="margin-top:18rpx">
+      <view class="chip" wx:for="{{cat.subjects}}" wx:key="id"
+            data-id="{{item.id}}" bindtap="pickSubject">{{item.name}}</view>
+    </view>
+  </view>
+
+  <!-- 学习方向预览：点一下进卡包按这个模块筛，能逐张翻 -->
+  <view class="card">
+    <view class="title">学习方向</view>
+    <view class="dir" wx:for="{{directions}}" wx:key="id" wx:for-item="d"
+          data-id="{{d.id}}" bindtap="pickDir">
+      <view class="row">
+        <view class="sub accent">{{d.name}}</view>
+        <view class="muted dcnt">{{d.count}} 张</view>
+      </view>
+      <view class="muted">{{d.desc}}</view>
+    </view>
+  </view>
+</block>

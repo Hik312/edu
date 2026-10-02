@@ -50,7 +50,23 @@ var CARDS_POLITICS = [
       "哲学原理",
       "方法论"
     ],
-    "related": []
+    "related": [
+      {
+        "id": "politics-marxism",
+        "kind": "prereq",
+        "note": "理解唯物辩证法的核心观点是学习唯物辩证法方法的基础"
+      },
+      {
+        "id": "politics-mao1",
+        "kind": "compare",
+        "note": "对比唯物辩证法与实事求是，能更清晰理解实践指导原则"
+      },
+      {
+        "id": "politics-deng1",
+        "kind": "compare",
+        "note": "对比唯物辩证法与改革开放，能更深入理解发展逻辑"
+      }
+    ]
   },
   {
     "id": "politics-mao1",
@@ -101,7 +117,23 @@ var CARDS_POLITICS = [
       "思想方法",
       "实践论"
     ],
-    "related": []
+    "related": [
+      {
+        "id": "politics-mao",
+        "kind": "prereq",
+        "note": "理解实事求是的内涵是掌握其实践指导作用的前提"
+      },
+      {
+        "id": "politics-marxism1",
+        "kind": "compare",
+        "note": "对比实事求是与唯物辩证法，能更清晰理解实践指导原则"
+      },
+      {
+        "id": "politics-deng1",
+        "kind": "compare",
+        "note": "对比实事求是与改革开放，能更深入理解发展逻辑"
+      }
+    ]
   },
   {
     "id": "politics-deng1",
@@ -152,7 +184,28 @@ var CARDS_POLITICS = [
       "理论创新",
       "经济改革"
     ],
-    "related": []
+    "related": [
+      {
+        "id": "politics-marxism1",
+        "kind": "prereq",
+        "note": "理解唯物辩证法是认识改革开放推动发展的理论基础"
+      },
+      {
+        "id": "politics-mao",
+        "kind": "compare",
+        "note": "对比改革开放与实事求是，能更清晰理解发展与实践的关系"
+      },
+      {
+        "id": "politics-mao1",
+        "kind": "compare",
+        "note": "对比改革开放与实事求是，能更深入理解发展逻辑"
+      },
+      {
+        "id": "politics-marxism",
+        "kind": "compare",
+        "note": "对比唯物辩证法与改革开放，能更深入理解发展逻辑"
+      }
+    ]
   },
   {
     "id": "politics-marxism",
@@ -211,7 +264,28 @@ var CARDS_POLITICS = [
       "哲学",
       "原理"
     ],
-    "related": []
+    "related": [
+      {
+        "id": "politics-philosophy",
+        "kind": "prereq",
+        "note": "理解唯物辩证法的核心观点是掌握其哲学基础的前提"
+      },
+      {
+        "id": "politics-marxism1",
+        "kind": "compare",
+        "note": "对比唯物辩证法的核心观点与认识事物发展，能更清晰理解方法论"
+      },
+      {
+        "id": "politics-mao",
+        "kind": "compare",
+        "note": "对比唯物辩证法与实事求是，能更清晰理解实践指导原则"
+      },
+      {
+        "id": "politics-deng1",
+        "kind": "compare",
+        "note": "对比唯物辩证法与改革开放，能更深入理解发展逻辑"
+      }
+    ]
   },
   {
     "id": "politics-mao",
@@ -248,7 +322,28 @@ var CARDS_POLITICS = [
       "思想",
       "毛泽东"
     ],
-    "related": []
+    "related": [
+      {
+        "id": "politics-marxism",
+        "kind": "prereq",
+        "note": "理解实事求是需先掌握唯物辩证法的核心观点"
+      },
+      {
+        "id": "politics-philosophy",
+        "kind": "prereq",
+        "note": "唯物辩证法是实事求是的理论根基，先理解其核心观点"
+      },
+      {
+        "id": "politics-mao1",
+        "kind": "extends",
+        "note": "理解实事求是的内涵是掌握其实践指导作用的前提"
+      },
+      {
+        "id": "politics-deng1",
+        "kind": "compare",
+        "note": "对比改革开放与实事求是，能更清晰理解发展与实践的关系"
+      }
+    ]
   },
   {
     "id": "politics-philosophy",
@@ -308,7 +403,18 @@ var CARDS_POLITICS = [
       "哲学",
       "马克思主义"
     ],
-    "related": []
+    "related": [
+      {
+        "id": "politics-marxism",
+        "kind": "prereq",
+        "note": "唯物辩证法是理解核心观点的理论基础"
+      },
+      {
+        "id": "politics-mao",
+        "kind": "prereq",
+        "note": "实事求是是唯物辩证法在实践中的具体体现，先理解其内涵"
+      }
+    ]
   }
 ];
 

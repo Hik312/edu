@@ -1,0 +1,82 @@
+/* 全局：复古（牛皮纸卷宗）主题变量 + 卡片/按钮/标签的公共样式
+   页面里只写页面特有的部分，复用的样式都从这里来。
+   色值和 web 端 tokens.css 同一套（暖牛皮纸），别在这儿另立主题。 */
+page {
+  --bg: #eee5d3;
+  --card: #f8f3e6;
+  --card2: #f1ead8;
+  --line: #ddd1b6;
+  --text: #3a2f21;
+  --dim: #63543c;
+  --accent: #1f4b6b;
+  --green: #2f7057;
+  --amber: #8a6218;
+  --red: #a8392a;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 28rpx;
+  line-height: 1.6;
+}
+
+.card {
+  background: var(--card);
+  border: 1rpx solid var(--line);
+  border-radius: 20rpx;
+  padding: 28rpx;
+  margin: 20rpx 24rpx;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+}
+
+.muted { color: var(--dim); font-size: 24rpx; }
+.accent { color: var(--accent); }
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--accent);
+  color: #fff;
+  border-radius: 14rpx;
+  padding: 20rpx 36rpx;
+  font-size: 30rpx;
+  border: none;
+  line-height: 1.2;
+}
+.btn.ghost { background: transparent; border: 1rpx solid var(--line); color: var(--dim); }
+.btn.block { display: flex; width: 100%; }
+.btn[loading] { opacity: 0.7; }
+
+/* 掌握度三档色 */
+.lv3 { color: var(--green); }
+.lv2 { color: var(--amber); }
+.lv1 { color: var(--red); }
+
+.chip {
+  display: inline-block;
+  padding: 8rpx 22rpx;
+  margin: 0 14rpx 14rpx 0;
+  background: var(--card2);
+  border: 1rpx solid var(--line);
+  border-radius: 999rpx;
+  font-size: 24rpx;
+  color: var(--dim);
+}
+.chip.on { background: rgba(31, 75, 107, 0.14); border-color: var(--accent); color: var(--accent); }
+
+.title { font-size: 34rpx; font-weight: 600; }
+.oneLine { color: var(--dim); font-size: 26rpx; margin-top: 8rpx; }
+
+.input {
+  background: var(--card2);
+  border: 1rpx solid var(--line);
+  border-radius: 14rpx;
+  padding: 18rpx 24rpx;
+  color: var(--text);
+  font-size: 28rpx;
+}
+
+.empty { text-align: center; color: var(--dim); padding: 80rpx 0; }

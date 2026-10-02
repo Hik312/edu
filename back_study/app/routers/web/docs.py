@@ -13,8 +13,8 @@ from fastapi.responses import FileResponse
 import db
 import docparse
 import importer
-from ..deps import current_user
-from ..schemas import DocImportIn
+from ...deps import current_user
+from ...schemas import DocImportIn, DocRenameIn
 
 router = APIRouter(prefix='/api', tags=['文档'])
 
@@ -50,6 +50,18 @@ def get_doc(did: str, user=Depends(current_user)):
     if not d:
         raise HTTPException(404, '文档不存在')
     return {'ok': True, 'doc': d}
+
+
+@router.put('/docs/{did}', summary='重命名文档（= 卡片组名，级联刷卡/草稿的 deck）')
+def rename_doc(did: str, body: DocRenameIn, user=Depends(current_user)):
+    """卡片组没有独立的表：组名就是文档标题，deck 是抄在每张卡上的冗余。
+    db.rename_deck 负责三处一起改（文档 + 自定义卡 + 草稿）。"""
+    r = db.rename_deck(did, body.title)
+    if r is None:
+        raise HTTPException(404, '文档不存在')
+    if not r.get('ok'):
+        raise HTTPException(400, r.get('msg') or '改名失败')
+    return r
 
 
 @router.delete('/docs/{did}', summary='删除文档')

@@ -66,7 +66,8 @@ export function ask(question, mode = 'flow', opts = {}) {
       mode,
       stream: false,
       history: opts.history || [],
-      profile: opts.profile || undefined
+      profile: opts.profile || undefined,
+      webSearch: Boolean(opts.webSearch)
     },
     { timeout: 120000 }
   )
@@ -129,20 +130,22 @@ export function cleanAnswer(text) {
  * @param {Object} [opts]
  * @param {Array<{role:string,content:string}>} [opts.history] L1 会话历史
  * @param {Object} [opts.profile]  L3 长期档案，不传则用服务端存的
+ * @param {boolean} [opts.webSearch] 联网开关：资料追加【网页】搜索结果
  * @param {(text:string)=>void} [opts.onText]   累计全文（已清洗）
  * @param {(ids:string[])=>void} [opts.onSources] 引用卡片 id，可能为空数组
  * @param {(res:{answer:string})=>void} [opts.onDone]
  * @param {(err:Error)=>void} [opts.onError]
  */
 export function askStream(question, opts = {}) {
-  const { history = [], profile, onText, onSources, onDone, onError } = opts
+  const { history = [], profile, webSearch = false, onText, onSources, onDone, onError } = opts
   const token = getToken()
   const body = JSON.stringify({
     question,
     mode: 'react',
     stream: true,
     history,
-    profile: profile || undefined
+    profile: profile || undefined,
+    webSearch
   })
   fetch('/api/agent/ask', {
     method: 'POST',

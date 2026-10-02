@@ -27,10 +27,11 @@ TEMPERATURE = _env('AGENT_TEMPERATURE', 0.2)
 # 是兼顾小显存机器的折中，喂整本书再调大。
 NUM_CTX = int(_env('AGENT_NUM_CTX', 8192))
 
-# 单次生成上限。2048 而不是原来的 1024 —— 回答放开到「300~600 字讲透」之后
-# （见 qa/nodes.py ANSWER_SYS），600 个汉字约 900 token，1024 会把最后一段
-# 从半句话切掉。max 只是上限，答完就停，调大不多花时间。
-NUM_PREDICT = int(_env('AGENT_NUM_PREDICT', 2048))
+# 单次生成上限。3072 而不是原来的 2048 —— 出卡提示词放开到「内容充足」
+# （见 cards/nodes.py CARD_SYS，整卡目标 500+ 字，mechanism 6-8×110 字、
+# interviewQ 带答案要点）之后，2048 会把 JSON 从中间切掉 → llm_not_json。
+# max 只是上限，答完就停，调大不多花时间；预算 = prompt + 生成 <= NUM_CTX。
+NUM_PREDICT = int(_env('AGENT_NUM_PREDICT', 3072))
 
 # ---- 编排 ----
 # 自检没过时最多重来几次。本地 8B 的自检能力有限，重太多次只是在烧时间。

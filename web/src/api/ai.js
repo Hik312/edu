@@ -20,11 +20,12 @@ export function getLlmStatus() {
 /** 精读：给 docId+index 是按文档章节读，只给 title+text 是直接读一段文字。
  * @param {Object} body 见 `app/schemas.py:EnrichIn`
  * @returns {Promise<{ok:boolean, ai:Object}>}
- * timeout 单独放宽到 3 分钟：本地 8B 精读一章实测 20~60 秒，
- * 全局的 20 秒会在模型慢一点时把正常请求掐成「timeout of 20000ms exceeded」。
+ * timeout 对齐后端 enrich 的 300s：本地 8B 精读一章实测 20~60 秒，
+ * 模型慢时（长章 + num_ctx 拉大）180s 会把正常请求掐成 timeout，
+ * 后端却继续跑完 —— 用户看到报错、结果却又出来了。
  */
 export function enrich(body) {
-  return client.post('/llm/enrich', body, { timeout: 180000 })
+  return client.post('/llm/enrich', body, { timeout: 300000 })
 }
 
 /** 把某章的精读结果变成草稿卡。
@@ -34,4 +35,15 @@ export function enrich(body) {
  */
 export function toCard(docId, index) {
   return client.post('/llm/to-card', { docId, index })
+}
+
+/** AI 补齐：整张草稿通读一遍 —— 缺的补上、占位/偏薄的重写，落回草稿池。
+ * @param {string} draftId
+ * @returns {Promise<{ok:boolean, draft:Object, changed:string[]}>}
+ * changed 是这次真改动的字段名，前端映射成中文告诉用户补了什么。
+ * timeout 必须 >= 后端 fill_draft 的 300s：前端先掐断时用户看到报错，
+ * 后端却继续跑完并落盘 —— 「报错后刷新内容又变了」就是这么来的。
+ */
+export function fillDraft(draftId) {
+  return client.post('/llm/fill', { draftId }, { timeout: 300000 })
 }

@@ -5,8 +5,8 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 import db
-from ..deps import current_user
-from ..schemas import ProgressIn
+from ...deps import current_user
+from ...schemas import PickIn, ProgressIn
 
 router = APIRouter(prefix='/api', tags=['学习'])
 
@@ -65,6 +65,22 @@ def reset_progress(cid: str, user=Depends(current_user)):
     return {'ok': True}
 
 
+@router.get('/review/pick', summary='今日自选复习清单')
+def get_pick(user=Depends(current_user)):
+    """一天 311 张到期卡刷不完 —— 用户自己点名「今天就刷这些」。
+
+    清单跨天自动作废（db 层按日期判），所以这里永远是今天的口径。
+    """
+    ids = db.get_today_pick(user.get('id'))
+    return {'ok': True, 'today': db.today_str(), 'ids': ids, 'total': len(ids)}
+
+
+@router.put('/review/pick', summary='设置今日自选复习清单（整体覆盖）')
+def put_pick(body: PickIn, user=Depends(current_user)):
+    ids = db.set_today_pick(user.get('id'), body.ids)
+    return {'ok': True, 'ids': ids, 'total': len(ids)}
+
+
 @router.get('/review/due', summary='今日复习队列')
 def review_due(limit: int = Query(50, ge=1, le=500),
                domain: Optional[str] = Query(None),
@@ -72,17 +88,29 @@ def review_due(limit: int = Query(50, ge=1, le=500),
                    None, description='学习方向 id，逗号分隔（data/directions.js）。只推这些方向的卡'),
                include_all: str = Query('', alias='all',
                                         description='=1 时把没到期的也带上（「全部过一遍」用）'),
+               pick: str = Query('',
+                                 description='=1 时只回今日自选清单里的卡（清单空就回空队列，不当作退化成普通队列）'),
                user=Depends(current_user)):
     # 形参叫 include_all、查询串仍叫 ?all=1：alias 保住了对外契约，
     # 又不至于在函数体里盖掉内置的 all()
-    items = db.due_list(domain=domain or None, include_all=(include_all == '1'))
-    if dirs:
-        # 方向筛必须在截断**之前**：先按方向过滤全量到期卡，再取 limit。
-        # 顺序反了就是先拿满 limit 再丢，方向卡会被排在后面的基本卡挤出队列。
-        kws = db.direction_kws([d.strip() for d in dirs.split(',') if d.strip()])
-        if kws:                        # 传了查不到的方向 id → 当没筛，别返回空队列
-            items = [x for x in items if db.card_hit(x['card'], kws)]
-    items = items[:limit]
+    if pick == '1':
+        # 自选模式：清单就是队列。仍走 due_list(include_all=True) 拿全量再按 id 收窄，
+        # 这样 level/nextAt/overdue 字段口径和普通队列完全一致，前端不用分两套渲染。
+        # 清单为空 → 回空 total=0，让前端能区分「没挑」和「挑了但都刷完了」。
+        ids = set(db.get_today_pick(user.get('id')))
+        items = [x for x in db.due_list(include_all=True) if x['card']['id'] in ids]
+        # 顺序交给 due_list 的排序（先 level1/2 再 level0，同级按 overdue），
+        # 不按清单写入顺序 —— 用户挑卡时是按页面顺序点的，没有轻重语义。
+        items = items[:limit]
+    else:
+        items = db.due_list(domain=domain or None, include_all=(include_all == '1'))
+        if dirs:
+            # 方向筛必须在截断**之前**：先按方向过滤全量到期卡，再取 limit。
+            # 顺序反了就是先拿满 limit 再丢，方向卡会被排在后面的基本卡挤出队列。
+            kws = db.direction_kws([d.strip() for d in dirs.split(',') if d.strip()])
+            if kws:                    # 传了查不到的方向 id → 当没筛，别返回空队列
+                items = [x for x in items if db.card_hit(x['card'], kws)]
+        items = items[:limit]
     queue = [{'id': x['card']['id'], 'title': x['card'].get('title'),
               'domain': x['card'].get('domain'), 'oneLine': x['card'].get('oneLine'),
               'level': x['level'],

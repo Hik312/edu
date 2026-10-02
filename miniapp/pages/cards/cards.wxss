@@ -1,0 +1,28 @@
+.bar {
+  display: flex;
+  gap: 16rpx;
+  padding: 24rpx;
+}
+.grow { flex: 1; }
+
+/* 模块 chips 横滑：方向有十几个，竖排会把列表挤到屏幕外 */
+.mods {
+  white-space: nowrap;
+  padding: 0 24rpx;
+  margin-bottom: 6rpx;
+}
+.mods .chip { display: inline-block; }
+.mods .cnt {
+  font-size: 20rpx;
+  color: var(--dim);
+  margin-left: 6rpx;
+}
+.chip.on .cnt { color: var(--accent); opacity: 0.75; }
+
+.filter { padding: 0 24rpx; }
+.count { padding: 8rpx 32rpx; }
+.browse { padding: 4rpx 24rpx 8rpx; }
+
+.item .between { justify-content: space-between; }
+.lvl { font-size: 24rpx; margin-left: 16rpx; white-space: nowrap; }
+.path { margin-top: 10rpx; font-size: 22rpx; }

@@ -52,10 +52,31 @@ export function resetCard(cid) {
  *                                 后端**先按方向过滤全量到期卡，再截断 limit** ——
  *                                 方向卡不会被排在后面的基本卡挤出队列。
  * @param {string} [params.all]   '1' 时忽略到期时间，返回全部
+ * @param {string} [params.pick]  '1' 时只回今日自选清单里的卡（清单空回空
+ *                                 队列，不退化成普通队列；dirs/all 会让位于清单）
  * @returns {Promise<{ok:boolean, today:string, total:number, queue:Array<Object>}>}
  */
 export function getDue(params) {
   return client.get('/review/due', { params })
+}
+
+/** 今日自选复习清单。
+ *
+ * 一天 311 张到期卡刷不完 —— 清单是用户自己点名「今天就刷这些」的那几十张。
+ * 跨天自动作废（后端按存的日期判），所以永远是今天的口径。
+ *
+ * @returns {Promise<{ok:boolean, today:string, ids:string[], total:number}>}
+ */
+export function getPick() {
+  return client.get('/review/pick')
+}
+
+/** 覆盖写今日清单（后端过滤不存在的 id、去重、截 100）。
+ * @param {string[]} ids 卡片 id
+ * @returns {Promise<{ok:boolean, ids:string[], total:number}>} 服务端回存后的那份
+ */
+export function putPick(ids) {
+  return client.put('/review/pick', { ids })
 }
 
 /** 学习统计概览。

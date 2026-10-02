@@ -25,9 +25,9 @@ import time
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 
-from ..config import LLM_ERR
-from ..deps import current_user
-from ..schemas import (AgentAskIn, AgentAskOut, AgentProfileIn,
+from ...config import LLM_ERR
+from ...deps import current_user
+from ...schemas import (AgentAskIn, AgentAskOut, AgentProfileIn,
                        CardsChapterIn, CardsParseIn, CardsParseKeepsIn,
                        CardsStructureIn)
 
@@ -98,12 +98,13 @@ async def agent_ask(body: AgentAskIn, user=Depends(current_user)):
 
     # 流式走 SSE，由 StreamingResponse 在线程池里驱动同步生成器，不堵事件循环
     if body.stream:
-        return StreamingResponse(_sse(rt, q, hist, prof),
+        return StreamingResponse(_sse(rt, q, hist, prof, body.webSearch),
                                  media_type='text/event-stream')
 
     t0 = time.time()
     try:
-        out = await asyncio.to_thread(rt.ask_full, q, body.mode, hist, prof)
+        out = await asyncio.to_thread(rt.ask_full, q, body.mode, hist, prof,
+                                      body.webSearch)
         answer = out['answer']
         sources = out.get('sources') or []
         steps = out.get('steps')
@@ -119,7 +120,7 @@ async def agent_ask(body: AgentAskIn, user=Depends(current_user)):
                        steps=steps, ms=int((time.time() - t0) * 1000))
 
 
-def _sse(rt, question, hist=None, prof=None):
+def _sse(rt, question, hist=None, prof=None, web=False):
     """SSE 生成器。
 
     帧协议（前端 api/agent.js 按 event 名分流，**改动必须两边同步**）：
@@ -138,7 +139,8 @@ def _sse(rt, question, hist=None, prof=None):
         box['sources'] = ids or []
 
     try:
-        for piece in rt.stream_react(question, hist, prof, on_sources=on_sources):
+        for piece in rt.stream_react(question, hist, prof,
+                                     on_sources=on_sources, web=web):
             yield 'data: %s\n\n' % piece.replace('\n', '\\n')
         if box['sources'] is not None:
             yield 'event: sources\ndata: %s\n\n' % _json.dumps(box['sources'],

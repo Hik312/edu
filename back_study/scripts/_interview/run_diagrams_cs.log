@@ -1,0 +1,54 @@
+20:18:15 [cs] 开始：共 47 张，待补图 47 张（），model=qwen3:8b
+20:18:19 [cs] [1/47] 图  cs-osq104                                pipeline       3帧 3797ms
+20:18:26 [cs] [2/47] 图  cs-osq105                                pipeline       4帧 6791ms
+20:18:53 [cs] [3/47] 图  cs-osq109                                snapshot       6帧 27326ms
+20:19:08 [cs] [4/47] 图  cs-osq112                                state-machine  6帧 14783ms
+20:19:28 [cs] [5/47] 图  cs-osq116                                snapshot       3帧 19884ms
+20:19:36 [cs] [6/47] 图  cs-osq203                                snapshot       2帧 8244ms
+20:19:42 [cs] [7/47] 图  cs-osq213                                pipeline       3帧 5447ms
+20:19:51 [cs] [8/47] 图  cs-osq215                                pipeline       6帧 8904ms
+20:20:05 [cs] [9/47] 图  cs-osq224                                snapshot       3帧 14563ms
+20:20:10 [cs] [10/47] 图  cs-osq227                                pipeline       3帧 5014ms
+20:20:19 [cs] [11/47] 图  cs-osq228                                snapshot       3帧 9389ms
+20:20:42 [cs] [12/47] —   cs-osq229                                判定不配图 22362ms
+20:20:51 [cs] [13/47] 图  http-1-1-http-2-0                        snapshot       3帧 9114ms
+20:21:07 [cs] [14/47] 图  http-2-0-http-3-0                        arch           4帧 15899ms
+20:21:16 [cs] [15/47] 图  http-1-1-http-2-0-2                      snapshot       2帧 8826ms
+20:21:22 [cs] [16/47] 图  cs-netq13                                pipeline       4帧 6469ms
+20:21:31 [cs] [17/47] 图  cs-netq16                                snapshot       3帧 8588ms
+20:21:47 [cs] [18/47] —   cs-netq19                                判定不配图 16370ms
+20:21:55 [cs] [19/47] 图  cs-netq20                                snapshot       3帧 8121ms
+20:22:13 [cs] [20/47] 图  sse-websocket                            snapshot       3帧 17615ms
+20:22:23 [cs] [21/47] 图  cs-deadlock                              state-machine  4帧 10533ms
+20:22:43 [cs] [22/47] 图  cs-memory-management                     arch           6帧 20079ms
+20:22:53 [cs] [23/47] 图  cs-virtual-memory                        pipeline       6帧 9026ms
+20:22:59 [cs] [24/47] 图  cs-io-multiplexing                       pipeline       4帧 6096ms
+20:23:05 [cs] [25/47] 图  cs-zero-copy                             snapshot       2帧 6538ms
+20:23:15 [cs] [26/47] 图  cs-os-lock-sync                          snapshot       3帧 10078ms
+20:23:32 [cs] [27/47] 图  cs-tcpip-model                           snapshot       2帧 16358ms
+20:23:37 [cs] [28/47] 图  cs-tcp-timewait                          pipeline       3帧 5286ms
+20:23:43 [cs] [29/47] 图  cs-tcp-reliability                       pipeline       4帧 6349ms
+20:23:49 [cs] [30/47] 图  cs-http-versions                         pipeline       3帧 5295ms
+20:23:56 [cs] [31/47] 图  cs-dns                                   pipeline       4帧 7072ms
+20:24:09 [cs] [32/47] —   cs-url-to-page                           判定不配图 13827ms
+20:24:19 [cs] [33/47] 图  cs-http-vs-rpc                           snapshot       3帧 9137ms
+20:24:34 [cs] [34/47] 图  cs-lru-cache                             arch           5帧 15843ms
+20:24:38 [cs] [35/47] 图  cs-bloom-filter                          pipeline       3帧 3745ms
+20:24:47 [cs] [36/47] 图  cs-heap                                  pipeline       5帧 8632ms
+20:25:02 [cs] [37/47] 图  cs-red-black-tree                        arch           4帧 15195ms
+20:25:07 [cs] [38/47] 图  cs-trie                                  pipeline       3帧 4609ms
+20:25:13 [cs] [39/47] 图  cs-hash-table                            pipeline       4帧 6914ms
+20:25:49 [cs] [40/47] 图  cs-skip-list-generic                     arch           3帧 35660ms
+20:25:56 [cs] [41/47] 图  cs-sorting                               snapshot       2帧 6835ms
+20:26:04 [cs] [42/47] 图  cs-dynamic-programming                   pipeline       6帧 7943ms
+20:26:09 [cs] [43/47] 图  cs-binary-search                         pipeline       4帧 5244ms
+20:26:19 [cs] [44/47] 图  cs-two-pointers                          snapshot       3帧 9761ms
+20:27:15 [cs] [45/47] 图  cs-top-k                                 snapshot       3帧 56379ms
+20:27:25 [cs] [46/47] 图  cs-dfs-bfs                               snapshot       4帧 9755ms
+20:27:34 [cs] [47/47] 图  cs-complexity                            pipeline       5帧 8979ms
+20:27:34 [cs] 完成：配图 44，判定不配 3，用时 558 秒
+20:42:58 [cs] 开始：共 47 张，待补图 3 张（retry-null ），model=qwen3:8b
+20:43:18 [cs] [1/3] —   cs-osq229                                判定不配图 20487ms
+20:43:34 [cs] [2/3] —   cs-netq19                                判定不配图 15730ms
+20:43:47 [cs] [3/3] 图  cs-url-to-page                           pipeline       4帧 13164ms
+20:43:47 [cs] 完成：配图 1，判定不配 2，用时 49 秒

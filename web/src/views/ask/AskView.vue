@@ -19,11 +19,12 @@ import { ElMessage } from 'element-plus'
 import { getAgentStatus, getProfile } from '@/api/agent'
 import * as cardsApi from '@/api/cards'
 import { useChatStore } from '@/stores/chat'
+import { answerHtml } from './answerHtml'
 
 /* 会话状态全在 chat store（模块级）：问完切走页面，请求照样跑完写回，
  * 回来还在。本组件只剩渲染与视图态（滚动、抽屉、引用标题映射）。 */
 const chat = useChatStore()
-const { messages, input, mode, sending, profile } = storeToRefs(chat)
+const { messages, input, mode, webSearch, sending, profile } = storeToRefs(chat)
 const { send, clearChat } = chat
 
 const cardMap = reactive({}) // id -> title，引用卡片展示用
@@ -111,11 +112,25 @@ function closeDrawer() {
 
 <template>
   <div class="ask">
-    <!-- 顶栏：标题 + 模式切换 + 档案 + AI 状态 -->
+    <!-- 顶栏：标题 + 模式切换 + 联网开关 + 档案 + AI 状态 -->
     <div class="head">
-      <div class="seg">
-        <button :class="{ on: mode === 'flow' }" @click="mode = 'flow'">知识库问答</button>
-        <button :class="{ on: mode === 'react' }" @click="mode = 'react'">Agent（流式）</button>
+      <div class="head-l">
+        <div class="seg">
+          <button :class="{ on: mode === 'flow' }" @click="mode = 'flow'">知识库问答</button>
+          <button :class="{ on: mode === 'react' }" @click="mode = 'react'">Agent（流式）</button>
+        </div>
+        <button
+          class="ghost"
+          :class="{ on: webSearch }"
+          :title="
+            webSearch
+              ? '联网已开：回答会附带网页搜索结果（点击关闭）'
+              : '点击开启联网：回答会附带网页搜索结果，适合问最新现状'
+          "
+          @click="webSearch = !webSearch"
+        >
+          联网{{ webSearch ? '·开' : '' }}
+        </button>
       </div>
       <div class="head-r">
         <span v-if="profile" class="prof" :title="'这轮问答会带上你的长期档案'">
@@ -129,7 +144,9 @@ function closeDrawer() {
           <span class="dot" />
           {{
             status.ok
-              ? 'AI 已就绪 · ' + (mode === 'flow' ? '带引用' : '流式')
+              ? 'AI 已就绪 · ' +
+                (mode === 'flow' ? '带引用' : '流式') +
+                (webSearch ? ' · 联网' : '')
               : 'AI 未启用 · ' + status.msg
           }}
         </div>
@@ -152,7 +169,8 @@ function closeDrawer() {
       <div v-for="(m, i) in messages" :key="i" class="row" :class="m.role">
         <div class="bubble">
           <span v-if="m.streaming && !m.text" class="typing">思考中…</span>
-          <span class="body">{{ m.text }}</span>
+          <!-- 公式/粗体渲染：v-html + answerHtml（普通文本先转义，见 answerHtml.js） -->
+          <span class="body" v-html="answerHtml(m.text)" />
 
           <div v-if="m.role === 'assistant' && m.sources && m.sources.length" class="srcs">
             <span class="src-label">引用卡片</span>
@@ -220,6 +238,11 @@ function closeDrawer() {
   gap: 12px;
   padding: 12px 4px 14px;
 }
+.head-l {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
 .seg {
   display: inline-flex;
   border: 1px solid var(--line);
@@ -275,6 +298,15 @@ function closeDrawer() {
 .ghost:hover {
   border-color: var(--ac);
   color: var(--ac);
+}
+/* 联网开关的选中态：复用 .ghost 外壳，开着时填成主色（和 .seg button.on 一致） */
+.ghost.on {
+  background: var(--ac);
+  border-color: var(--ac);
+  color: #fdfaf3;
+}
+.ghost.on:hover {
+  color: #fdfaf3;
 }
 .status {
   display: inline-flex;

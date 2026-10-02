@@ -1,0 +1,50 @@
+<!-- 已登录 -->
+<block wx:if="{{user}}">
+  <view class="card head">
+    <view class="avatar">{{user.displayName[0]}}</view>
+    <view>
+      <view class="title">{{user.displayName}}</view>
+      <view class="muted">ID {{user.id}} · 注册于 {{user.createdAt}}</view>
+    </view>
+  </view>
+
+  <view class="card" wx:if="{{stats}}">
+    <view class="secT">学习进度</view>
+    <view class="grid">
+      <view class="cell"><view class="n">{{stats.total}}</view><view class="muted">总卡片</view></view>
+      <view class="cell"><view class="n lv3">{{stats.known}}</view><view class="muted">已掌握</view></view>
+      <view class="cell"><view class="n lv2">{{stats.fuzzy}}</view><view class="muted">模糊</view></view>
+      <view class="cell"><view class="n lv1">{{stats.weak}}</view><view class="muted">薄弱</view></view>
+      <view class="cell"><view class="n accent">{{stats.dueToday}}</view><view class="muted">今日待复习</view></view>
+      <view class="cell"><view class="n">{{stats.unmarked}}</view><view class="muted">未标记</view></view>
+    </view>
+  </view>
+
+  <view class="foot">
+    <button class="btn ghost block" bindtap="logout">退出登录</button>
+  </view>
+</block>
+
+<!-- 未登录：登录 / 注册表单 -->
+<block wx:else>
+  <view class="card">
+    <view class="title">{{mode === 'login' ? '登录' : '注册'}}</view>
+    <view class="oneLine">与网页端同一账号，进度共用</view>
+
+    <input class="input" placeholder="用户名" data-field="username"
+           value="{{username}}" bindinput="onField" />
+    <input class="input" placeholder="密码" password data-field="password"
+           value="{{password}}" bindinput="onField" />
+    <input class="input" wx:if="{{mode === 'register'}}" placeholder="昵称（可空）"
+           data-field="displayName" value="{{displayName}}" bindinput="onField" />
+
+    <view class="err" wx:if="{{error}}">{{error}}</view>
+
+    <button class="btn block" loading="{{busy}}" bindtap="submit">
+      {{mode === 'login' ? '登录' : '注册并登录'}}
+    </button>
+    <view class="switch muted" bindtap="switchMode">
+      {{mode === 'login' ? '没有账号？去注册 →' : '已有账号？去登录 →'}}
+    </view>
+  </view>
+</block>

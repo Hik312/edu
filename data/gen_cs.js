@@ -58,7 +58,23 @@ var CARDS_CS = [
       "网络协议",
       "连接管理"
     ],
-    "related": []
+    "related": [
+      {
+        "id": "cs-tcpip-model",
+        "kind": "prereq",
+        "note": "TCP三次握手是TCP/IP模型中连接建立的实现，先了解模型再看握手过程。"
+      },
+      {
+        "id": "cs-tcp-reliability",
+        "kind": "compare",
+        "note": "TCP三次握手确保连接建立，对比TCP如何保证可靠传输。"
+      },
+      {
+        "id": "cs-process-thread-coroutine",
+        "kind": "compare",
+        "note": "TCP 握手是网络通信的基础，与进程、线程的调度机制不同"
+      }
+    ]
   },
   {
     "id": "cs-http-vs-https",
@@ -76,7 +92,8 @@ var CARDS_CS = [
     "mechanism": [
       "① HTTP 通过明文传输数据",
       "② HTTPS 使用 SSL/TLS 加密数据",
-      "③ HTTPS 在传输层使用 TLS 协议"
+      "③ TLS 挂在 TCP 之上、HTTP 之下（不在传输层里），把整个 HTTP 报文加密后再交给 TCP",
+      "④ 现状：TLS 1.3 握手一个往返完成，HTTP/2 与 HTTP/3（QUIC 内置 TLS）都跑在 HTTPS 上"
     ],
     "interviewQ": [
       "HTTPS 如何保证数据安全？",
@@ -95,7 +112,23 @@ var CARDS_CS = [
       "网络安全",
       "加密传输"
     ],
-    "related": []
+    "related": [
+      {
+        "id": "http-2-0-http-3-0",
+        "kind": "compare",
+        "note": "了解 HTTP/2.0 的加密机制，有助于理解 HTTPS 的升级方向"
+      },
+      {
+        "id": "sse-websocket",
+        "kind": "compare",
+        "note": "SSE 和 WebSocket 都是 HTTP 的变种，对比能理解 HTTPS 的协议差异"
+      },
+      {
+        "id": "http-1-1-http-2-0",
+        "kind": "compare",
+        "note": "HTTP/1.1 的性能限制是 HTTPS 协议优化的重要背景"
+      }
+    ]
   },
   {
     "id": "cs-process-thread-coroutine",
@@ -132,7 +165,28 @@ var CARDS_CS = [
       "并发编程",
       "线程管理"
     ],
-    "related": []
+    "related": [
+      {
+        "id": "cs-osq224",
+        "kind": "compare",
+        "note": "硬链接和软链接是文件系统概念，与进程、线程的调度机制不同"
+      },
+      {
+        "id": "cs-osq112",
+        "kind": "prereq",
+        "note": "理解进程状态后，能更好对比线程和协程的调度机制"
+      },
+      {
+        "id": "cs-deadlock",
+        "kind": "compare",
+        "note": "死锁是线程调度中的问题，与协程的并发机制有本质区别"
+      },
+      {
+        "id": "cs-tcp-handshake",
+        "kind": "compare",
+        "note": "TCP 握手是网络通信的基础，与进程、线程的调度机制不同"
+      }
+    ]
   }
 ];
 

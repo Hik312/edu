@@ -1,0 +1,144 @@
+14:01:07 [java] 开始：共 73 张，待补图 73 张，model=qwen3:8b
+14:01:11 [java] [1/73] 图  java-bigdecimal                          pipeline       3帧 3088ms
+14:01:23 [java] [2/73] 图  java-generics-and-wildcards              snapshot       3帧 12892ms
+14:01:29 [java] [3/73] 图  java-proxy                               pipeline       3帧 5626ms
+14:01:36 [java] [4/73] 图  java-reflection                          pipeline       4帧 6661ms
+14:01:41 [java] [5/73] 图  java-serialization                       pipeline       4帧 5460ms
+14:01:47 [java] [6/73] 图  java-spi                                 pipeline       3帧 6055ms
+14:02:07 [java] [7/73] 图  java-syntactic-sugar                     snapshot       3帧 19494ms
+14:02:16 [java] [8/73] 图  java-why-there-only-value-passing-in-java snapshot       3帧 8995ms
+14:02:22 [java] [9/73] 图  java-arraylist-source-code               pipeline       4帧 6653ms
+14:02:41 [java] [10/73] 图  java-concurrent-hash-map-source-code     snapshot       3帧 18617ms
+14:02:44 [java] [11/73] 图  java-copyonwritearraylist-source-code    pipeline       3帧 3023ms
+14:02:49 [java] [12/73] 图  java-delayqueue-source-code              pipeline       3帧 4784ms
+14:02:57 [java] [13/73] 图  java-hashmap-source-code                 pipeline       5帧 7811ms
+14:03:15 [java] [14/73] —   java-java-collection-precautions-for-use 判定不配图 18011ms
+14:03:25 [java] [15/73] 图  java-linkedhashmap-source-code           state-machine  4帧 10348ms
+14:03:32 [java] [16/73] 图  java-linkedlist-source-code              pipeline       4帧 6877ms
+14:03:37 [java] [17/73] 图  java-arrayblockingqueue-source-code      pipeline       3帧 5265ms
+14:03:49 [java] [18/73] 图  java-aqs                                 state-machine  4帧 11389ms
+14:04:06 [java] [19/73] 图  java-atomic-classes                      snapshot       3帧 17641ms
+14:04:10 [java] [20/73] 图  java-cas                                 pipeline       3帧 3711ms
+14:04:13 [java] [21/73] 图  java-completablefuture-intro             pipeline       3帧 3393ms
+14:04:40 [java] [22/73] —   java-java-concurrent-collections         判定不配图 26448ms
+14:04:50 [java] [23/73] 图  java-java-lock                           snapshot       3帧 9912ms
+14:04:57 [java] [24/73] 图  java-java-thread-pool-best-practices     pipeline       4帧 7490ms
+14:05:04 [java] [25/73] 图  java-java-thread-pool-summary            pipeline       4帧 7175ms
+14:05:22 [java] [26/73] 图  java-jmm                                 snapshot       3帧 17301ms
+14:05:43 [java] [27/73] 图  java-optimistic-lock-and-pessimistic-lock state-machine  5帧 21426ms
+14:05:47 [java] [28/73] 图  java-reentrantlock                       pipeline       3帧 3754ms
+14:05:52 [java] [29/73] 图  java-threadlocal                         pipeline       4帧 5273ms
+14:06:54 [java] [30/73] —   java-io-basis                            判定不配图 62051ms
+14:07:14 [java] [31/73] —   java-io-design-patterns                  判定不配图 19561ms
+14:07:21 [java] [32/73] 图  java-io-model                            snapshot       3帧 7255ms
+14:07:25 [java] [33/73] 图  java-nio-basis                           pipeline       3帧 3823ms
+14:07:53 [java] [34/73] —   java-class-file-structure                判定不配图 27790ms
+14:08:01 [java] [35/73] 图  java-class-loading-process               pipeline       5帧 8336ms
+14:08:06 [java] [36/73] 图  java-classloader                         pipeline       3帧 5105ms
+14:08:21 [java] [37/73] 图  java-jdk-monitoring-and-troubleshooting-tools snapshot       2帧 14937ms
+14:08:30 [java] [38/73] 图  java-jvm-garbage-collection              snapshot       3帧 9452ms
+14:08:35 [java] [39/73] 图  java-jvm-intro                           pipeline       3帧 4894ms
+14:08:47 [java] [40/73] 图  java-jvm-parameters-intro                snapshot       3帧 12166ms
+14:08:58 [java] [41/73] 图  java-memory-area                         snapshot       3帧 10725ms
+14:09:08 [java] [42/73] 图  java-java8-common-new-features           snapshot       3帧 9345ms
+14:09:08 [java] [43/73] —   java-basicq01                            判定不配图 310ms
+14:09:21 [java] [44/73] 图  javasevsjavaee                           snapshot       3帧 13186ms
+14:09:21 [java] [45/73] —   jvmvsjdkvsjre                            判定不配图 386ms
+14:09:26 [java] [46/73] 图  java-basicq04                            pipeline       3帧 4953ms
+14:09:30 [java] [47/73] 图  java-basicq05                            pipeline       3帧 3606ms
+14:09:49 [java] [48/73] 图  java-basicq06                            snapshot       3帧 19298ms
+14:10:07 [java] [49/73] —   oraclejdkvsopenjdk                       判定不配图 17404ms
+14:10:07 [java] [50/73] —   java-basicq09                            判定不配图 309ms
+14:10:07 [java] [51/73] —   java-basicq11                            判定不配图 369ms
+14:10:12 [java] [52/73] 图  java-basicq12                            pipeline       3帧 4652ms
+14:10:17 [java] [53/73] 图  java-basicq13                            pipeline       3帧 4797ms
+14:10:21 [java] [54/73] 图  continue-break-return                    pipeline       3帧 3739ms
+14:10:33 [java] [55/73] —   java-basicq15                            判定不配图 12606ms
+14:10:33 [java] [56/73] —   java-basicq16                            判定不配图 293ms
+14:10:52 [java] [57/73] —   java-basicq17                            判定不配图 18884ms
+14:10:59 [java] [58/73] 图  java-basicq18                            snapshot       2帧 7012ms
+14:11:17 [java] [59/73] —   java-basicq22                            判定不配图 17486ms
+14:11:26 [java] [60/73] 图  java-basicq24                            snapshot       4帧 9424ms
+14:11:45 [java] [61/73] 图  java-basicq25                            snapshot       2帧 18653ms
+14:12:00 [java] [62/73] —   java-basicq27                            判定不配图 15313ms
+14:12:09 [java] [63/73] 图  java-basicq28                            snapshot       4帧 8560ms
+14:12:13 [java] [64/73] 图  java-basicq29                            pipeline       3帧 3917ms
+14:12:36 [java] [65/73] —   java-collq03                             判定不配图 23726ms
+14:12:49 [java] [66/73] 图  arraylist-array                          snapshot       4帧 12078ms
+14:13:08 [java] [67/73] 图  java-collq10                             snapshot       3帧 19924ms
+14:13:27 [java] [68/73] 图  arraylist-linkedlist                     snapshot       3帧 18895ms
+14:13:36 [java] [69/73] 图  fail-fast-fail-safe                      snapshot       3帧 8647ms
+14:13:43 [java] [70/73] 图  comparable-comparator                    snapshot       3帧 7012ms
+14:14:00 [java] [71/73] —   queue-deque                              判定不配图 16879ms
+14:14:05 [java] [72/73] 图  priorityqueue                            pipeline       3帧 5067ms
+14:14:23 [java] [73/73] —   arrayblockingqueue-linkedblockingqueue   判定不配图 18280ms
+14:14:23 [java] 完成：配图 55，判定不配 18，用时 795 秒
+20:10:44 [java] 开始：共 115 张，待补图 42 张（），model=qwen3:8b
+20:10:44 [java] [1/42] —   java-mysqlq14                            判定不配图 862ms
+20:10:51 [java] [2/42] 图  myisam-innodb                            snapshot       3帧 6524ms
+20:11:04 [java] [3/42] 图  java-mysqlq36                            snapshot       4帧 12837ms
+20:11:12 [java] [4/42] 图  java-mysqlq39                            snapshot       3帧 8667ms
+20:11:24 [java] [5/42] 图  java-mysqlq40                            state-machine  5帧 12097ms
+20:11:33 [java] [6/42] 图  java-mysqlq42                            state-machine  3帧 8697ms
+20:11:38 [java] [7/42] 图  java-mysql-sql-executed                  pipeline       4帧 5249ms
+20:11:49 [java] [8/42] 图  java-mysql-mvcc                          pipeline       3帧 10526ms
+20:12:11 [java] [9/42] —   java-mysql-tx-isolation                  判定不配图 21700ms
+20:12:21 [java] [10/42] 图  java-mysql-index-bplus                   snapshot       3帧 10332ms
+20:12:47 [java] [11/42] 图  java-mysql-index-invalid                 snapshot       4帧 25835ms
+20:12:53 [java] [12/42] 图  java-mysql-explain                       pipeline       4帧 6506ms
+20:13:07 [java] [13/42] 图  java-mysql-logs                          arch           4帧 13373ms
+20:13:20 [java] [14/42] 图  java-mysql-perf-spec                     snapshot       3帧 13115ms
+20:13:28 [java] [15/42] 图  java-cap-base                            state-machine  3帧 8631ms
+20:13:44 [java] [16/42] 图  java-consistent-hashing                  arch           5帧 15598ms
+20:13:51 [java] [17/42] 图  java-raft                                pipeline       4帧 7218ms
+20:13:56 [java] [18/42] 图  java-distributed-lock2                   pipeline       3帧 4963ms
+20:14:02 [java] [19/42] 图  java-distributed-transaction             pipeline       4帧 5974ms
+20:14:20 [java] [20/42] 图  java-distributed-id-design               snapshot       3帧 17683ms
+20:14:35 [java] [21/42] 图  java-api-gateway                         arch           5帧 14921ms
+20:14:42 [java] [22/42] 图  java-rpc-intro                           pipeline       5帧 6964ms
+20:14:42 [java] [23/42] —   java-zookeeper-intro                     判定不配图 362ms
+20:14:54 [java] [24/42] 图  java-mq-basics                           arch           3帧 12089ms
+20:14:55 [java] [25/42] —   java-kafka                               判定不配图 307ms
+20:15:12 [java] [26/42] 图  java-rabbitmq                            arch           6帧 17461ms
+20:15:28 [java] [27/42] 图  java-rocketmq                            arch           4帧 15601ms
+20:15:33 [java] [28/42] 图  java-rate-limit                          pipeline       4帧 5158ms
+20:15:50 [java] [29/42] 图  java-idempotency                         snapshot       3帧 16969ms
+20:16:07 [java] [30/42] 图  java-timeout-retry                       arch           6帧 16775ms
+20:16:16 [java] [31/42] 图  java-circuit-breaker                     snapshot       2帧 9103ms
+20:16:36 [java] [32/42] —   java-load-balancing                      判定不配图 20754ms
+20:16:53 [java] [33/42] 图  java-rw-split-sharding                   arch           5帧 16774ms
+20:16:59 [java] [34/42] 图  java-deep-pagination                     pipeline       3帧 6328ms
+20:17:08 [java] [35/42] 图  java-sql-optimization                    snapshot       3帧 8424ms
+20:17:19 [java] [36/42] 图  java-cold-hot-separation                 snapshot       3帧 11528ms
+20:17:31 [java] [37/42] 图  java-spring-ioc-aop                      snapshot       3帧 12019ms
+20:17:38 [java] [38/42] 图  java-spring-transaction                  pipeline       4帧 6272ms
+20:17:42 [java] [39/42] 图  java-restful-api                         pipeline       3帧 4577ms
+20:17:48 [java] [40/42] 图  java-jwt                                 pipeline       3帧 5866ms
+20:18:06 [java] [41/42] 图  java-realtime-push                       snapshot       2帧 17835ms
+20:18:15 [java] [42/42] 图  java-state-machine-workflow              snapshot       3帧 9300ms
+20:18:15 [java] 完成：配图 37，判定不配 5，用时 451 秒
+20:30:50 [java] 开始：共 115 张，待补图 23 张（retry-null ），model=qwen3:8b
+20:31:13 [java] [1/23] —   java-java-collection-precautions-for-use 判定不配图 22319ms
+20:31:35 [java] [2/23] —   java-java-concurrent-collections         判定不配图 22468ms
+20:31:41 [java] [3/23] 图  java-io-basis                            pipeline       3帧 5945ms
+20:32:00 [java] [4/23] —   java-io-design-patterns                  判定不配图 18869ms
+20:32:22 [java] [5/23] 图  java-class-file-structure                arch           7帧 22057ms
+20:32:22 [java] [6/23] —   java-basicq01                            判定不配图 447ms
+20:32:23 [java] [7/23] —   jvmvsjdkvsjre                            判定不配图 289ms
+20:32:40 [java] [8/23] 图  oraclejdkvsopenjdk                       snapshot       4帧 17738ms
+20:32:41 [java] [9/23] —   java-basicq09                            判定不配图 391ms
+20:32:41 [java] [10/23] —   java-basicq11                            判定不配图 344ms
+20:32:42 [java] [11/23] —   java-basicq15                            判定不配图 371ms
+20:32:42 [java] [12/23] —   java-basicq16                            判定不配图 279ms
+20:33:03 [java] [13/23] 图  java-basicq17                            snapshot       4帧 21307ms
+20:33:21 [java] [14/23] —   java-basicq22                            判定不配图 18170ms
+20:33:22 [java] [15/23] —   java-basicq27                            判定不配图 311ms
+20:33:43 [java] [16/23] —   java-collq03                             判定不配图 21805ms
+20:34:01 [java] [17/23] —   queue-deque                              判定不配图 17146ms
+20:34:18 [java] [18/23] —   arrayblockingqueue-linkedblockingqueue   判定不配图 17675ms
+20:34:19 [java] [19/23] —   java-mysqlq14                            判定不配图 284ms
+20:34:39 [java] [20/23] —   java-mysql-tx-isolation                  判定不配图 20663ms
+20:34:40 [java] [21/23] —   java-zookeeper-intro                     判定不配图 356ms
+20:34:40 [java] [22/23] —   java-kafka                               判定不配图 305ms
+20:35:01 [java] [23/23] —   java-load-balancing                      判定不配图 20950ms
+20:35:01 [java] 完成：配图 4，判定不配 19，用时 250 秒

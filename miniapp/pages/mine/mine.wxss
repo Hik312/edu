@@ -1,0 +1,24 @@
+.head { display: flex; align-items: center; gap: 24rpx; }
+.avatar {
+  width: 96rpx;
+  height: 96rpx;
+  line-height: 96rpx;
+  text-align: center;
+  border-radius: 50%;
+  background: rgba(31, 75, 107, 0.18);
+  color: var(--accent);
+  font-size: 44rpx;
+  font-weight: 700;
+}
+
+.secT { font-size: 24rpx; color: var(--dim); letter-spacing: 2rpx; margin-bottom: 16rpx; }
+.grid { display: flex; flex-wrap: wrap; }
+.cell { width: 33.33%; text-align: center; padding: 16rpx 0; }
+.n { font-size: 44rpx; font-weight: 700; }
+
+.card .input { margin-top: 20rpx; }
+.err { color: var(--red); font-size: 26rpx; margin-top: 18rpx; }
+.card .btn { margin-top: 24rpx; }
+.switch { text-align: center; margin-top: 22rpx; }
+
+.foot { padding: 24rpx; }

@@ -60,22 +60,14 @@ const { auto, autoLabel, toggleAuto } = makeDocAuto({
   fetchList,
   agentBusy: () => agent.value.on
 })
-const {
-  agent,
-  agentLabel,
-  toggleAgent,
-  startAfterImport,
-  parsing,
-  hasParse,
-  runParseFlow,
-  toggleKeep
-} = makeDocAgent({
-  opened,
-  llm,
-  fetchList,
-  busy: () => auto.value.on,
-  openDoc
-})
+const { agent, agentLabel, toggleAgent, startAfterImport, parsing, runParseFlow, toggleKeep } =
+  makeDocAgent({
+    opened,
+    llm,
+    fetchList,
+    busy: () => auto.value.on,
+    openDoc
+  })
 
 onMounted(async () => {
   await Promise.all([fetchList(), fetchLlm()])
@@ -240,6 +232,10 @@ async function onToCard(idx) {
 }
 
 const chapters = computed(() => opened.value?.chapters || [])
+
+/** 文档有没有解析报告 —— 必须是本组件的 computed：docAgent 是模块级单例，
+ *  它里面的 computed 会跨挂载残留旧的依赖追踪，回来以后判断会不准。 */
+const hasParse = computed(() => Boolean(opened.value?.parse))
 
 /** 精读进度百分比。没有 aiTotal 就是还没精读过任何一章。 */
 function progress(d) {

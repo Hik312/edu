@@ -12,7 +12,7 @@ from pydantic import BaseModel, Field
 
 import db
 import security
-from ..deps import current_user
+from ...deps import current_user
 
 router = APIRouter(prefix='/api/auth', tags=['认证'])
 

@@ -58,7 +58,13 @@ var CARDS_MATH = [
       "极限计算",
       "洛必达法则"
     ],
-    "related": []
+    "related": [
+      {
+        "id": "math-limitcalc",
+        "kind": "prereq",
+        "note": "洛必达法则能处理复杂极限中的不定式问题。"
+      }
+    ]
   },
   {
     "id": "math-导数与微分中值定理",
@@ -75,7 +81,7 @@ var CARDS_MATH = [
     "why": "能帮助理解函数在区间内的变化规律，为后续极值分析提供依据。",
     "mechanism": [
       "① 通过拉格朗日中值定理建立导数与函数差值的关系",
-      "② 利用柯西中值定和参数方程求导结合使用",
+      "② 利用柯西中值定理处理参数方程求导问题",
       "③ 分析函数单调性与极值点的分布"
     ],
     "diagram": {
@@ -117,7 +123,13 @@ var CARDS_MATH = [
       "中值定理",
       "极值分析"
     ],
-    "related": []
+    "related": [
+      {
+        "id": "math-mvt",
+        "kind": "prereq",
+        "note": "中值定理是理解导数性质的基础理论。"
+      }
+    ]
   },
   {
     "id": "math-定积分几何应用",
@@ -176,7 +188,13 @@ var CARDS_MATH = [
       "定积分",
       "几何应用"
     ],
-    "related": []
+    "related": [
+      {
+        "id": "math-geometric",
+        "kind": "prereq",
+        "note": "定积分计算曲线面积是几何应用的基础。"
+      }
+    ]
   },
   {
     "id": "math-limitcalc",
@@ -223,7 +241,7 @@ var CARDS_MATH = [
       "洛必达法则和泰勒展开有什么区别？"
     ],
     "keywords": [
-      "洛必,达法则",
+      "洛必达法则",
       "不定式",
       "极限"
     ],
@@ -235,7 +253,13 @@ var CARDS_MATH = [
       "极限",
       "洛必达"
     ],
-    "related": []
+    "related": [
+      {
+        "id": "math-极限计算方法",
+        "kind": "prereq",
+        "note": "复杂极限是洛必达法则适用的典型场景。"
+      }
+    ]
   },
   {
     "id": "math-mvt",
@@ -294,7 +318,13 @@ var CARDS_MATH = [
       "中值定理",
       "导数"
     ],
-    "related": []
+    "related": [
+      {
+        "id": "math-导数与微分中值定理",
+        "kind": "prereq",
+        "note": "中值定理是理解导数性质的基础理论。"
+      }
+    ]
   },
   {
     "id": "math-geometric",
@@ -353,7 +383,13 @@ var CARDS_MATH = [
       "定积分",
       "几何应用"
     ],
-    "related": []
+    "related": [
+      {
+        "id": "math-定积分几何应用",
+        "kind": "prereq",
+        "note": "理解定积分计算面积需要先掌握定积分的基本概念"
+      }
+    ]
   }
 ];
 

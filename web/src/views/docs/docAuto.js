@@ -7,6 +7,10 @@
  * 2. 已精读的章跳过、已有草稿的章也跳过 —— 跑一半点了停止，再点一次是
  *    **断点续跑**，不会重复精读，更不会生成两条同 id 的重复草稿。
  * 单步失败只记账不断整轮：单章失败不该把整轮打断。
+ *
+ * ★ auto 状态是**模块级单例**，视图依赖每次 makeDocAuto 重新绑定 ——
+ *   和 docAgent.js / stores/chat.js 同一个理由：一轮要几十秒，切走页面
+ *   再回来进度还在，写回前用 mine() 过闸不冲掉别的文档的视图。
  */
 import { computed, ref } from 'vue'
 import { ElMessage } from 'element-plus'
@@ -14,16 +18,26 @@ import { getDoc } from '@/api/docs'
 import { enrich, toCard } from '@/api/ai'
 import { listDrafts } from '@/api/imports'
 
-export function makeDocAuto({ opened, llm, fetchList, agentBusy }) {
-  /** 一键全量状态。按钮上直接显示进度（精读 3/12… / 转卡 2/10…），
-   *  再点一次是请求停止 —— 长任务没有停止按钮的话用户只能刷新页面。 */
-  const auto = ref({ on: false, stop: false, phase: 'enrich', i: 0, n: 0 })
+/** 一键全量状态。按钮上直接显示进度（精读 3/12… / 转卡 2/10…），
+ *  再点一次是请求停止 —— 长任务没有停止按钮的话用户只能刷新页面。 */
+const auto = ref({ on: false, stop: false, phase: 'enrich', i: 0, n: 0 })
+/** 当前挂载的 DocsView 提供的视图依赖；后台流程每个 await 后重读它。 */
+let deps = null
+
+export function makeDocAuto(d) {
+  deps = d
+
   const autoLabel = computed(() => {
     const a = auto.value
     if (!a.on) return '全部转卡'
     const phase = a.phase === 'enrich' ? '精读 ' : '转卡 '
     return phase + a.i + '/' + a.n + (a.stop ? ' 停止中…' : '…')
   })
+
+  /** 当前视图打开的还是不是这一份 —— 写 opened 前必过这道闸。 */
+  function mine(docId) {
+    return deps.opened.value?.id === docId
+  }
 
   async function toggleAuto() {
     if (auto.value.on) {
@@ -36,12 +50,12 @@ export function makeDocAuto({ opened, llm, fetchList, agentBusy }) {
   /** 一键全量：逐章精读 → 逐章转草稿卡（生成的卡都挂当前文档的卡片组）。
    *  拆成两个阶段方法不是为了好看 —— 合在一起 eslint 复杂度 16 超了上限 15。 */
   async function runAuto() {
-    if (!llm.value.ok) {
-      ElMessage.warning('AI 未启用：' + (llm.value.msg || '没配置模型'))
+    if (!deps.llm.value.ok) {
+      ElMessage.warning('AI 未启用：' + (deps.llm.value.msg || '没配置模型'))
       return
     }
-    if (agentBusy()) return // 两条链互斥，别同时跑
-    const docId = opened.value.id
+    if (deps.agentBusy()) return // 两条链互斥，别同时跑
+    const docId = deps.opened.value.id
     auto.value = { on: true, stop: false, phase: 'enrich', i: 0, n: 0 }
     const stat = { enriched: 0, made: 0, failed: 0 }
     try {
@@ -57,14 +71,15 @@ export function makeDocAuto({ opened, llm, fetchList, agentBusy }) {
       auto.value.on = false
       auto.value.stop = false
       const r = await getDoc(docId).catch(() => null)
-      if (r) opened.value = r.doc
-      await fetchList()
+      if (r && mine(docId)) deps.opened.value = r.doc
+      await deps.fetchList()
     }
   }
 
-  /** 阶段一：逐章精读（正文 <20 字的纯标题章跳过）。 */
+  /** 阶段一：逐章精读（正文 <20 字的纯标题章跳过）。
+   *  入口和 runAuto 同拍（还没 await 过），此时视图必然还在 docId 上。 */
   async function enrichAll(docId, stat) {
-    const need = (opened.value.chapters || [])
+    const need = (deps.opened.value.chapters || [])
       .map((c, i) => ({ c, i }))
       .filter(x => (x.c.body || '').trim().length >= 20)
     auto.value.n = need.length
@@ -84,14 +99,14 @@ export function makeDocAuto({ opened, llm, fetchList, agentBusy }) {
   /** 阶段二：把有精读结果、还没转过卡的章转成草稿。 */
   async function convertAll(docId, stat) {
     const r = await getDoc(docId)
-    opened.value = r.doc
+    if (mine(docId)) deps.opened.value = r.doc
     auto.value.phase = 'convert'
     const drafts = (await listDrafts()).drafts || []
     // 已有草稿按「同组 + 同标题」认（llm.to_card 的标题截断到 60 字，跟着截）
     const have = new Set(
       drafts.filter(d => d.deckId === docId).map(d => String(d.title || '').slice(0, 60))
     )
-    const targets = (opened.value.chapters || [])
+    const targets = (r.doc.chapters || [])
       .map((c, i) => ({ c, i }))
       .filter(x => hasAi(x.c) && !have.has(String(x.c.title || '').slice(0, 60)))
     auto.value.n = targets.length

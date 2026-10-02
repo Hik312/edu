@@ -19,6 +19,7 @@ from langchain_core.messages import SystemMessage, HumanMessage
 from .. import config as C          # 公共层：agent/config.py
 from .. import model as M           # 公共层：agent/model.py
 from . import retrieval             # 本 Agent 自己的检索层（混合检索）
+from . import websearch             # 联网搜索（Bing RSS，web 开关开着才用）
 
 
 class QAState(TypedDict):
@@ -34,6 +35,7 @@ class QAState(TypedDict):
     ok: bool           # grade 的质检结果
     history: str       # L1：裁剪后的多轮对话（runtime.format_history 压成纯文本）
     profile: str       # L3：长期档案（runtime.format_profile），没有就空串
+    web: bool          # 联网开关：true 时 retrieve 追加【网页】资料（可选增强）
 
 
 # ---------------------------------------------------------------------------
@@ -50,7 +52,7 @@ class QAState(TypedDict):
 ANSWER_SYS = '''你是「原理卡片」学习助手。回答要**以卡片为依据，以讲透为目的**，两层分开做，都别省：
 
 一、底座（不许含糊）
-- 核心结论、机制、具体数字必须来自下面【资料】里的卡片。
+- 核心结论、机制、具体数字必须来自下面【资料】（卡片，以及【网页】搜索结果）。
 - 资料里没有的**事实**（数字、日期、接口名、结论性断言）不许编；
   **问题本身**在资料里没有对应卡片时才说"卡片库里还没有这一条" ——
   这句只用于承认没查到，不要当落款挂在答案末尾（实测它会照挂）。
@@ -59,6 +61,12 @@ ANSWER_SYS = '''你是「原理卡片」学习助手。回答要**以卡片为�
 - 允许并且鼓励用你自己的知识把答案讲透：为什么是这样、中间怎么推出来的、
   和哪些概念相关、常见坑在哪、面试时会怎么追问。
 - 展开必须和资料的结论一致，不许和资料打架。
+
+三、联网资料（资料里出现【网页】块时才看这一条）
+- 【网页】结果通常比卡片新：问"最新 / 现状 / 支持到哪一版"这类问题优先依据【网页】，
+  和卡片打架时以【网页】为准并点明差异。
+- 引用【网页】里的具体事实（数字、日期、版本）时，在该句末尾附上它的链接
+  （原文给的 https://…），只附真正用到的；卡片内容不附链接，不列参考文献清单。
 
 输出结构（按顺序，段落别省）：
 1. 结论：一两句直接回答"是什么 / 为什么"。
@@ -101,7 +109,10 @@ def retrieve(state: QAState) -> dict:
 
     为什么不把检索交给模型去调工具：这个问题「该查什么」是确定的
     （就是用户问题里的关键词），让模型绕一圈决定调哪个工具没必要，
-    而且它可能不调。确定的事情就写死。"""
+    而且它可能不调。确定的事情就写死。
+
+    state['web'] 开着时，在卡片资料后面追加【网页】块（Bing RSS，见 websearch）——
+    联网是可选增强：搜不到就追加一句说明，不抛错、不打断问答。"""
     q = state['question']
     hist = state.get('history') or ''
     if hist:
@@ -109,8 +120,6 @@ def retrieve(state: QAState) -> dict:
         if last_user:
             q = '%s %s' % (state['question'], last_user[-1][2:].strip())
     hits = retrieval.retrieve(q, C.TOP_K)
-    if not hits:
-        return {'context': '（卡片库里没有相关内容）', 'sources': []}
     # 资料里用**标题**而不是卡片 id —— 模型会照抄这段，抄 id 进正文就是
     # 用户反馈的"回答里打印了 id"。溯源走 sources 字段，不靠正文里的标记。
     #
@@ -130,8 +139,12 @@ def retrieve(state: QAState) -> dict:
             if val:
                 block.append('%s：%s' % (label, val))
         parts.append('\n'.join(block))
-    return {'context': '\n\n'.join(parts),
-            'sources': [h.id for h in hits]}
+    ctx = '\n\n'.join(parts) if parts else '（卡片库里没有相关内容）'
+    if state.get('web'):
+        # 网页用**原问题**检索，不用带上历史的 q：「那第二个呢」这种拼进
+        # 搜索词只会搜不到 —— 带上文是卡片检索的需要，不是搜索引擎的。
+        ctx += '\n\n' + websearch.web_context(state['question'])
+    return {'context': ctx, 'sources': [h.id for h in hits]}
 
 
 def answer(state: QAState) -> dict:

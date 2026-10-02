@@ -1,21 +1,18 @@
 <script setup>
-/* 今日路径 —— 上半屏是「岗位知识地图」，下半屏是「今日队列」。
+/* 今日路径 —— 上半屏是「岗位知识地图」（拆在 PathMap.vue），下半屏是今日队列。
 
- 上：选岗位（或自己勾科目）→ 后端 /api/plan 拿技能组对账 → 缺哪条考考点说哪条。
-     选中的岗位写进长期档案（L3，服务端 profiles.json）+ localStorage，
-     这样问答页也认得「你在准备什么岗位」。
- 下：今日队列保持原样 —— 后端 /api/review/due 已经排好序，本页只分段 + 给理由。
+ 下：今日队列保持原样 —— 后端 /api/review/due 已经排好序，本页只分段 + 给理由；
+ 但一天 311 张到期刷不完，所以加了「今日自选清单」：用户自己点名今天刷哪些。
 
  两块为什么放在一页：地图回答「我该学什么」，队列回答「今天先学哪个」。
  拆成两页的话，选完岗位还得自己跳过去找队列。
 */
-import { ref, computed, onMounted, watch } from 'vue'
+import { computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { useLearningStore } from '@/stores/learning'
 import { levelColor } from '@/config/theme'
-import { getRoles, getPlan, catalog } from '@/api/system'
-import { getProfile, putProfile } from '@/api/agent'
+import PathMap from '@/views/path/PathMap.vue'
 
 const router = useRouter()
 const learning = useLearningStore()
@@ -28,142 +25,10 @@ onMounted(() => {
   // 「已完成 x / 50」也跟着错，而且没有任何提示。500 是后端上限。
   learning.fetchDue({ all: '1', limit: 500 })
   learning.fetchStats()
-  loadMap()
+  // 今日自选清单和队列一起拉：hero 要按「挑了 / 没挑」两种口径显示，
+  // 晚一拍回来会让按钮先亮后灭。
+  learning.fetchPick()
 })
-
-// ---------------------------------------------------------------------------
-// 上：岗位知识地图
-// ---------------------------------------------------------------------------
-const roles = ref([])
-const roleOpts = ref([]) // 自定义模式的科目选项 [{value,label}]
-const mapRole = ref('') // 当前选中的岗位 id
-const customOn = ref(false) // true = 不用预置岗位，自己勾科目
-const picked = ref([]) // 自定义勾选的科目 id
-const plan = ref(null)
-const mapLoading = ref(false)
-const savedRole = ref('') // 服务端档案里的岗位名（用来显示"已存"）
-
-/** 自定义勾选的科目也记下来 —— 勾了十个科目然后刷新就没了，是最直接的劝退。
- *  勾选状态和岗位选择分开存：岗位那份在「存进我的档案」时才写（要进 L3）。 */
-function savePathSel() {
-  try {
-    localStorage.setItem(
-      'edu.pathSubs',
-      JSON.stringify({ customOn: customOn.value, picked: picked.value })
-    )
-  } catch {
-    /* 忽略 */
-  }
-}
-watch([customOn, picked], savePathSel, { deep: true })
-
-async function loadMap() {
-  try {
-    const [r, c] = await Promise.all([getRoles(), catalog()])
-    roles.value = r.roles || []
-    roleOpts.value = flatSubjects(c)
-  } catch {
-    ElMessage.error('岗位列表加载失败')
-  }
-  try {
-    const p = await getProfile()
-    savedRole.value = (p && p.role) || ''
-  } catch {
-    /* 没档案就空着 */
-  }
-  restoreLast()
-}
-
-/** catalog 的 category → subject 摊平成下拉选项（自定义模式用）。 */
-function flatSubjects(c) {
-  const flat = []
-  for (const cat of c.catalog || []) {
-    for (const s of cat.subjects || []) {
-      flat.push({ value: s.id, label: (cat.name || '') + ' · ' + (s.name || s.id) })
-    }
-  }
-  return flat
-}
-
-/** 上次选的岗位记住（localStorage，不占后端）；没记过就默认第一个。
- *  自定义勾选优先恢复 —— 用户上次明确勾过科目，就不该被塞回预置岗位。 */
-function restoreLast() {
-  try {
-    const s = JSON.parse(localStorage.getItem('edu.pathSubs') || 'null')
-    if (s && s.customOn && Array.isArray(s.picked) && s.picked.length) {
-      customOn.value = true
-      picked.value = s.picked
-      loadPlan()
-      return
-    }
-  } catch {
-    /* 坏数据当作没存过 */
-  }
-  const last = localStorage.getItem('edu.role') || ''
-  if (last && roles.value.some(x => x.id === last)) {
-    mapRole.value = last
-  } else if (roles.value.length) {
-    mapRole.value = roles.value[0].id
-  }
-  if (mapRole.value) loadPlan()
-}
-
-function pickRole(id) {
-  mapRole.value = id
-  customOn.value = false
-  loadPlan()
-}
-
-function toggleCustom() {
-  customOn.value = !customOn.value
-  if (customOn.value) loadPlan()
-}
-
-function toggleSubject(sid) {
-  const i = picked.value.indexOf(sid)
-  if (i >= 0) picked.value.splice(i, 1)
-  else picked.value.push(sid)
-  loadPlan()
-}
-
-async function loadPlan() {
-  if (customOn.value && !picked.value.length) {
-    plan.value = null
-    return
-  }
-  mapLoading.value = true
-  try {
-    const r = customOn.value
-      ? await getPlan({ subjects: picked.value.join(',') })
-      : await getPlan({ role: mapRole.value })
-    plan.value = r.plan || null
-  } catch (e) {
-    plan.value = null
-    ElMessage.error('知识点地图算不出来：' + (e.message || e))
-  } finally {
-    mapLoading.value = false
-  }
-}
-
-/** 存进长期档案（L3）—— 问答页会读它，「薄弱」用当前标过「不会」的卡。 */
-async function saveRole() {
-  if (!plan.value) return
-  try {
-    const weak = (plan.value.skills || []).flatMap(g =>
-      (g.cards || []).filter(c => c.level === 1).map(c => c.id)
-    )
-    await putProfile({ role: plan.value.name, weak })
-    savedRole.value = plan.value.name
-    localStorage.setItem('edu.role', customOn.value ? '' : mapRole.value)
-    ElMessage.success('已存进档案，AI 问答会带着这个岗位')
-  } catch (e) {
-    ElMessage.error('保存失败：' + (e.message || e))
-  }
-}
-
-function openCard(cid) {
-  router.push({ path: '/cards', query: { open: cid } })
-}
 
 /** 三段的定义。order 用来保证段顺序稳定 ——
  *  依赖对象遍历顺序的地方迟早会乱（不同后端的返回顺序可能不同）。 */
@@ -205,102 +70,62 @@ const segments = computed(() =>
  *  放进路径会让用户觉得「还得再看一遍」，跟事实相反。 */
 const doneCount = computed(() => learning.stats?.known ?? 0)
 
-const total = computed(() => learning.queue.length)
+// ---------------------------------------------------------------------------
+// 今日自选清单：一天 311 张刷不完，「今天刷哪些」由用户自己挑。
+// 挑了 → hero/进度按清单口径；没挑 → 按每日目标取队列前 N 张的口径。
+// 分段列表始终是全池（它是挑卡的面），清单状态只体现在行内开关上。
+// ---------------------------------------------------------------------------
+const pickSet = computed(() => new Set(learning.picked))
+const pickOn = computed(() => learning.pickActive)
 
-/** 今天完成了多少（队列里已经标过、且不是"不会"的）。 */
-const finished = computed(() => learning.queue.filter(c => [2, 3].includes(c.level)).length)
+/** 今天的计划量 = 清单口径（挑了）或每日目标前 N 张（没挑）。 */
+const planItems = computed(() =>
+  pickOn.value
+    ? learning.queue.filter(c => pickSet.value.has(c.id))
+    : learning.queue.slice(0, learning.dailyTarget)
+)
+
+const total = computed(() => planItems.value.length)
+
+/** 今天完成了多少（计划里已经标过、且不是"不会"的）。 */
+const finished = computed(() => planItems.value.filter(c => [2, 3].includes(c.level)).length)
 
 const percent = computed(() => (total.value ? Math.round((finished.value / total.value) * 100) : 0))
+
+/** 行内开关：加入/移出今日清单。失败要把报错亮出来 —— 静默失败会让人
+ *  以为挑上了，转头复习页照旧推 311 张。 */
+async function togglePick(cid) {
+  try {
+    await learning.togglePick(cid)
+  } catch (e) {
+    ElMessage.error('清单保存失败：' + (e.message || e))
+  }
+}
+
+/** 按每日目标自动挑：取当前队列（后端 due 排序）前 N 张当今天的清单。 */
+async function autoPick() {
+  try {
+    const ids = learning.queue.slice(0, learning.dailyTarget).map(c => c.id)
+    await learning.savePick(ids)
+    ElMessage.success('已按每日目标挑 ' + ids.length + ' 张')
+  } catch (e) {
+    ElMessage.error('清单保存失败：' + (e.message || e))
+  }
+}
+
+async function clearPick() {
+  try {
+    await learning.savePick([])
+  } catch (e) {
+    ElMessage.error('清单保存失败：' + (e.message || e))
+  }
+}
 </script>
 
 <template>
   <div class="path stack" v-loading="learning.loading">
-    <!-- ===== 岗位知识地图 ===== -->
-    <section class="panel map" v-loading="mapLoading">
-      <header class="panel-head">
-        <h3>岗位知识地图</h3>
-        <span class="hint">先定方向，再排今天</span>
-      </header>
-
-      <div class="roles">
-        <button
-          v-for="r in roles"
-          :key="r.id"
-          class="role"
-          :class="{ on: !customOn && mapRole === r.id }"
-          :title="r.desc"
-          @click="pickRole(r.id)"
-        >
-          {{ r.name }}
-        </button>
-        <button class="role custom" :class="{ on: customOn }" @click="toggleCustom">
-          自定义科目
-        </button>
-        <button v-if="plan" class="save" @click="saveRole">
-          {{ savedRole === plan.name ? '已存进档案' : '存进我的档案' }}
-        </button>
-      </div>
-
-      <div v-if="customOn" class="subs">
-        <button
-          v-for="s in roleOpts"
-          :key="s.value"
-          class="sub"
-          :class="{ on: picked.includes(s.value) }"
-          @click="toggleSubject(s.value)"
-        >
-          {{ s.label }}
-        </button>
-        <span v-if="!picked.length" class="sub-hint">勾几个科目，右侧会立刻算覆盖</span>
-      </div>
-
-      <template v-if="plan">
-        <div class="sum">
-          <div class="sum-top">
-            <span class="sum-num mono">{{ plan.summary.percent }}%</span>
-            <span class="sum-lb"
-              >技能点覆盖 · {{ plan.summary.covered }}/{{ plan.summary.keywords }}</span
-            >
-            <span class="sum-lb dim"
-              >库内 {{ plan.summary.cards }} 张卡 · 已掌握 {{ plan.summary.mastered }}</span
-            >
-          </div>
-          <div class="sum-bar"><i :style="{ width: plan.summary.percent + '%' }" /></div>
-        </div>
-
-        <div v-for="g in plan.skills" :key="g.subject" class="grp">
-          <div class="grp-head">
-            <b>{{ g.name }}</b>
-            <span class="mono">{{ g.mastered }}/{{ g.count }} 掌握</span>
-          </div>
-          <div class="kws">
-            <span v-for="k in g.covered" :key="'c' + k" class="kw ok">{{ k }}</span>
-            <span
-              v-for="k in g.missing"
-              :key="'m' + k"
-              class="kw miss"
-              title="库里还没有这块的卡 —— 这就是缺口"
-              >{{ k }} 缺</span
-            >
-          </div>
-          <div class="cards">
-            <button
-              v-for="c in g.cards"
-              :key="c.id"
-              class="ccard"
-              :class="{ weak: c.level === 1, done: c.level === 3 }"
-              @click="openCard(c.id)"
-            >
-              <span class="cdot" :style="{ background: levelColor(c.level || 0) }" />
-              <span class="ct">{{ c.title }}</span>
-            </button>
-          </div>
-        </div>
-      </template>
-      <p v-else-if="!mapLoading" class="map-empty">
-        选一个岗位看缺口；或者点「自定义科目」自己勾组合。
-      </p>
-    </section>
+    <!-- ===== 岗位知识地图（拆在 PathMap.vue） ===== -->
+    <PathMap />
 
     <!-- ===== 概览 ===== -->
     <section class="panel hero">
@@ -309,9 +134,16 @@ const percent = computed(() => (total.value ? Math.round((finished.value / total
         <div class="hero-num">
           <span class="num mono">{{ percent }}%</span>
           <span class="unit">已完成 {{ finished }} / {{ total }} 张</span>
+          <span v-if="pickOn" class="pick-tag">自选清单</span>
         </div>
         <p class="hero-sub">
-          顺序不是随机的：先看没掌握的，再看模糊的，最后才是新的。
+          <template v-if="pickOn">
+            今天按你挑的 {{ total }} 张走 —— 复习页只推这份清单，刷完就收工。
+          </template>
+          <template v-else>
+            到期卡有 {{ learning.queue.length }} 张，一天刷不完。挑你要的几张进清单，
+            或按每日目标（{{ learning.dailyTarget }} 张）自动取前 {{ learning.dailyTarget }} 张。
+          </template>
           <template v-if="doneCount">另有 {{ doneCount }} 张已掌握，今天不用管。</template>
         </p>
       </div>
@@ -319,6 +151,15 @@ const percent = computed(() => (total.value ? Math.round((finished.value / total
         <i :style="{ width: percent + '%' }" />
       </div>
       <div class="hero-act">
+        <button
+          v-if="!pickOn"
+          class="btn"
+          title="按每日目标从到期队列里取前 N 张"
+          @click="autoPick"
+        >
+          按目标挑 {{ learning.dailyTarget }} 张
+        </button>
+        <button v-else class="btn" @click="clearPick">清空清单</button>
         <button class="btn btn-primary" @click="router.push({ name: 'review' })">
           按顺序复习
           <svg viewBox="0 0 24 24"><path d="M5 12h13M13 6l6 6-6 6" /></svg>
@@ -348,6 +189,18 @@ const percent = computed(() => (total.value ? Math.round((finished.value / total
               <span class="s-line">{{ c.oneLine }}</span>
             </div>
             <span class="chip">{{ c.domain }}</span>
+            <button
+              class="pick-btn"
+              :class="{ on: pickSet.has(c.id) }"
+              :title="pickSet.has(c.id) ? '移出今日清单' : '加入今日清单'"
+              @click="togglePick(c.id)"
+            >
+              <svg v-if="pickSet.has(c.id)" viewBox="0 0 24 24">
+                <path d="M5 12.5l4.5 4.5L19 7.5" />
+              </svg>
+              <svg v-else viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" /></svg>
+              {{ pickSet.has(c.id) ? '已选' : '加入' }}
+            </button>
           </div>
         </li>
       </ol>
@@ -361,202 +214,6 @@ const percent = computed(() => (total.value ? Math.round((finished.value / total
 </template>
 
 <style scoped>
-/* ===== 岗位知识地图 ===== */
-.roles {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-bottom: 12px;
-}
-.role {
-  border: 1px solid var(--line);
-  background: var(--panel);
-  color: var(--mu);
-  border-radius: 999px;
-  padding: 6px 13px;
-  font-size: var(--fs-sm);
-  cursor: pointer;
-  transition:
-    border-color 0.16s,
-    color 0.16s,
-    background 0.16s;
-}
-.role:hover {
-  border-color: var(--ac);
-  color: var(--ac);
-}
-.role.on {
-  background: var(--ac);
-  border-color: var(--ac);
-  color: #fdfaf3;
-}
-.role.custom {
-  border-style: dashed;
-}
-.save {
-  margin-left: auto;
-  border: 1px solid var(--ac);
-  background: transparent;
-  color: var(--ac);
-  border-radius: var(--radius-sm);
-  padding: 6px 12px;
-  font-size: var(--fs-sm);
-  cursor: pointer;
-  transition: background 0.16s;
-}
-.save:hover {
-  background: var(--ac-glow);
-}
-.subs {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  padding: 10px;
-  margin-bottom: 12px;
-  border: 1px dashed var(--line2);
-  border-radius: var(--radius-sm);
-}
-.sub {
-  border: 1px solid var(--line);
-  background: var(--bg);
-  color: var(--mu);
-  border-radius: var(--radius-sm);
-  padding: 4px 10px;
-  font-size: var(--fs-xs);
-  cursor: pointer;
-}
-.sub.on {
-  background: var(--ac-dim, var(--ac));
-  border-color: var(--ac);
-  color: var(--ac);
-}
-.sub-hint {
-  font-size: var(--fs-xs);
-  color: var(--dim);
-  align-self: center;
-}
-.sum {
-  margin-bottom: 14px;
-}
-.sum-top {
-  display: flex;
-  align-items: baseline;
-  gap: 10px;
-  flex-wrap: wrap;
-  margin-bottom: 6px;
-}
-.sum-num {
-  font-size: 30px;
-  font-weight: 700;
-  color: var(--ac);
-  line-height: 1;
-}
-.sum-lb {
-  font-size: var(--fs-sm);
-  color: var(--tx);
-}
-.sum-lb.dim {
-  color: var(--dim);
-}
-.sum-bar {
-  height: 7px;
-  border-radius: 4px;
-  background: var(--line);
-  overflow: hidden;
-}
-.sum-bar i {
-  display: block;
-  height: 100%;
-  background: linear-gradient(90deg, var(--ac-dim), var(--ac));
-  transition: width 0.5s cubic-bezier(0.22, 0.7, 0.28, 1);
-}
-.grp {
-  padding: 12px 0;
-  border-top: 1px solid var(--line2);
-}
-.grp-head {
-  display: flex;
-  align-items: baseline;
-  gap: 10px;
-  margin-bottom: 8px;
-}
-.grp-head b {
-  font-size: var(--fs-md);
-  font-weight: 600;
-}
-.grp-head .mono {
-  font-size: var(--fs-xs);
-  color: var(--dim);
-}
-.kws {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-bottom: 10px;
-}
-.kw {
-  font-size: var(--fs-xs);
-  border-radius: 999px;
-  padding: 3px 9px;
-}
-.kw.ok {
-  background: var(--ac-glow);
-  color: var(--ac);
-}
-.kw.miss {
-  background: transparent;
-  border: 1px dashed #c0603f;
-  color: #c0603f;
-}
-.cards {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-.ccard {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  max-width: 100%;
-  border: 1px solid var(--line);
-  background: var(--panel);
-  border-radius: var(--radius-sm);
-  padding: 6px 10px;
-  font-size: var(--fs-sm);
-  color: var(--tx);
-  cursor: pointer;
-  transition: border-color 0.16s;
-}
-.ccard:hover {
-  border-color: var(--ac);
-}
-.ccard.done {
-  color: var(--dim);
-}
-.ccard.done .ct {
-  text-decoration: line-through;
-  text-decoration-color: var(--line2);
-}
-.ccard.weak {
-  border-color: #d08a5c;
-}
-.cdot {
-  flex: none;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-}
-.ct {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.map-empty {
-  font-size: var(--fs-sm);
-  color: var(--dim);
-  padding: 8px 0 4px;
-}
-
 .hero {
   display: flex;
   align-items: center;
@@ -606,6 +263,16 @@ const percent = computed(() => (total.value ? Math.round((finished.value / total
 }
 .hero-act {
   flex: none;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.pick-tag {
+  font-size: var(--fs-xs);
+  border-radius: 999px;
+  padding: 3px 10px;
+  background: var(--ac-glow);
+  color: var(--ac);
 }
 
 .seg .step {
@@ -704,6 +371,42 @@ const percent = computed(() => (total.value ? Math.round((finished.value / total
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+/* 今日清单开关：行尾一个带字的小按钮，比纯图标一眼能读懂是干嘛的 */
+.pick-btn {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--dim);
+  border-radius: 999px;
+  padding: 3px 10px;
+  font-size: var(--fs-xs);
+  cursor: pointer;
+  transition:
+    border-color 0.16s,
+    color 0.16s,
+    background 0.16s;
+}
+.pick-btn svg {
+  width: 12px;
+  height: 12px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.pick-btn:hover {
+  border-color: var(--ac);
+  color: var(--ac);
+}
+.pick-btn.on {
+  background: var(--ac-glow);
+  border-color: var(--ac);
+  color: var(--ac);
 }
 
 @media (max-width: 860px) {

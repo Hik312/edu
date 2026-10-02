@@ -9,6 +9,7 @@
 study/
 ├── back_study/   后端（FastAPI，含数据层、存储层与开发脚本）
 ├── web/          网页端（Vite + Vue 3）
+├── miniapp/      小程序端（微信原生，接口见 docs/小程序接口规范.md）
 └── data/         共用卡片数据（唯一真相源）
 ```
 
@@ -72,7 +73,9 @@ node back_study/scripts/check.js
 
 ## 后端：单实现（FastAPI）
 
-只有 `back_study/run.py` 一个入口，路由按域拆在 `back_study/app/routers/`（一个域一个文件）。
+只有 `back_study/run.py` 一个入口，路由按**端**分包在 `back_study/app/routers/`：
+`web/` 是网页端 `/api/*`（一个域一个文件），`mini/` 是小程序端 `/api/mini/*`。
+跨端共用的逻辑放 `core/db.py`、`app/deps.py`，两边 import 同一份。
 
 | | FastAPI（`back_study/run.py`） |
 |---|---|
@@ -354,19 +357,21 @@ study/
 | GET | `/api/graph/neighbors/:id?depth=` | 某节点的邻居子图 |
 | GET | `/api/outline?category=&subject=` | 知识框架（MOC 树） |
 | GET | `/api/docs` | 文档列表（含 `aiDone / aiTotal`） |
-| GET / DELETE | `/api/docs/:id` | 文档详情（含 `chapters[].ai`） |
+| GET / PUT / DELETE | `/api/docs/:id` | 文档详情（含 `chapters[].ai`）；PUT 重命名 = 卡片组改名（级联改卡/草稿的 `deck`） |
 | POST | `/api/import/doc` | 整份文档导入并按标题分章（text 或 base64，md/txt/pdf/docx） |
 | GET | `/api/llm/status` | 本地模型状态（可用性 / 模型名） |
 | POST | `/api/llm/enrich` | 精读若干章（单章逐次调用，见上文） |
 | POST | `/api/llm/to-card` | 把某章的精读结果落成卡片草稿（自动挂当前文档的卡片组） |
+| POST | `/api/llm/fill` | AI 补齐：整张草稿通读检缺补漏（能找回原文就以原文为准），落回草稿池 |
 | POST | `/api/agent/cards/structure` | 卡片 Agent：LLM 精修分章（定切分点，规则切的只当底稿） |
+| POST / PUT | `/api/agent/cards/parse` | 卡片 Agent：内容解析报告（规则+LLM 判每章有用/没用；PUT 保存勾选，出卡前的确认关卡） |
 | POST | `/api/agent/cards/chapter` | 卡片 Agent：一章出一张草稿卡（带原图 + VLM 图注 + 对齐自检） |
 | GET | `/api/media/:owner/:name` | 读文档 / 卡片的图片（`?t=` 或 Authorization 带 token） |
 | GET | `/api/roles` | 目标岗位列表（`data/roles.js`） |
 | GET | `/api/plan?role=` 或 `?subjects=` | 岗位知识地图：技能组覆盖率、卡片掌握、缺哪些考点 |
 | GET | `/api/directions` | 学习方向预设（`data/directions.js`）+ 每个方向能推出多少张卡 |
 | GET / PUT | `/api/agent/profile` | 长期档案（目标岗位 / 常问主题 / 薄弱卡 / **每日目标与方向**，跟登录用户走） |
-| POST | `/api/agent/ask` | AI 问答。`mode` 取 flow/react，`stream:true` 走 SSE（可带 `history`、`profile`） |
+| POST | `/api/agent/ask` | AI 问答。`mode` 取 flow/react，`stream:true` 走 SSE（可带 `history`、`profile`、`webSearch:联网搜索`） |
 
 上表两版都实现了，返回结构和状态码一致。用 FastAPI 版时可以直接在 `/docs` 里点着调
 （唯一例外是超大请求体：FastAPI 版 413、标准库版 400）。
@@ -440,6 +445,9 @@ curl -X POST localhost:8080/api/llm/enrich -H "Content-Type: application/json" \
   -d '{"docId":"doc-20260922-1"}'                       # 全文（前端不用，见下）
 curl -X POST localhost:8080/api/llm/to-card -H "Content-Type: application/json" \
   -d '{"docId":"doc-20260922-1","index":2}'             # 把这一章落成卡片草稿
+curl -X POST localhost:8080/api/llm/fill -H "Content-Type: application/json" \
+  -H "Authorization: Bearer <token>" \
+  -d '{"draftId":"ag-xxxxxxxx"}'                        # AI 补齐整张草稿（生成页按钮）
 ```
 
 精读结果写在 `documents.json` 每章自己的 `ai` 字段里，逐章落盘 ——
@@ -472,16 +480,23 @@ curl -X POST localhost:8080/api/llm/to-card -H "Content-Type: application/json" 
 ### 四、卡片 Agent（文档 → 草稿卡，LangGraph，2026-10 新增）
 
 上面第二条的「精读 → 转卡」是老链路，保留并行。新链是 `agent/cards/`，
-在文档页手动点「卡片 Agent 解析」触发，两步都单独可跑、可断点续跑：
+导入后自动跑「精修分章 → 内容解析」，**停在解析报告上等你确认** ——
+目录、封面、参考文献这类没用的章先剔掉，勾选满意才出卡（出卡只跑保留的章）：
 
 ```bash
 curl -X POST localhost:8080/api/agent/cards/structure -H "Content-Type: application/json" \
   -H "Authorization: Bearer <token>" -d '{"docId":"doc-20261001-1"}'   # LLM 精修分章
+curl -X POST localhost:8080/api/agent/cards/parse -H "Content-Type: application/json" \
+  -H "Authorization: Bearer <token>" -d '{"docId":"doc-20261001-1"}'   # 内容解析报告（有用/没用）
+curl -X PUT localhost:8080/api/agent/cards/parse -H "Content-Type: application/json" \
+  -H "Authorization: Bearer <token>" -d '{"docId":"doc-20261001-1","keeps":{"0":true}}'  # 保存勾选
 curl -X POST localhost:8080/api/agent/cards/chapter -H "Content-Type: application/json" \
   -H "Authorization: Bearer <token>" -d '{"docId":"doc-20261001-1","index":0}'  # 一章出一张卡
 ```
 
-- **分章 LLM 主导**：规则先按标题切一版当候选清单，LLM 定切分点（可改标题、可合并），
+- **分章 LLM 主导**：规则先按标题切一版当候选清单 —— 切法是**按层级折叠**
+  （由粗到细选一层切，子标题整块折进父章、空壳章丢弃，一章内容完整）；
+  LLM 再定切分点（可改标题、可合并），
   合并回正文时扁平下标必须严格等于 `range(n)`，对不上就原样返回 —— 精修只可能变好。
 - **一章一张卡，生成后先自检再落盘**：对齐分（字符二元组重合度）≥ 阈值、
   keywords 必须出自原文才 `ok:true`；重试 2 次不过照样落草稿，但标「需人工把关」。

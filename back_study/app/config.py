@@ -91,4 +91,5 @@ OPENAPI_TAGS = [
     {'name': '导入', 'description': '粘贴文本 → 切分成草稿卡；草稿补齐后入库'},
     {'name': '文档', 'description': '整份 md/txt/pdf 导入 → 自动分章 → 逐章阅读'},
     {'name': 'AI 精读', 'description': '调本地 Ollama 或云端大模型，给章节补类比/重点/原理拆解'},
+    {'name': '小程序', 'description': '小程序端专用（/api/mini/*）：登录、首页聚合、分页卡包、复习'},
 ]

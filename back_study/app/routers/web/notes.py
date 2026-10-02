@@ -8,8 +8,8 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 import db
-from ..deps import current_user
-from ..schemas import NoteIn
+from ...deps import current_user
+from ...schemas import NoteIn
 
 router = APIRouter(prefix='/api', tags=['笔记'])
 

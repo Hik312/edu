@@ -37,7 +37,7 @@ class CardIn(Loose):
     analogy: Optional[str] = Field(None, description='类比（不许出现技术词，越像生活越好）')
     why: Optional[str] = None
     mechanism: Optional[List[str]] = Field(None, description='原理拆解，分步骤')
-    diagram: Optional[Dict[str, Any]] = Field(None, description='pipeline / state-machine / snapshot 三选一')
+    diagram: Optional[Dict[str, Any]] = Field(None, description='pipeline / state-machine / snapshot / arch 四选一')
     interviewQ: Optional[List[str]] = None
     keywords: Optional[List[str]] = None
     scene: Optional[List[str]] = Field(None, description='真实场景，硬规矩：至少 2 条')
@@ -50,6 +50,15 @@ class CardIn(Loose):
 
 class ProgressIn(BaseModel):
     level: int = Field(..., description='1 = 不会，2 = 模糊，3 = 会')
+
+
+class PickIn(BaseModel):
+    """今日自选复习清单：整体覆盖式 PUT，ids 用真实卡 id。
+
+    不存在的 id 由 db.set_today_pick 过滤（前端可能拿着已删卡的清单提交），
+    这层不校验 —— 校验的唯一真相在数据层，schema 只管类型。
+    """
+    ids: List[str] = Field(..., max_length=100, description='今日要刷的卡 id，上限 100')
 
 
 class NoteIn(Loose):
@@ -80,6 +89,10 @@ class DocImportIn(Loose):
     category: Optional[str] = None
     subject: Optional[str] = None
     domain: Optional[str] = None
+
+
+class DocRenameIn(BaseModel):
+    title: str = Field(..., min_length=1, max_length=60, description='新的卡片组名（即文档标题）')
 
 
 class DraftPatch(Loose):
@@ -113,6 +126,12 @@ class ToCardIn(BaseModel):
     docId: str
     index: int = Field(..., description='章节下标')
     ai: Optional[Dict[str, Any]] = Field(None, description='覆盖章节上已存的精读结果')
+
+
+class FillIn(BaseModel):
+    """生成模块「AI 补齐」：整张草稿通读一遍，缺的补上、薄的重写后落回草稿池。"""
+    draftId: str
+    model: Optional[str] = Field(None, description='指定模型，默认取服务端挑好的那个')
 
 
 # ---------- cards Agent（文档 → 卡片，LangGraph）----------
@@ -160,6 +179,9 @@ class AgentAskIn(BaseModel):
     profile: Optional[Dict[str, Any]] = Field(
         None, description=('长期档案（L3 记忆）：{role:目标岗位, topics:[常问主题], '
                            'weak:[薄弱卡id]}。不传就用服务端存的那份'))
+    webSearch: bool = Field(
+        False, description=('联网搜索开关：true 时资料追加【网页】搜索结果'
+                            '（Bing RSS，免 key）；搜不到不影响回答'))
 
 
 class AgentAskOut(BaseModel):

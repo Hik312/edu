@@ -13,6 +13,7 @@ agent/
 │   ├── nodes.py   每步做什么：检索 / 回答 / 自检（各自的提示词在这）
 │   ├── graph.py   按什么顺序做：把节点连成图（固定流程 & ReAct 两条）
 │   ├── runtime.py 怎么跑起来：实例缓存 / 多轮历史 / 流式输出
+│   ├── websearch.py 联网搜索（360 搜索，免 key；请求带 webSearch:true 才用）
 │   └── demo.py    命令行入口
 └── planner/       【业务】学习路径规划 Agent —— 服务 /path 今日路径页
     ├── planner.py LangGraph 编排（collect→score→write→verify→route）
@@ -68,8 +69,11 @@ react 约 24 秒，流式约 14 秒出第一个字。
 | `GET /api/agent/status` | 探活。ok:false 是正常状态（HTTP 仍 200），前端据此换提示文字 |
 | `POST /api/agent/ask` | 问一句。`mode` 选 flow/react，`stream:true` 走 SSE |
 
-`AskIn`: `question` / `mode` / `stream`
+`AskIn`: `question` / `mode` / `stream` / `history` / `profile` / `webSearch`
 `AskOut`: `ok` / `answer` / `mode` / `steps`（react 的工具调用轨迹）/ `ms`
+
+`webSearch:true` 时在卡片资料后追加【网页】搜索结果（360 搜索，免 key、
+失败静默不影响回答）；前端问答页顶栏的「联网」按钮就是它。
 
 ### 问答两种模式怎么选
 
@@ -82,6 +86,7 @@ build_react()  ReAct：模型自己决定查不查、查什么、查几次
 
 react 的检索底料由 `runtime._react_ground()` **代码代搜**后拼在问题后面
 （提示词光写"先 search_cards"，8B 实测不查）；命中的卡直接算进 `sources`。
+`webSearch:true` 时底料里还会带上【网页】搜索结果（网页不进 sources）。
 
 ## 跑：路径规划 Agent（planner/）
 

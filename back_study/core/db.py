@@ -421,6 +421,49 @@ def save_profile(user_id, patch):
     return cur
 
 
+def get_today_pick(user_id):
+    """今日自选复习清单：用户自己点名「今天就刷这些」的卡 id。
+
+    跨天自动作废（存的日期不是今天 → 空）：清单是「今日」语义，
+    隔天还留着会让昨天的负担变成今天的，和 dueToday 一样越滚越大。
+    上限 100 与 set_today_pick 一致，读侧再截一次是防手改文件撑爆队列。
+    """
+    if user_id is None:
+        return []
+    p = load_profiles().get(str(user_id)) or {}
+    tp = p.get('todayPick') or {}
+    if tp.get('date') != today_str():
+        return []
+    return [str(x) for x in (tp.get('ids') or [])][:100]
+
+
+def set_today_pick(user_id, ids):
+    """**整体覆盖**写今日清单：过滤不存在的卡、去重、截 100、盖当天日期。
+
+    和 save_profile 分开写而不是往里加字段：清单是带日期的整体覆盖，
+    塞进那个「只动发上来的字段」的合并函数里两边语义都不对 ——
+    它会把「没发 date」当成不动日期，隔天的旧清单就清不掉了。
+    """
+    if user_id is None:
+        return []
+    valid = {c['id'] for c in all_cards()}
+    out, seen = [], set()
+    for x in (ids or []):
+        x = str(x)
+        if x in valid and x not in seen:
+            seen.add(x)
+            out.append(x)
+        if len(out) >= 100:                   # 一天刷 100 张已经到顶了
+            break
+    all_p = load_profiles()
+    cur = all_p.get(str(user_id)) or {'role': '', 'topics': [], 'weak': []}
+    cur['todayPick'] = {'date': today_str(), 'ids': out}
+    all_p[str(user_id)] = cur
+    ensure_store()
+    _write_json(FILE_PROFILES, all_p)
+    return out
+
+
 def _kw_hits(kw, cards):
     """技能词在不在这个科目的卡里：匹配 keywords / title / topicPath。
 
@@ -833,6 +876,57 @@ def set_doc_ai(did, items, meta=None):
     d['updatedAt'] = today_str()
     backend().doc_put(d)
     return d
+
+
+def rename_deck(did, title):
+    """改卡片组（deck）的名字。
+
+    组名的真相源是**文档标题**；卡和草稿里的 deck 是生成时抄的冗余字符串
+    （没有独立的组表，MySQL 里连 deck 列都没有）。所以只改文档不行 ——
+    已生成的卡还挂着旧名，下次从这份文档出卡又会按新标题抄一遍，
+    同一组会分裂成两个 chips。三处必须一起改：
+
+      1. documents.title（真相源，下次出卡按它抄）
+      2. 自定义卡 payload 里的 deck
+      3. 草稿里的 deck
+
+    topicPath[1] 也是生成时按标题截的（title[:20]），对得上旧名才跟着改 ——
+    手工改过目录路径的卡不动。返回 None 表示文档不存在；{'ok': False} 表示
+    参数不合法（空名），由上层转成 HTTP 错误。"""
+    doc = get_doc(did)
+    if doc is None:
+        return None
+    new = (title or '').strip()[:60]
+    if not new:
+        return {'ok': False, 'msg': '组名不能为空'}
+    old = str(doc.get('title') or '')
+    if new == old:
+        return {'ok': True, 'title': new, 'cards': 0, 'drafts': 0}
+    upsert_doc({'id': did, 'title': new})
+
+    def fix(c):
+        if c.get('deckId') != did:
+            return False
+        c['deck'] = new
+        tp = c.get('topicPath')
+        if isinstance(tp, list) and len(tp) >= 2 and tp[1] == old[:20]:
+            tp[1] = new[:20]
+        return True
+
+    n_cards = n_drafts = 0
+    custom = load_custom()
+    for c in custom:
+        if fix(c):
+            n_cards += 1
+    if n_cards:
+        save_custom(custom)
+    drafts = load_drafts()
+    for d in drafts:
+        if fix(d):
+            n_drafts += 1
+    if n_drafts:
+        save_drafts(drafts)
+    return {'ok': True, 'title': new, 'cards': n_cards, 'drafts': n_drafts}
 
 
 # ---------- 草稿（导入缓冲区） ----------

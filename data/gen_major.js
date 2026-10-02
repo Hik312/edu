@@ -52,7 +52,28 @@ var CARDS_MAJOR = [
       "时间复杂度",
       "面试高频"
     ],
-    "related": []
+    "related": [
+      {
+        "id": "major-graph-shortest-path",
+        "kind": "compare",
+        "note": "算法效率分析与最短路径算法是数据结构复杂度的两个应用方向"
+      },
+      {
+        "id": "major-dp-state-design",
+        "kind": "compare",
+        "note": "算法效率分析与动态规划状态设计是数据结构复杂度的两个应用方向"
+      },
+      {
+        "id": "cs-complexity",
+        "kind": "prereq",
+        "note": "理解时间复杂度分析是判断算法效率的基础"
+      },
+      {
+        "id": "major-datastructurecomplexity",
+        "kind": "extends",
+        "note": "判断算法效率需先掌握复杂度分析的基本方法"
+      }
+    ]
   },
   {
     "id": "major-dp-state-design",
@@ -105,7 +126,18 @@ var CARDS_MAJOR = [
       "动态规划",
       "面试高频"
     ],
-    "related": []
+    "related": [
+      {
+        "id": "major-dpstate",
+        "kind": "prereq",
+        "note": "理解状态设计需先掌握动态规划的核心概念"
+      },
+      {
+        "id": "major-data-struct-complexity",
+        "kind": "compare",
+        "note": "算法效率分析与动态规划状态设计是数据结构复杂度的两个应用方向"
+      }
+    ]
   },
   {
     "id": "major-graph-shortest-path",
@@ -158,7 +190,18 @@ var CARDS_MAJOR = [
       "最短路算法",
       "面试高频"
     ],
-    "related": []
+    "related": [
+      {
+        "id": "major-shortestpath",
+        "kind": "prereq",
+        "note": "掌握最短路径算法需先理解图中两点的路径问题"
+      },
+      {
+        "id": "major-data-struct-complexity",
+        "kind": "compare",
+        "note": "算法效率分析与最短路径算法是数据结构复杂度的两个应用方向"
+      }
+    ]
   },
   {
     "id": "major-datastructurecomplexity",
@@ -217,7 +260,13 @@ var CARDS_MAJOR = [
       "算法分析",
       "复杂度评估"
     ],
-    "related": []
+    "related": [
+      {
+        "id": "major-data-struct-complexity",
+        "kind": "prereq",
+        "note": "判断算法效率需先掌握复杂度分析的基本方法"
+      }
+    ]
   },
   {
     "id": "major-dpstate",
@@ -254,7 +303,13 @@ var CARDS_MAJOR = [
       "算法设计",
       "动态规划"
     ],
-    "related": []
+    "related": [
+      {
+        "id": "major-dp-state-design",
+        "kind": "prereq",
+        "note": "理解状态设计需先掌握动态规划的核心概念"
+      }
+    ]
   },
   {
     "id": "major-shortestpath",
@@ -313,7 +368,13 @@ var CARDS_MAJOR = [
       "图论算法",
       "最短路径"
     ],
-    "related": []
+    "related": [
+      {
+        "id": "major-graph-shortest-path",
+        "kind": "prereq",
+        "note": "掌握最短路径算法需先理解图中路径问题"
+      }
+    ]
   }
 ];
 

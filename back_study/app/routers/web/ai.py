@@ -11,14 +11,16 @@
 AI 是可选增强，平台没有一处核心功能依赖它。所以这里坚持返 200，
 而不是抛 503 —— 前端据此把 AI 那一块换成提示文字，其余照常。
 """
+import sys
+
 from fastapi import APIRouter, Depends, HTTPException
 
 import db
 import importer
 import llm
-from ..config import LLM_ERR
-from ..deps import current_user
-from ..schemas import EnrichIn, ToCardIn
+from ...config import LLM_ERR
+from ...deps import current_user
+from ...schemas import EnrichIn, FillIn, ToCardIn
 
 router = APIRouter(prefix='/api', tags=['AI 精读'])
 
@@ -150,3 +152,65 @@ def to_card(body: ToCardIn, user=Depends(current_user)):
     cur.append(card)
     db.save_drafts(cur)
     return {'ok': True, 'draft': card}
+
+
+#: 找回原文时的对齐地板分：低于它宁可不带原文 —— 喂错章节比不喂更糟
+#: （模型会把别的章的「事实」写进这张卡）。0.08 和 cards Agent 出卡用的是同一档。
+FILL_MIN_ALIGN = 0.08
+
+
+def _find_source(card):
+    """这张草稿出自哪段原文？deckId → 文档 → 用对齐打分挑最像的一章。
+    粘贴切出来的草稿没有 deckId / 文档被删了 / 哪章都对不上 → 返回 ''，
+    fill_draft 退化成「只看草稿本身」，事实以草稿已有内容为准。"""
+    did = card.get('deckId')
+    if not did:
+        return ''
+    doc = db.get_doc(did)
+    if not doc:
+        return ''
+    best, best_score = '', 0.0
+    for ch in (doc.get('chapters') or []):
+        body = (ch.get('body') or '').strip()
+        if len(body) < 20:
+            continue
+        sc = llm.align_score(body, {'oneLine': card.get('oneLine'),
+                                    'mechanism': card.get('mechanism'),
+                                    'points': card.get('keywords')})
+        if sc > best_score:
+            best, best_score = body, sc
+    return best if best_score >= FILL_MIN_ALIGN else ''
+
+
+@router.post('/llm/fill', summary='AI 补齐：整张草稿检缺补漏后落回草稿池')
+def fill(body: FillIn, user=Depends(current_user)):
+    """「整张卡重新优化」：模型通读草稿（能找回原文就带上），缺的补、薄的重写。
+    只改草稿的八个内容字段，id/deck/_from 这些身份字段不碰；
+    入库门槛（scene>=2）照旧 —— 补齐不绕过校验。"""
+    drafts = importer.list_drafts()
+    idx = next((i for i, d in enumerate(drafts) if d.get('id') == body.draftId), None)
+    if idx is None:
+        raise HTTPException(404, '草稿不存在')
+    d = drafts[idx]
+    try:
+        out = llm.fill_draft(d, _find_source(d), model=body.model)
+    except RuntimeError as e:
+        raise _llm_fail(e)
+    except Exception as e:
+        # 连接被拒 / 读超时 / 云端返回意外结构 —— 这些不是 RuntimeError，
+        # 不接住就漏到兜底 handler 变成 500「服务器内部错误」，用户看到
+        # 一句没法排查的话（enrich_doc 早就接了，这里当初漏了）
+        sys.stderr.write('[fill] %s: %s\n' % (type(e).__name__, e))
+        raise HTTPException(502, '大模型调用失败（%s），看下 Ollama 是否还在跑' % e)
+    changed = []
+    for k, v in out.items():
+        # 模型没给的字段留原样：空结果不许把已有的内容抹掉
+        if k != '_meta' and v and v != d.get(k):
+            d[k] = v
+            changed.append(k)
+    drafts[idx] = d
+    db.save_drafts(drafts)
+    return {'ok': True, 'draft': d, 'changed': changed,
+            'model': (out.get('_meta') or {}).get('model'),
+            # retried/ms：自检重问有没有触发、总耗时 —— 前端不用它，排查用
+            'meta': out.get('_meta')}

@@ -38,6 +38,13 @@ _MODELS_TTL = 20          # 秒。Ollama 不在时每次探测要等满 4 秒超
 PREFER = ['qwen2.5:7b-instruct', 'qwen2.5:7b', 'qwen2.5:3b', 'qwen3:8b',
           'llama3.1:8b', 'glm4:9b', 'deepseek-r1:7b']
 
+# Ollama 侧的上下文窗口。**不传就用服务端默认 4096**，而精读一章喂的是
+# text[:6000]（约 3500~5000 token）+ 系统提示词 —— 实测 prompt_eval_count
+# 顶到 4098 即被静默截断（不报错，就是少了后半段），「原理写着写着没了」
+# 一半是这里来的。8192 和 agent/config.py 的 NUM_CTX 取齐；小显存机器
+# 用 LLM_NUM_CTX 调小。
+NUM_CTX = int(os.environ.get('LLM_NUM_CTX') or 8192)
+
 # 类比里出现这些词 = 没写成生活场景，要重问
 TECH_WORDS = ['数据库', '索引', '缓存', '服务器', '接口', '线程', '进程', '协议',
               '系统', '数据', '代码', '算法', '架构', '请求', '网络', '内存', '框架']
@@ -45,21 +52,24 @@ TECH_WORDS = ['数据库', '索引', '缓存', '服务器', '接口', '线程', 
 SYS = '''你是技术考点精读助手。把用户给的一段技术内容整理成 JSON：
 
 {
-  "oneLine": "一句话结论（<=40字，说清它是什么、有什么用）",
-  "analogy": "生活类比（<=40字）",
-  "points": ["重点，3-5条，每条<=30字，必须带原文里的具体名词或数字"],
-  "mechanism": ["原理拆解，3-5步，每步<=35字，讲清'它怎么跑'的因果链"]
+  "oneLine": "定义式结论（30-60字，先说清它是什么、有什么用）",
+  "analogy": "生活类比（40-90字）",
+  "points": ["重点，3-6条，每条<=50字，必须带原文里的具体名词或数字"],
+  "mechanism": ["原理拆解，4-6步，每步40-110字，总字数不少于250字"]
 }
 
 硬性要求：
+- oneLine 先给**定义**：这个知识点是什么、干什么用，别只写它的好处；
 - analogy 必须是日常生活场景（排队 / 图书馆 / 快递 / 做饭 / 开车之类），
   不许出现任何技术词，不许说"就像优化xx"。
-- mechanism 要一步一步推进、每步回答"为什么"，不许把 points 换个说法抄一遍。
+- mechanism 第 1 步先给定义/本质（它到底是什么），后面一步一步推进、每步回答
+  "为什么"，把因果链讲完整 —— 读者只看 mechanism 就该懂这个原理怎么工作；
+  不许把 points 换个说法抄一遍。字数是目标，原文没有的信息宁可不写，不许编造。
 - points 要保留原文的具体名词和数字，不许泛化成"效率高""很重要"。
 - 只输出 JSON，不要 markdown 代码块，不要任何解释。
 
-示例（输入是「HTTP 的 keep-alive」）：
-{"oneLine":"keep-alive 让一条 TCP 连接连续传多个请求，省掉反复握手","analogy":"像打电话一次把几件事说完，而不是每句话都挂掉重拨","points":["HTTP/1.0 默认关闭，1.1 默认开启","省掉三次握手和慢启动","由 Connection 头控制","空闲超时后服务端才关"],"mechanism":["建连一次后连接不立刻关闭，socket 留在池里","下一个请求复用同一个 socket，省掉三次握手","复用连接不再从零慢启动，拥塞窗口还在","空闲超过 keepalive_timeout 才被服务端回收"]}'''
+示例（输入是「HTTP 的 keep-alive」，注意 mechanism 每步的长度）：
+{"oneLine":"keep-alive 让一条 TCP 连接连续传多个请求，省掉反复握手","analogy":"像打电话一次把几件事说完，而不是每句话都挂掉重拨","points":["HTTP/1.0 默认关闭，1.1 默认开启","省掉三次握手和慢启动","由 Connection 头控制","空闲超时后服务端才关"],"mechanism":["连接建立后不立刻关闭，socket 被放进连接池保留下来，在服务端 keepalive_timeout 之前一直等待复用","下一个请求到来时直接从池里取出同一个 socket 发送，省掉了重新三次握手建立连接的开销","复用中的连接沿用已有的拥塞窗口，不需要从初始窗口重新慢启动爬坡，后续大响应首包就能满速传输","只有空闲时间超过 keepalive_timeout 的连接才会被服务端回收，客户端也可以主动在请求头里加 Connection: close 关闭"]}}'''
 
 REPAIR = ('上一次给的 analogy 里出现了技术词（或者太像说明书）。'
           '重给一个：必须是纯日常生活场景，一个技术词都不许有。'
@@ -258,7 +268,8 @@ def _call(messages, model, timeout, temperature=0.15, max_tokens=900):
                   {'Authorization': 'Bearer ' + CLOUD_KEY}, timeout)
         return _drop_think(j['choices'][0]['message']['content'])
     payload = {'model': model, 'messages': messages, 'stream': False,
-               'options': {'temperature': temperature, 'num_predict': max_tokens}}
+               'options': {'temperature': temperature, 'num_predict': max_tokens,
+                           'num_ctx': NUM_CTX}}
     # 关掉思考链：deepseek-r1 这类模型不关掉会把 token 全烧在思考上，
     # 80 个 token 出来是空的。不支持 think 字段的老版本会报错，降级重试一次。
     payload['think'] = False
@@ -286,10 +297,10 @@ def _norm(o):
         return out[:n]
 
     return {
-        'oneLine': s(o.get('oneLine') or o.get('oneliner') or o.get('一句话'), 90),
-        'analogy': s(o.get('analogy') or o.get('类比'), 90),
+        'oneLine': s(o.get('oneLine') or o.get('oneliner') or o.get('一句话'), 140),
+        'analogy': s(o.get('analogy') or o.get('类比'), 140),
         'points': arr(o.get('points') or o.get('重点'), 6, 70),
-        'mechanism': arr(o.get('mechanism') or o.get('原理拆解'), 6, 80),
+        'mechanism': arr(o.get('mechanism') or o.get('原理拆解'), 8, 180),
     }
 
 
@@ -315,7 +326,9 @@ def enrich(title, body, model=None, timeout=300, self_check=True):
     user = ('标题：%s\n\n正文：\n%s' % (title or '（无标题）', text[:6000]))
     msgs = [{'role': 'system', 'content': SYS}, {'role': 'user', 'content': user}]
     t0 = time.time()
-    raw = _call(msgs, model, timeout)
+    # 2000 而不是默认 900：SYS 放开到 mechanism 6×110 字（总 660 字 ≈ 600 token）
+    # 之后，900 会把 JSON 从中间切掉 → 解析失败 → 前端看到「补齐失败」
+    raw = _call(msgs, model, timeout, max_tokens=2000)
     out = _norm(_clean_json(raw))
     tries = 1
 
@@ -343,10 +356,12 @@ BATCH_SYS = '''你是技术考点精读助手。用户会给你多段技术内�
           {"i":1,...}]}
 
 每个字段的要求：
-- oneLine：一句话结论（<=40字），说清它是什么、有什么用
-- analogy：生活类比（<=40字），必须是日常生活场景（排队/图书馆/快递/做饭/开车），不许出现任何技术词
-- points：重点 3-5 条（<=30字），必须带原文里的具体名词或数字
-- mechanism：原理拆解 3-5 步（<=35字），讲清"它怎么跑"的因果链，不许把 points 抄一遍
+- oneLine：定义式结论（30-60字），先说清它是什么、有什么用
+- analogy：生活类比（40-90字），必须是日常生活场景（排队/图书馆/快递/做饭/开车），不许出现任何技术词
+- points：重点 3-6 条（<=50字），必须带原文里的具体名词或数字
+- mechanism：原理拆解 4-6 步（每步 40-110 字、总不少于 250 字），第 1 步先给
+  定义/本质，之后讲清"它怎么跑"的因果链（读者只看 mechanism 就能懂原理），
+  不许把 points 抄一遍；字数是目标，原文没有的信息宁可不写，不许编造
 - i 必须和输入的编号一一对应，不许漏、不许改
 只输出 JSON，不要 markdown 代码块，不要解释。'''
 
@@ -409,7 +424,9 @@ def enrich_many(items, model=None, timeout=600, batch=4, min_align=0.10):
         msgs = [{'role': 'system', 'content': BATCH_SYS},
                 {'role': 'user', 'content': '\n\n---\n\n'.join(parts)}]
         try:
-            raw = _call(msgs, model, timeout, max_tokens=min(3000, 700 * len(chunk) + 300))
+            # 每章输出目标 ~1000 字（mechanism 250+ / points 300+ / oneLine+analogy）
+            # ≈ 900 token，按 1100/章 留头寸；min 兜住 ctx（prompt + 生成 <= NUM_CTX）
+            raw = _call(msgs, model, timeout, max_tokens=min(3600, 1100 * len(chunk) + 300))
             got = _norm_many(raw, len(chunk))
         except Exception:
             got = {}
@@ -476,6 +493,161 @@ def to_card(chapter, ai, opts=None):
         card['deck'] = str(opts['deck'])[:60]
         card['deckId'] = opts.get('deckId') or ''
     return card
+
+
+# ---------- 草稿补齐（生成模块的「AI 补齐」） ----------
+# 为什么要有这一步：草稿字段是「切」出来的 —— scene 是占位符、analogy 压根
+# 没有、mechanism 只有切到的几行，逐字段手补一张张太慢。让模型通读整张卡
+# （能找回原文就带上原文），缺的补上、占位/偏薄的重写、够好的保留原意。
+# 只改草稿字段，入库那道关卡（scene >= 2、占位不算数）原样不动 ——
+# 补齐是替人把草稿写好，不是绕过校验。
+
+FILL_SYS = '''你是学习卡片的编辑。用户给你一张学习卡草稿（JSON），可能还带原文片段。
+整张卡通读一遍：缺的字段补上，占位（「待补充」）或偏薄的字段重写，已经够好的保留原意。
+**八个字段一个都不能空**：草稿里缺哪个模块，说明那个模块压根没做过 —— 必须现场生成：
+analogy 补生活类比、why 补背景原因、mechanism 补原理步骤、keywords 补术语、
+scene 补场景、interviewQ 补带答案的追问，title 和 oneLine 同样要有实质内容。
+只输出 JSON：
+{"title":"卡片标题","oneLine":"定义式结论","analogy":"生活类比","why":"为什么是这样",
+ "mechanism":["原理步骤"],"keywords":["术语"],"scene":["场景1","场景2","场景3"],
+ "interviewQ":["追问1（答：要点）","追问2（答：要点）"]}
+
+内容要充足 —— 这张卡是讲义不是目录，每个字段都得写够：
+- title <=30字，抓最核心的考点；oneLine 是**定义**，30-60字，先讲清「它是什么、干什么用」；
+- mechanism 6-8 条、每条 60-120 字、总字数不少于 400 字（**少于 400 就是偏薄，
+  必须扩写**）：第①条先给出定义/本质，之后按因果顺序讲「它怎么跑」，把因果链
+  讲完整 —— 读者只看 mechanism 就该懂这个原理怎么工作；不许把 oneLine 换个
+  说法抄一遍；每条写成完整的一句话：做了什么/怎么做的 + 为什么这样/结果如何；
+- why 80-150 字：讲透「为什么需要它、为什么是这样」（问题背景→为什么旧办法不行
+  →它解决在哪），不许只写一句"为了解决xx问题"；
+- scene 至少 3 条、每条 40-80 字，写具体（什么系统、什么情况、有什么坑），
+  禁止「广泛应用」「非常重要」这类空话；
+- interviewQ 3-4 条，每条 = 一句具体的问题 +（答：要点）：问题要真的像面试官
+  问出来的（有对象、有场景），后面跟 40-80 字答案要点；不许把「问题」两个字
+  本身当正文输出；草稿里的占位（「待补充：…」）要整条删掉重写；
+- analogy 40-90字的日常生活类比（排队/图书馆/快递/做饭…），不许出现任何技术词；
+- keywords 3-6 个术语；**有原文时必须原样抄原文里出现过的**，不许同义替换；
+- 整张卡正文（oneLine+why+mechanism+scene+interviewQ 合计）目标 **1000 字左右**，
+  少于 800 字就是偏薄：逐字段扩写（why 展开背景、scene 补细节、追问答案写全），
+  不许只改标题充数；
+事实红线（字数是目标，红线优先 —— 原文较短时写到信息量的极限即可，
+绝不注水、不许车轱辘话重复、不许为凑字数编造）：
+- **有原文时所有事实必须来自原文**：不许编造原文没有的接口名、版本号、数字；
+  没有原文时只依据草稿已有内容改写，同样不许编造具体事实；
+提交前把 oneLine+why+mechanism+scene+interviewQ 加起来数一遍，
+少于 800 字就是没补够 —— 回去把短条扩长再输出。
+- 只输出 JSON，不要 markdown 代码块，不要任何解释。'''
+
+#: 可补齐的字段（就这八个 —— id/deck/_from 这类身份字段不许模型碰）。
+FILL_FIELDS = ('title', 'oneLine', 'analogy', 'why',
+               'mechanism', 'keywords', 'scene', 'interviewQ')
+
+
+def _norm_fill(o):
+    """收拾补齐输出：类型、长度、空值。模型不听话是常态，不收拾前端会崩。"""
+    def s(v, n):
+        if isinstance(v, list):       # 模型把标量包成了数组：取第一个非空元素
+            v = next((x for x in v if x), '')
+        return ('' if v is None else str(v)).strip()[:n]
+
+    def arr(v, n, each):
+        if not isinstance(v, list):
+            v = [v] if v else []
+        return [t for t in (s(x, each) for x in v) if t][:n]
+
+    # 别名兜底：8B 会把键名本地化成「为什么/关键词/场景/追问」，
+    # 没有别名时这些字段静默变成空 → changed 里没有它们 → 用户看到「没补上」
+    return {
+        'title': s(o.get('title') or o.get('卡片标题'), 60),
+        'oneLine': s(o.get('oneLine') or o.get('一句话'), 140),
+        'analogy': s(o.get('analogy') or o.get('类比'), 140),
+        'why': s(o.get('why') or o.get('为什么') or o.get('原因'), 200),
+        'mechanism': arr(o.get('mechanism') or o.get('原理步骤') or o.get('原理'), 10, 180),
+        'keywords': arr(o.get('keywords') or o.get('关键词'), 8, 30),
+        'scene': arr(o.get('scene') or o.get('场景') or o.get('应用场景'), 5, 160),
+        'interviewQ': arr(o.get('interviewQ') or o.get('追问') or o.get('面试问题'), 4, 200),
+    }
+
+
+def fill_draft(draft, source='', model=None, timeout=300):
+    """整张卡检缺补漏（生成模块「AI 补齐」）。返回 FILL_FIELDS 的干净 dict + _meta。
+    source 是能找回的原文片段（事实以它为准）；空串就只看草稿本身改写。
+    首版自检（空缺模块 / 字数下限）不过就把差距喂回去重问一轮 —— 8B 第一轮
+    经常漏字段或写薄，光靠提示词拦不住；第二版问题更少才替换，否则保留首版。
+    失败抛 RuntimeError（ai_off / no_model / llm_not_json），上层转人话。"""
+    if AI_OFF:
+        raise RuntimeError('ai_off')
+    p = provider()
+    model = model or (CLOUD_MODEL if p == 'cloud' else pick_model())
+    if not model:
+        raise RuntimeError('no_model')
+    cur = {k: draft.get(k) for k in FILL_FIELDS}
+    user = '当前草稿：\n%s' % json.dumps(cur, ensure_ascii=False)
+    if source:
+        user += '\n\n原文（所有事实以它为准）：\n%s' % source[:4000]
+    else:
+        user += '\n\n（这份草稿没有可找回的原文：只依据上面已有内容改写，别编造事实）'
+    msgs = [{'role': 'system', 'content': FILL_SYS},
+            {'role': 'user', 'content': user}]
+    t0 = time.time()
+    # 3000 而不是 1500：FILL_SYS 放开到「内容充足」（mechanism 8×110 +
+    # scene 5×160 + interviewQ 4×200 带答案），1500 token 会把 JSON 从中间
+    # 切掉 → llm_not_json → 用户看到「补齐失败」
+    raw = _call(msgs, model, timeout, temperature=0.2, max_tokens=3000)
+    out = _clean_json(raw)
+    if isinstance(out, list):
+        out = out[0] if out else {}
+    if not isinstance(out, dict):
+        raise RuntimeError('llm_not_json')
+    res = _norm_fill(out)
+    issues = _fill_issues(draft, res, source)
+    retried = False
+    if issues:
+        try:
+            msgs.append({'role': 'assistant',
+                         'content': json.dumps({k: res.get(k) for k in FILL_FIELDS},
+                                               ensure_ascii=False)})
+            msgs.append({'role': 'user',
+                         'content': '上一版有这些问题：\n- ' + '\n- '.join(issues) +
+                                    '\n修正后重新输出完整 JSON（八个字段一个都不能少）。'})
+            raw = _call(msgs, model, timeout, temperature=0.2, max_tokens=3000)
+            out2 = _clean_json(raw)
+            if isinstance(out2, list):
+                out2 = out2[0] if out2 else {}
+            if isinstance(out2, dict) and \
+                    len(_fill_issues(draft, _norm_fill(out2), source)) < len(issues):
+                res = _norm_fill(out2)
+            retried = True
+        except Exception:
+            pass  # 重问失败就用首版 —— 首版是合法 JSON，不该让整单补齐报错
+    res['_meta'] = {'provider': p, 'model': model, 'retried': retried,
+                    'ms': int((time.time() - t0) * 1000)}
+    return res
+
+
+def _fill_issues(draft, res, source):
+    """首版自检清单。空缺 = 草稿没有、输出也没有（有的字段输出空会留原样，
+    不算）；字数下限和 cards Agent 的 ground() 同口径但更狠：信息量（原文+草稿）
+    够 900 字还写不到 800 就是偷懒；信息本来就少则不硬逼（红线优先，不许注水）。"""
+    issues = []
+
+    def blank(v):
+        return not v or (isinstance(v, list) and not any(v))
+
+    for k in FILL_FIELDS:
+        if blank(res.get(k)) and blank(draft.get(k)):
+            issues.append('字段 %s 草稿里没有、你这版也是空的 —— 必须生成出来' % k)
+    info = len(re.sub(r'\s+', '', str(source or ''))) + sum(
+        len(re.sub(r'\s+', '', str(draft.get(k) or ''))) for k in FILL_FIELDS)
+    total = (len(res.get('oneLine') or '') + len(res.get('why') or '')
+             + sum(len(x) for x in (res.get('mechanism') or []))
+             + sum(len(x) for x in (res.get('scene') or []))
+             + sum(len(x) for x in (res.get('interviewQ') or [])))
+    if info >= 900 and total < 800:
+        issues.append('正文合计 %d 字偏短（目标1000、下限800）：'
+                      'mechanism 每条扩到 60-120 字、why 80-150、'
+                      'scene 每条 40-80、追问答案 40-80，逐字段扩写' % total)
+    return issues
 
 
 # ---------- 文档结构精修（cards Agent 的 structure 阶段） ----------

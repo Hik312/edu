@@ -1,0 +1,62 @@
+13:30:28 [redis] 开始：共 45 张，待补图 3 张（limit=3），model=qwen3:8b
+13:31:08 [redis] [1/3] 图  java-redis-vs-memcached                  snapshot       3帧 39989ms
+13:32:02 [redis] [2/3] 图  java-what-is-redis                       snapshot       3帧 54488ms
+13:32:35 [redis] [3/3] 图  java-why-redis-cache-for-mysql           snapshot       4帧 33249ms
+13:32:35 [redis] 完成：配图 3，判定不配 0，用时 127 秒
+13:54:13 [redis] 开始：共 45 张，待补图 42 张，model=qwen3:8b
+13:54:37 [redis] [1/42] 图  java-redis-data-types-scenarios          snapshot       3帧 24023ms
+13:55:08 [redis] [2/42] —   java-redis-data-types-internals          判定不配图 31351ms
+13:55:16 [redis] [3/42] 图  java-is-redis-single-thread              state-machine  4帧 8003ms
+13:55:21 [redis] [4/42] 图  java-redis-single-thread-model           pipeline       3帧 4725ms
+13:55:25 [redis] [5/42] 图  java-redis-single-thread-fast            pipeline       3帧 4546ms
+13:55:33 [redis] [6/42] 图  java-redis-multithread-after-6           pipeline       4帧 7735ms
+13:55:41 [redis] [7/42] 图  java-redis-aof-internals                 pipeline       5帧 8017ms
+13:55:47 [redis] [8/42] 图  java-redis-rdb-internals                 pipeline       4帧 6437ms
+13:55:53 [redis] [9/42] 图  java-redis-hybrid-persistence            pipeline       3帧 5982ms
+13:55:59 [redis] [10/42] 图  java-redis-high-availability             pipeline       3帧 5537ms
+13:56:04 [redis] [11/42] 图  java-redis-cluster-split-brain           pipeline       3帧 5150ms
+13:56:08 [redis] [12/42] 图  java-redis-expire-delete-strategy        pipeline       3帧 3994ms
+13:56:16 [redis] [13/42] 图  java-redis-expire-keys-persistence       snapshot       3帧 8388ms
+13:56:33 [redis] [14/42] —   java-redis-eviction-strategies           判定不配图 16943ms
+13:56:42 [redis] [15/42] 图  java-redis-lru-vs-lfu                    snapshot       3帧 8777ms
+13:56:51 [redis] [16/42] 图  java-redis-cache-three-problems          snapshot       3帧 8746ms
+13:57:12 [redis] [17/42] —   java-redis-cache-update-strategies       判定不配图 20930ms
+13:57:17 [redis] [18/42] 图  java-redis-big-key                       pipeline       3帧 4822ms
+13:57:23 [redis] [19/42] 图  java-redis-transaction-rollback          pipeline       4帧 6039ms
+13:57:29 [redis] [20/42] 图  java-redis-distributed-lock              pipeline       4帧 6399ms
+13:57:33 [redis] [21/42] 图  java-redis-skiplist                      pipeline       3帧 3422ms
+13:57:38 [redis] [22/42] 图  java-redis-stream-mq                     pipeline       4帧 5582ms
+13:57:43 [redis] [23/42] 图  java-redis-memory-fragmentation          pipeline       3帧 5199ms
+13:58:00 [redis] [24/42] —   java-redis-blocking-problems             判定不配图 16661ms
+13:58:23 [redis] [25/42] —   java-redis-persistence                   判定不配图 22714ms
+13:58:27 [redis] [26/42] 图  java-redis-delayed-task                  pipeline       4帧 4364ms
+13:58:32 [redis] [27/42] 图  java-redis-cache-db-consistency          pipeline       4帧 5253ms
+13:58:36 [redis] [28/42] 图  java-redis-sentinel                      pipeline       3帧 3621ms
+13:58:42 [redis] [29/42] 图  java-redis-master-slave-replication      pipeline       4帧 6119ms
+13:58:48 [redis] [30/42] 图  java-redis-cluster                       pipeline       4帧 5746ms
+13:59:05 [redis] [31/42] —   java-redisq03                            判定不配图 16892ms
+13:59:14 [redis] [32/42] 图  java-redisq05                            snapshot       3帧 9508ms
+13:59:32 [redis] [33/42] —   redismodule                              判定不配图 17364ms
+14:00:00 [redis] [34/42] —   java-redisq09                            判定不配图 28133ms
+14:00:09 [redis] [35/42] 图  string-hash                              snapshot       4帧 9345ms
+14:00:30 [redis] [36/42] —   java-redisq16                            判定不配图 20442ms
+14:00:35 [redis] [37/42] 图  java-redisq22                            pipeline       3帧 4992ms
+14:00:42 [redis] [38/42] 图  hyperloglog                              snapshot       2帧 7461ms
+14:00:49 [redis] [39/42] 图  java-redisq25                            pipeline       4帧 7130ms
+14:00:53 [redis] [40/42] 图  java-redisq27                            pipeline       3帧 3764ms
+14:01:03 [redis] [41/42] 图  java-redisq29                            state-machine  4帧 9980ms
+14:01:07 [redis] [42/42] 图  java-redisq30                            pipeline       3帧 4549ms
+14:01:07 [redis] 完成：配图 33，判定不配 9，用时 414 秒
+20:10:43 [redis] 开始：共 45 张，待补图 0 张（），model=qwen3:8b
+20:10:43 [redis] 完成：配图 0，判定不配 0，用时 0 秒
+20:27:34 [redis] 开始：共 45 张，待补图 9 张（retry-null ），model=qwen3:8b
+20:28:00 [redis] [1/9] —   java-redis-data-types-internals          判定不配图 25353ms
+20:28:22 [redis] [2/9] 图  java-redis-eviction-strategies           snapshot       3帧 22209ms
+20:28:44 [redis] [3/9] —   java-redis-cache-update-strategies       判定不配图 22675ms
+20:29:07 [redis] [4/9] —   java-redis-blocking-problems             判定不配图 22817ms
+20:29:30 [redis] [5/9] —   java-redis-persistence                   判定不配图 22936ms
+20:29:50 [redis] [6/9] —   java-redisq03                            判定不配图 19586ms
+20:30:23 [redis] [7/9] 图  redismodule                              arch           6帧 33630ms
+20:30:50 [redis] [8/9] —   java-redisq09                            判定不配图 26530ms
+20:30:50 [redis] [9/9] —   java-redisq16                            判定不配图 316ms
+20:30:50 [redis] 完成：配图 2，判定不配 7，用时 196 秒

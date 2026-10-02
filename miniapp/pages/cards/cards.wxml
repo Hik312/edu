@@ -1,0 +1,43 @@
+<view class="bar">
+  <input class="input grow" placeholder="搜索卡片（空格分隔=都要命中）"
+         value="{{q}}" bindinput="onInput" confirm-type="search" bindconfirm="onSearch" />
+  <button class="btn" bindtap="onSearch">搜索</button>
+</view>
+
+<!-- 模块（学习方向）chips：选中后列表只推这个模块的卡 -->
+<scroll-view scroll-x class="mods" enable-flick wx:if="{{directions.length}}">
+  <view class="chip {{dirs === '' ? 'on' : ''}}" data-id="" bindtap="pickDir">全部</view>
+  <view class="chip {{dirs === item.id ? 'on' : ''}}" wx:for="{{directions}}" wx:key="id"
+        data-id="{{item.id}}" bindtap="pickDir">
+    {{item.name}}<text class="cnt">{{item.count}}</text>
+  </view>
+</scroll-view>
+
+<view class="filter" wx:if="{{subject || dirs}}">
+  <text class="chip on" wx:if="{{subject}}">科目：{{subjectName}}</text>
+  <text class="chip on" wx:if="{{dirs}}">模块：{{modName}}</text>
+  <text class="chip" bindtap="clearFilter">清除 ✕</text>
+</view>
+<view class="muted count" wx:if="{{cards.length}}">共 {{total}} 张 · 已加载 {{cards.length}}</view>
+
+<!-- 逐张浏览：把当前筛选带进详情页，翻着看不用回列表 -->
+<view class="browse" wx:if="{{cards.length}}">
+  <button class="btn ghost block" bindtap="browse">逐张浏览（{{modName || '当前筛选'}} · {{total}} 张）</button>
+</view>
+
+<view wx:if="{{loading && !cards.length}}" class="empty">加载中…</view>
+<view wx:elif="{{error}}" class="empty">{{error}}</view>
+<view wx:elif="{{!cards.length}}" class="empty">没有匹配的卡片</view>
+
+<view class="card item" wx:for="{{cards}}" wx:key="id"
+      data-id="{{item.id}}" bindtap="openDetail">
+  <view class="row between">
+    <view class="title grow">{{item.title}}</view>
+    <view class="lv{{item.level}} lvl">{{item.levelName}}</view>
+  </view>
+  <view class="oneLine">{{item.oneLine}}</view>
+  <view class="muted path">{{item.topicPath}}</view>
+</view>
+
+<view class="empty" wx:if="{{cards.length && !hasMore}}">— 到底了 —</view>
+<view class="empty" wx:if="{{loading && cards.length}}">加载中…</view>

@@ -16,7 +16,7 @@ var CARDS_SPRINGBOOT = [
       "① 入口注解 @SpringBootApplication 是复合注解，内含 @EnableAutoConfiguration",
       "② @EnableAutoConfiguration 上标注 @Import(AutoConfigurationImportSelector.class)",
       "③ 配置类后处理器 ConfigurationClassPostProcessor 解析 @Import，回调这个 DeferredImportSelector",
-      "④ 读取候选清单：Spring Boot 3 读 META-INF/spring/org.springframework.boot.autoconfigure.AutoConfiguration.imports（2.x 是 spring.factories 的 EnableAutoConfiguration 项）",
+      "④ 读取候选清单：Spring Boot 3/4 读 META-INF/spring/org.springframework.boot.autoconfigure.AutoConfiguration.imports（2.x 是 spring.factories 的 EnableAutoConfiguration 项）",
       "⑤ 去重 + 按 @AutoConfigureOrder / @AutoConfigureBefore/After 排序",
       "⑥ 逐个用条件注解过闸：@ConditionalOnClass 看类路径有没有这个依赖，@ConditionalOnMissingBean 看用户是否自己定义了，@ConditionalOnProperty 看配置项开关",
       "⑦ 通过筛选的类作为 @Configuration 被解析，其 @Bean 方法注册为 BeanDefinition"
@@ -37,7 +37,7 @@ var CARDS_SPRINGBOOT = [
         },
         {
           "s": 1,
-          "note": "Spring Boot 3 由 ImportCandidates 读 imports 文件；2.x 由 SpringFactoriesLoader 读 spring.factories"
+          "note": "Spring Boot 3/4 由 ImportCandidates 读 imports 文件；2.x 由 SpringFactoriesLoader 读 spring.factories"
         },
         {
           "s": 2,
@@ -55,6 +55,7 @@ var CARDS_SPRINGBOOT = [
     },
     "interviewQ": [
       "Spring Boot 2 和 3 在自动装配清单文件上有什么区别？（答：2.x 用 spring.factories 的 EnableAutoConfiguration 段，3.x 迁到 AutoConfiguration.imports 文件）",
+      "Spring Boot 4 自动装配变了吗？（答：机制没变，仍是 AutoConfiguration.imports + 条件注解；Boot 4 于 2025-11 GA，基于 Spring Framework 7）",
       "为什么我们自己写个 @Service 就能覆盖官方默认 Bean？",
       "自动装配是按需还是全量？开销在哪一步？"
     ],
@@ -91,6 +92,16 @@ var CARDS_SPRINGBOOT = [
         "id": "sb-startup",
         "kind": "compare",
         "note": "自动装配发生在 refresh 里，是启动流程的一个阶段而非并列关系"
+      },
+      {
+        "id": "sb-filter-levels",
+        "kind": "compare",
+        "note": "自动装配和过滤器层级都涉及框架的扩展机制，对比看不同扩展方式"
+      },
+      {
+        "id": "sb-mvc-flow",
+        "kind": "compare",
+        "note": "自动装配和 HTTP 请求流程都涉及框架的运行机制，对比看不同模块的实现"
       }
     ]
   },
@@ -184,6 +195,21 @@ var CARDS_SPRINGBOOT = [
         "id": "sb-autoconfig",
         "kind": "extends",
         "note": "refresh 里由 ConfigurationClassPostProcessor 触发自动装配"
+      },
+      {
+        "id": "sb-condition",
+        "kind": "compare",
+        "note": "启动过程和条件注解都涉及框架的扩展机制，对比看不同扩展方式"
+      },
+      {
+        "id": "sb-bean-lifecycle",
+        "kind": "compare",
+        "note": "启动过程和 Bean 生命周期都涉及 Bean 的创建和注册，对比看不同阶段的实现"
+      },
+      {
+        "id": "sb-filter-levels",
+        "kind": "compare",
+        "note": "启动过程和过滤器层级都涉及框架的扩展机制，对比看不同扩展方式"
       }
     ]
   },
@@ -318,6 +344,21 @@ var CARDS_SPRINGBOOT = [
         "id": "sb-aop-proxy",
         "kind": "extends",
         "note": "代理生成发生在初始化之后，这一步决定了你拿到的是不是原对象"
+      },
+      {
+        "id": "sb-mvc-flow",
+        "kind": "compare",
+        "note": "了解请求处理流程后，更能理解Bean在请求中如何被创建和使用"
+      },
+      {
+        "id": "sb-autoconfig",
+        "kind": "prereq",
+        "note": "装配通过后注册成 BeanDefinition，接着走完整生命周期"
+      },
+      {
+        "id": "sb-startup",
+        "kind": "compare",
+        "note": "启动过程和 Bean 生命周期都涉及 Bean 的创建和注册，对比看不同阶段的实现"
       }
     ]
   },
@@ -451,6 +492,11 @@ var CARDS_SPRINGBOOT = [
         "id": "sb-aop-proxy",
         "kind": "compare",
         "note": "早期引用暴露的是代理对象，AOP 会让循环依赖更容易踩坑"
+      },
+      {
+        "id": "sb-transactional",
+        "kind": "compare",
+        "note": "了解事务失效场景后，能更深入理解循环依赖如何影响事务行为"
       }
     ]
   },
@@ -548,6 +594,16 @@ var CARDS_SPRINGBOOT = [
         "id": "sb-circular",
         "kind": "compare",
         "note": "两者都涉及「你拿到的对象是不是原对象」这个问题"
+      },
+      {
+        "id": "sb-bean-lifecycle",
+        "kind": "prereq",
+        "note": "代理生成发生在初始化之后，这一步决定了你拿到的是不是原对象"
+      },
+      {
+        "id": "sb-filter-levels",
+        "kind": "compare",
+        "note": "AOP 是三层里最靠内的那一层，粒度最细"
       }
     ]
   },
@@ -646,6 +702,21 @@ var CARDS_SPRINGBOOT = [
         "id": "sb-embedded-tomcat",
         "kind": "prereq",
         "note": "DispatcherServlet 要先注册进容器，链路才跑得起来"
+      },
+      {
+        "id": "sb-autoconfig",
+        "kind": "compare",
+        "note": "自动装配和 HTTP 请求流程都涉及框架的运行机制，对比看不同模块的实现"
+      },
+      {
+        "id": "sb-bean-lifecycle",
+        "kind": "compare",
+        "note": "了解请求处理流程后，更能理解Bean在请求中如何被创建和使用"
+      },
+      {
+        "id": "sb-condition",
+        "kind": "compare",
+        "note": "对比请求处理流程，理解条件注解如何影响组件装配"
       }
     ]
   },
@@ -657,7 +728,7 @@ var CARDS_SPRINGBOOT = [
       "事务",
       "失效场景"
     ],
-    "title": "@Transactional 失效的六种常见写法",
+    "title": "@Transactional 失效的七种常见写法",
     "oneLine": "凡是让调用没走到代理对象、或者让异常没传出去的写法，都会让注解形同虚设",
     "analogy": "像装了门禁却从消防门进出：规则本身没问题，只是你压根没经过它",
     "why": "事务不回滚是线上最容易被忽视也最难复盘的坑",
@@ -748,6 +819,11 @@ var CARDS_SPRINGBOOT = [
         "id": "sb-bean-lifecycle",
         "kind": "compare",
         "note": "两者都讲究「哪个时机做哪件事」"
+      },
+      {
+        "id": "sb-circular",
+        "kind": "compare",
+        "note": "了解循环依赖后，能更清楚事务失效如何与依赖关系交织"
       }
     ]
   },
@@ -830,6 +906,26 @@ var CARDS_SPRINGBOOT = [
         "id": "sb-autoconfig",
         "kind": "extends",
         "note": "条件注解是自动装配的执行单元，最终服务于装配决策"
+      },
+      {
+        "id": "sb-startup",
+        "kind": "prereq",
+        "note": "了解启动流程后，能更清楚条件注解在注册前的作用"
+      },
+      {
+        "id": "sb-filter-levels",
+        "kind": "compare",
+        "note": "理解条件注解如何控制装配，可对比不同层次的控制机制"
+      },
+      {
+        "id": "sb-mvc-flow",
+        "kind": "compare",
+        "note": "对比请求处理流程，理解条件注解如何影响组件装配"
+      },
+      {
+        "id": "sb-embedded-tomcat",
+        "kind": "extends",
+        "note": "理解条件注解如何控制装配，能更好理解内嵌容器的启用逻辑"
       }
     ]
   },
@@ -921,6 +1017,21 @@ var CARDS_SPRINGBOOT = [
         "id": "sb-aop-proxy",
         "kind": "compare",
         "note": "AOP 是三层里最靠内的那一层，粒度最细"
+      },
+      {
+        "id": "sb-condition",
+        "kind": "prereq",
+        "note": "理解条件注解如何控制装配，能更好理解不同层次的控制逻辑"
+      },
+      {
+        "id": "sb-embedded-tomcat",
+        "kind": "compare",
+        "note": "对比内嵌容器机制，理解不同层次的控制与依赖"
+      },
+      {
+        "id": "sb-autoconfig",
+        "kind": "compare",
+        "note": "自动装配和过滤器层级都涉及框架的扩展机制，对比看不同扩展方式"
       }
     ]
   },
@@ -1013,6 +1124,21 @@ var CARDS_SPRINGBOOT = [
         "id": "sb-mvc-flow",
         "kind": "extends",
         "note": "容器起来后才有请求链路可走"
+      },
+      {
+        "id": "sb-condition",
+        "kind": "prereq",
+        "note": "理解条件注解如何控制装配，能更好理解内嵌容器的启用逻辑"
+      },
+      {
+        "id": "sb-autoconfig",
+        "kind": "prereq",
+        "note": "自动装配机制是内嵌容器启用的基础"
+      },
+      {
+        "id": "sb-filter-levels",
+        "kind": "compare",
+        "note": "对比不同层次的控制机制，理解内嵌容器的依赖关系"
       }
     ]
   }

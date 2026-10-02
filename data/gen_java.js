@@ -138,7 +138,13 @@ var CARDS_JAVA = [
       "垃圾回收",
       "算法"
     ],
-    "related": []
+    "related": [
+      {
+        "id": "python-gc",
+        "kind": "compare",
+        "note": "对比 Python 与 Java 的垃圾回收机制"
+      }
+    ]
   },
   {
     "id": "java-synchronized-lock-upgrade",
@@ -150,14 +156,14 @@ var CARDS_JAVA = [
       "锁升级"
     ],
     "title": "synchronized锁升级的过程是怎样的？",
-    "oneLine": "synchronized锁会从偏向锁升级为轻量锁，再升级为重量锁。",
+    "oneLine": "synchronized锁按偏向锁→轻量锁→重量锁逐级升级（JDK 15 起废弃偏向锁、JDK 18 起默认关闭）。",
     "analogy": "就像从一个人占座到多人轮流占座，最后变成共享座位。",
     "why": "减少锁竞争带来的性能损耗，提升并发性能。",
     "mechanism": [
-      "① 偏向锁：线程首次获得锁时，直接偏向该线程。",
+      "① 偏向锁：线程首次获得锁时，直接偏向该线程（JDK 15 起废弃、JDK 18 起默认关闭，新版本直接从轻量级锁开始）。",
       "② 轻量锁：多个线程竞争时，通过CAS尝试获取锁。",
       "③ 重量锁：线程竞争激烈时，使用Monitor对象实现同步。",
-      "④ 锁升级：从偏向锁到轻量锁，再到重量锁，逐步升级。"
+      "④ 锁升级：从偏向锁到轻量锁，再到重量锁，逐步升级（历史机制，面试仍会问）。"
     ],
     "diagram": {
       "kind": "pipeline",
@@ -199,7 +205,13 @@ var CARDS_JAVA = [
       "锁机制",
       "并发"
     ],
-    "related": []
+    "related": [
+      {
+        "id": "java-synchronized",
+        "kind": "extends",
+        "note": "锁升级是 synchronized 实现锁机制的关键步骤"
+      }
+    ]
   },
   {
     "id": "java-jvm-memory",
@@ -338,7 +350,18 @@ var CARDS_JAVA = [
       "垃圾回收",
       "算法"
     ],
-    "related": []
+    "related": [
+      {
+        "id": "java-jvm-garbage-collection",
+        "kind": "prereq",
+        "note": "了解 JVM 垃圾回收机制是理解具体算法的基础"
+      },
+      {
+        "id": "java-generational-gc",
+        "kind": "compare",
+        "note": "分代回收是标记-清除等算法在实际中的应用和优化"
+      }
+    ]
   },
   {
     "id": "java-synchronized",
@@ -354,7 +377,7 @@ var CARDS_JAVA = [
     "analogy": "就像从一个人独占资源到多人共享资源的过程。",
     "why": "帮助开发者理解锁的性能优化和资源竞争问题。",
     "mechanism": [
-      "① 偏向锁：线程第一次访问时，直接偏向该线程。",
+      "① 偏向锁：线程第一次访问时，直接偏向该线程（JDK 15 起废弃、JDK 18 起默认关闭）。",
       "② 轻量级锁：线程尝试获取锁时，使用CAS操作。",
       "③ 重量级锁：当发生线程竞争时，锁膨胀为重量级锁。",
       "④ 锁升级：从偏向锁到轻量级锁，再到重量级锁。"
@@ -399,7 +422,23 @@ var CARDS_JAVA = [
       "并发",
       "锁机制"
     ],
-    "related": []
+    "related": [
+      {
+        "id": "java-synchronized-lock-upgrade",
+        "kind": "prereq",
+        "note": "锁升级是 synchronized 实现锁机制的关键步骤"
+      },
+      {
+        "id": "java-cas",
+        "kind": "compare",
+        "note": "CAS 是无锁编程的核心，与锁升级形成对比"
+      },
+      {
+        "id": "java-reentrantlock",
+        "kind": "compare",
+        "note": "ReentrantLock 是更灵活的锁实现，与 synchronized 形成对比"
+      }
+    ]
   }
 ];
 

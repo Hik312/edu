@@ -11,8 +11,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 
 import db
 import importer
-from ..deps import current_user
-from ..schemas import CardIn
+from ...deps import current_user
+from ...schemas import CardIn
 
 router = APIRouter(prefix='/api', tags=['卡片'])
 

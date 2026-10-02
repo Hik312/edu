@@ -12,10 +12,12 @@
  */
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { useCardsStore } from '@/stores/cards'
 import { useLearningStore } from '@/stores/learning'
 import { levelLabel } from '@/config/theme'
 import { getPlan } from '@/api/system'
+import { renameDoc } from '@/api/docs'
 import CardItem from '@/components/CardItem.vue'
 import CardBody from '@/components/CardBody.vue'
 import LevelPicker from '@/components/LevelPicker.vue'
@@ -65,6 +67,36 @@ watch(
 function pickDeck(id) {
   cards.setFilter('deckId', id)
   cards.fetchList()
+}
+
+/** 重命名卡片组：组名真相源是文档标题，后端会级联改已发布卡和草稿的 deck。
+ *  deckId 不变 → 筛选、断点续跑、图片目录都不受影响，只换显示名。 */
+async function renameDeck(d) {
+  let name
+  try {
+    const r = await ElMessageBox.prompt(
+      '组内卡片的「卡片组」标记会一起改（组 id 不变，筛选不受影响）',
+      `重命名《${d.name}》`,
+      {
+        inputValue: d.name,
+        confirmButtonText: '改名',
+        cancelButtonText: '取消',
+        inputValidator: v => (v && v.trim() ? true : '名字不能为空')
+      }
+    )
+    name = r.value.trim().slice(0, 60)
+  } catch {
+    return // 用户取消
+  }
+  if (!name || name === d.name) return
+  try {
+    await renameDoc(d.id, name)
+    d.name = name // 正在按组筛选时 list 的 watch 不刷新选项，本地先改掉
+    await cards.fetchList()
+    ElMessage.success(`卡片组已改名为《${name}》`)
+  } catch (e) {
+    ElMessage.error(e?.message || '改名失败')
+  }
 }
 
 const levelOf = computed(() => (detail.value ? (detail.value.level ?? 0) : 0))
@@ -261,10 +293,10 @@ function clearAll() {
         :key="d.id"
         class="sub"
         :class="{ on: cards.filters.deckId === d.id }"
-        :title="`只看《${d.name}》里的卡`"
+        :title="`只看《${d.name}》里的卡；点 ✎ 重命名`"
         @click="pickDeck(d.id)"
       >
-        {{ d.name }}
+        {{ d.name }}<span class="deck-ren" title="重命名卡片组" @click.stop="renameDeck(d)">✎</span>
       </button>
     </div>
 
@@ -461,6 +493,19 @@ function clearAll() {
   font-size: 12.5px;
   color: var(--dim);
   padding-right: 2px;
+}
+/* 组 chips 里的改名铅笔：hover 才现身，点它不触发筛选（@click.stop） */
+.deck-ren {
+  margin-left: 5px;
+  font-size: 11px;
+  opacity: 0;
+  transition: opacity 0.16s;
+}
+.sub:hover .deck-ren {
+  opacity: 0.65;
+}
+.deck-ren:hover {
+  opacity: 1 !important;
 }
 
 .count {

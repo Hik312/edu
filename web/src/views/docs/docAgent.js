@@ -10,7 +10,14 @@
  *
  * 顺序不能反：structure 重切章节会改变下标，报告必须在它之后。
  *
- * 和「全部转卡」旧链路（DocsView 里的 runAuto）互斥运行，但进度、
+ * ★ 流程状态（agent / parsing）是**模块级单例**，视图依赖（opened/llm/…）
+ *   每次 makeDocAgent 重新绑定、每个 await 之后重新读 —— 和 stores/chat.js
+ *   同一个理由：跑一轮要几十秒，人切走页面再回来，进度和守卫必须还在。
+ *   状态留在组件里的话，回来是一份全新的 idle 状态：进度看不见，守卫也
+ *   认不出上一轮还在跑 —— 再点一次就开了两轮并行的 structure/parse，
+ *   章节被重切两遍、报告下标错位。
+ *
+ * 和「全部转卡」旧链路（docAuto.js 的 auto）互斥运行，但进度、
  * 文案、按钮各自独立 —— 换链路的人不该分不清自己在跑哪条。
  */
 import { computed, ref } from 'vue'
@@ -22,11 +29,15 @@ import { getToken } from '@/api/client'
 /** 正文里的图片占位（和后端 docparse.MEDIA_TOKEN 同形，改了要两边同步）。 */
 const MEDIA_RE = /!\[\]\(media:([A-Za-z0-9_.\- ]+)\)/g
 
-export function makeDocAgent({ opened, llm, fetchList, busy, openDoc }) {
-  const agent = ref({ on: false, stop: false, phase: 'draft', i: 0, n: 0 })
-  const parsing = ref(false) // structure+parse 串行中（报告还没出来）
+/** 流程状态：模块级，跨页面切换存活（见文件头）。 */
+const agent = ref({ on: false, stop: false, phase: 'draft', i: 0, n: 0 })
+const parsing = ref(false) // structure+parse 串行中（报告还没出来）
+/** 当前挂载的 DocsView 提供的视图依赖；后台流程在每个 await 之后重读它，
+ *  拿到的永远是「现在挂着的那份视图」，写回前用 mine() 过闸。 */
+let deps = null
 
-  const hasParse = computed(() => Boolean(opened.value?.parse))
+export function makeDocAgent(d) {
+  deps = d
 
   const agentLabel = computed(() => {
     const a = agent.value
@@ -35,17 +46,23 @@ export function makeDocAgent({ opened, llm, fetchList, busy, openDoc }) {
     return '开始出卡'
   })
 
+  /** 当前视图打开的还是不是这一份 —— 后台流程写 opened 前必过这道闸，
+   *  人切到别的文档/删了文档时不能把人家的视图冲掉。 */
+  function mine(docId) {
+    return deps.opened.value?.id === docId
+  }
+
   async function toggleAgent() {
     if (agent.value.on) {
       agent.value.stop = true
       return
     }
-    if (parsing.value || busy() || !opened.value) return
-    if (!llm.value.ok) {
-      ElMessage.warning('AI 未启用：' + (llm.value.msg || '没配置模型'))
+    if (parsing.value || deps.busy() || !deps.opened.value) return
+    if (!deps.llm.value.ok) {
+      ElMessage.warning('AI 未启用：' + (deps.llm.value.msg || '没配置模型'))
       return
     }
-    if (!hasParse.value) {
+    if (!deps.opened.value.parse) {
       ElMessage.info('先跑「AI 解析内容」，确认报告后再出卡')
       return
     }
@@ -53,8 +70,8 @@ export function makeDocAgent({ opened, llm, fetchList, busy, openDoc }) {
   }
 
   async function runAgent() {
-    if (agent.value.on || parsing.value || !opened.value) return // 自动触发和手点共用这个闸
-    const docId = opened.value.id
+    if (agent.value.on || parsing.value || !deps.opened.value) return // 自动触发和手点共用这个闸
+    const docId = deps.opened.value.id
     agent.value = { on: true, stop: false, phase: 'draft', i: 0, n: 0 }
     const stat = { made: 0, skipped: 0, watch: 0, failed: 0, dropped: 0 }
     try {
@@ -79,8 +96,8 @@ export function makeDocAgent({ opened, llm, fetchList, busy, openDoc }) {
       agent.value.on = false
       agent.value.stop = false
       const r = await getDoc(docId).catch(() => null)
-      if (r) opened.value = r.doc
-      await fetchList()
+      if (r && mine(docId)) deps.opened.value = r.doc
+      await deps.fetchList()
     }
   }
 
@@ -89,7 +106,7 @@ export function makeDocAgent({ opened, llm, fetchList, busy, openDoc }) {
   async function draftPhase(docId, stat) {
     agent.value.phase = 'draft'
     const r = await getDoc(docId) // 分章/报告可能变过，重新拉
-    opened.value = r.doc
+    if (mine(docId)) deps.opened.value = r.doc
     const parse = r.doc.parse
     const keeps = parse
       ? new Set((parse.chapters || []).filter(x => x.keep).map(x => x.index))
@@ -119,8 +136,8 @@ export function makeDocAgent({ opened, llm, fetchList, busy, openDoc }) {
   async function refineFirst(docId) {
     try {
       const s = await cardsStructure(docId)
-      if (s.refined && s.doc && opened.value?.id === docId) {
-        opened.value = s.doc // 新分章直接上屏
+      if (s.refined && s.doc && mine(docId)) {
+        deps.opened.value = s.doc // 新分章直接上屏
         ElMessage.success('分章已精修：' + (s.msg || `${s.chapters} 章`))
       } else if (!s.refined && s.msg) {
         ElMessage.warning('分章保持原样（' + s.msg + '）')
@@ -133,15 +150,16 @@ export function makeDocAgent({ opened, llm, fetchList, busy, openDoc }) {
   /** 解析流程 = 结构精修（定分章点）→ 内容解析（有用/没用报告）。
    *  两步必须串行且顺序不能反：精修会重切章节，报告要基于最终下标。
    *  跑完**停住** —— 报告是终点，出卡等人确认后手动点。
-   *  不 await 调用方：结构精修+判定可能要一两分钟，进度显示在按钮上。 */
+   *  不 await 调用方：结构精修+判定可能要一两分钟，进度显示在按钮上；
+   *  状态是模块级的，中途切走页面回来还在跑（见文件头）。 */
   async function runParseFlow() {
-    if (parsing.value || agent.value.on || !opened.value) return
-    const docId = opened.value.id
+    if (parsing.value || agent.value.on || !deps.opened.value) return
+    const docId = deps.opened.value.id
     parsing.value = true
     try {
       await refineFirst(docId)
       const r = await parseDoc(docId)
-      if (opened.value?.id === docId) opened.value = r.doc
+      if (mine(docId)) deps.opened.value = r.doc
       if (r.modelOk === false) {
         ElMessage.warning(
           'AI 判定没跑成（' + (r.msg || '模型不可用') + '），已用规则初筛，可手动勾选'
@@ -153,20 +171,20 @@ export function makeDocAgent({ opened, llm, fetchList, busy, openDoc }) {
       ElMessage.error(e?.message || '内容解析失败')
     } finally {
       parsing.value = false
-      await fetchList()
+      await deps.fetchList()
     }
   }
 
   /** 报告页勾选：乐观更新（勾选框即时响应），保存失败回滚。 */
   async function toggleKeep(index, keep) {
-    const docId = opened.value?.id
-    const row = (opened.value?.parse?.chapters || []).find(r => r.index === index)
+    const docId = deps.opened.value?.id
+    const row = (deps.opened.value?.parse?.chapters || []).find(r => r.index === index)
     if (!docId || !row) return
     const old = row.keep
     row.keep = keep
     try {
       const r = await putParseKeeps(docId, { [String(index)]: keep })
-      if (opened.value?.id === docId) opened.value = r.doc
+      if (mine(docId)) deps.opened.value = r.doc
     } catch (e) {
       row.keep = old
       ElMessage.error('勾选保存失败：' + (e.message || e))
@@ -179,7 +197,7 @@ export function makeDocAgent({ opened, llm, fetchList, busy, openDoc }) {
    *  不 await：跑完报告为止可能要一两分钟，导入对话框不该陪着等。 */
   async function startAfterImport(doc) {
     if (!doc) return
-    await openDoc(doc)
+    await deps.openDoc(doc)
     const n = (doc.chapters || []).length || (doc.stats && doc.stats.chapters) || 0
     if (!n) return
     runParseFlow()
@@ -191,7 +209,6 @@ export function makeDocAgent({ opened, llm, fetchList, busy, openDoc }) {
     toggleAgent,
     startAfterImport,
     parsing,
-    hasParse,
     runParseFlow,
     toggleKeep
   }

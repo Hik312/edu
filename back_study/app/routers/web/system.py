@@ -13,7 +13,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 
 import db
 import store as store_pkg
-from ..deps import current_user
+from ...deps import current_user
 
 router = APIRouter(prefix='/api', tags=['结构'])
 
