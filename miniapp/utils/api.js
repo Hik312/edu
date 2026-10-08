@@ -25,6 +25,13 @@ const api = {
     return app.request("/api/mini/home");
   },
 
+  // ---- BKT 掌握度汇总 /api/mastery?brief=1 ----
+  // brief=1 只回 summary + params，不回 400 张卡明细 —— 首页只画一条分布条，
+  // 拉明细在手机上是纯浪费流量。
+  masteryBrief() {
+    return app.request("/api/mastery?brief=1");
+  },
+
   // ---- 卡包 /api/mini/cards ----
   // dirs: 方向 id（模块筛，如 agent），逗号分隔
   // idsOnly: true 只回 {ids, total} —— 详情页逐张浏览要一次拿全模块 id 清单

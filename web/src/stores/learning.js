@@ -92,6 +92,10 @@ export const useLearningStore = defineStore('learning', () => {
         getProfile().catch(() => null),
         getDirections().catch(() => null)
       ]).then(([p, d]) => {
+        // getProfile() 已经返回档案本身（解包在 api/agent.js 里做了），
+        // 直接读 p.directions 就是对的。层级统一在 api 层，
+        // 调用方不再各自`(res && res.profile) || res` —— 那种兜底看着
+        // 防御性，实际上会让「读错一层」的错误静默通过。
         if (p) {
           dailyTarget.value = p.dailyTarget || DAILY_DEFAULT
           pickedDirs.value = Array.isArray(p.directions) ? p.directions : []
@@ -116,11 +120,21 @@ export const useLearningStore = defineStore('learning', () => {
     dailyTarget.value = DAILY_DEFAULT
     pickedDirs.value = []
     picked.value = []
+    // ★ 队列和统计也必须清。原来只重置了「档案相关」的 5 个 ref，
+    //   于是登出 → 换账号登录 → 复习页 fetchQueue 若失败，
+    //   页面显示的是**上一个人的卡和统计**（fetchDue 的 finally 只复位 loading，
+    //   不会把旧 queue 清空）。这比「显示空」危险得多 —— 空用户知道是空，
+    //   别人的复习记录会被当成自己的。
+    queue.value = []
+    total.value = 0
+    today.value = ''
+    stats.value = null
   }
 
   /** 改设置：写后端档案，成功后用**服务端返回的那份**回填本地
    *  （截断/去重在后端做，本地自己算一遍迟早跟它不一致）。 */
   async function saveSettings(patch) {
+    // api 层已返回档案本身
     const saved = await putProfile(patch)
     if (saved && saved.dailyTarget != null) {
       dailyTarget.value = saved.dailyTarget || DAILY_DEFAULT
@@ -192,6 +206,15 @@ export const useLearningStore = defineStore('learning', () => {
     const listItem = (cards.list || []).find(c => c.id === cid)
     const oldList = listItem ? listItem.level : undefined
     if (listItem) listItem.level = level
+    // ★ 详情缓存（cards.details）也必须同步 —— 它是**第三份**同一张卡的副本，
+    //   而且 fetchDetail 会优先返回缓存。原来的注释写着「从前只改了 queue 和
+    //   详情缓存」，其实详情缓存**根本没改**：在卡片页标「会」→ 关抽屉 →
+    //   再打开同一张卡，命中缓存显示的还是旧档位（LevelPicker 高亮错误档位）。
+    //   用户看到的是「刚才明明标了会，怎么又变回未标记」，会当成保存失败。
+    //   三份副本（queue / cards.list / cards.details）必须一次改全。
+    const detail = (cards.details || {})[cid]
+    const oldDetail = detail ? detail.level : undefined
+    if (detail) detail.level = level
     marking.value[cid] = true
     try {
       await learningApi.markCard(cid, level)
@@ -199,6 +222,7 @@ export const useLearningStore = defineStore('learning', () => {
     } catch (e) {
       if (item) item.level = old
       if (listItem) listItem.level = oldList
+      if (detail) detail.level = oldDetail
       throw e
     } finally {
       delete marking.value[cid]

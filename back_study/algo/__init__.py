@@ -31,6 +31,7 @@ from .base import (Algo, LEVEL_AGAIN, LEVEL_HARD, LEVEL_GOOD,
                    REC_KEYS, today_str, add_days, diff_days)
 from .sm2 import SM2
 from .fsrs import FSRS
+from .hlr import HLR
 from .bkt import BKT, DEFAULT_PARAMS as BKT_DEFAULT_PARAMS, fit as bkt_fit
 
 DEFAULT_NAME = 'sm2'
@@ -40,6 +41,7 @@ DEFAULT_NAME = 'sm2'
 _REGISTRY = {
     'sm2': SM2(),
     'fsrs': FSRS(),
+    'hlr': HLR(),
     'bkt': BKT(),
 }
 
@@ -122,7 +124,7 @@ def reset():
     _current = None
 
 
-__all__ = ['Algo', 'SM2', 'FSRS', 'BKT', 'bkt_fit', 'BKT_DEFAULT_PARAMS',
+__all__ = ['Algo', 'SM2', 'FSRS', 'HLR', 'BKT', 'bkt_fit', 'BKT_DEFAULT_PARAMS',
            'get', 'set_default', 'register', 'names',
            'describe_all', 'reset', 'DEFAULT_NAME', 'REC_KEYS',
            'LEVEL_AGAIN', 'LEVEL_HARD', 'LEVEL_GOOD',

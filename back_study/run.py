@@ -17,6 +17,11 @@
 import os
 import sys
 
+# 1. `__file__`：Python 内置变量，保存**当前脚本文件的路径字符串**（只是文本，不会读文件内容）
+# 2. `os.path.abspath(path)`：把路径转为绝对路径，**纯字符串运算**，只会解析路径格式；不打开、不读取文件
+# 3. `os.path.dirname(path)`：**截取路径字符串，去掉最后一段**，返回目录部分。
+#    - 输入字符串：`/a/b/c/run.py`
+#    - 输出字符串：`/a/b/c`
 HERE = os.path.dirname(os.path.abspath(__file__))        # back_study/
 if HERE not in sys.path:
     sys.path.insert(0, HERE)

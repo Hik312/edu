@@ -1,23 +1,59 @@
 .bar {
   display: flex;
   gap: 16rpx;
-  padding: 24rpx;
+  padding: 24rpx 24rpx 8rpx;
 }
 .grow { flex: 1; }
 
-/* 模块 chips 横滑：方向有十几个，竖排会把列表挤到屏幕外 */
+/* 模块条：整块独立成段，和搜索框分开；横滑的图标方块，选中态描边 */
+.modsWrap { padding: 8rpx 0 4rpx; }
+.modsHead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  padding: 0 32rpx;
+  margin-bottom: 12rpx;
+}
+.modsT {
+  font-size: 26rpx;
+  font-weight: 600;
+  letter-spacing: 2rpx;
+}
 .mods {
   white-space: nowrap;
-  padding: 0 24rpx;
-  margin-bottom: 6rpx;
+  padding: 4rpx 24rpx 8rpx;
+  box-sizing: border-box;
 }
-.mods .chip { display: inline-block; }
-.mods .cnt {
-  font-size: 20rpx;
+.mtile {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  width: 168rpx;
+  margin-right: 16rpx;
+  padding: 20rpx 10rpx 16rpx;
+  background: var(--card);
+  border: 1rpx solid var(--line);
+  border-radius: 18rpx;
+  box-sizing: border-box;
+  vertical-align: top;
+}
+.mtile.on {
+  background: rgba(31, 75, 107, 0.14);
+  border-color: var(--accent);
+}
+.mi { font-size: 52rpx; line-height: 1.2; }
+.mn {
+  font-size: 22rpx;
   color: var(--dim);
-  margin-left: 6rpx;
+  text-align: center;
+  margin-top: 10rpx;
+  line-height: 1.3;
+  min-height: 56rpx; /* 名称 1~2 行都有，给两行高度让各块底下的卡数对齐 */
+  word-break: break-all;
 }
-.chip.on .cnt { color: var(--accent); opacity: 0.75; }
+.mtile.on .mn { color: var(--accent); font-weight: 600; }
+.mc { font-size: 20rpx; color: var(--dim); }
+.mtile.on .mc { color: var(--accent); opacity: 0.75; }
 
 .filter { padding: 0 24rpx; }
 .count { padding: 8rpx 32rpx; }

@@ -52,7 +52,7 @@ def list_cards(category: Optional[str] = Query(None, description='按一级分�
 
     # 带上复习档位：卡片墙和详情页的「未标记/模糊/会」徽标要真值，
     # 以前接口不返回 level，前端 `card.level ?? 0` 恒为未标记 —— 标过的也显示没标。
-    prog = db.get_progress()
+    prog = db.get_progress(user.get('id'))
     for c in cards:
         c['level'] = (prog.get(c['id']) or {}).get('level', 0)
 
@@ -88,7 +88,7 @@ def get_card(cid: str, user=Depends(current_user)):
     if not c:
         raise HTTPException(404, '卡片不存在')
     c = dict(c)
-    c['level'] = (db.get_progress().get(cid) or {}).get('level', 0)
+    c['level'] = (db.get_progress(user.get('id')).get(cid) or {}).get('level', 0)
     return {'ok': True, 'card': c}
 
 

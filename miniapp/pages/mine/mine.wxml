@@ -9,19 +9,23 @@
   </view>
 
   <view class="card" wx:if="{{stats}}">
-    <view class="secT">学习进度</view>
+    <view class="secT">📊 学习进度</view>
     <view class="grid">
-      <view class="cell"><view class="n">{{stats.total}}</view><view class="muted">总卡片</view></view>
-      <view class="cell"><view class="n lv3">{{stats.known}}</view><view class="muted">已掌握</view></view>
-      <view class="cell"><view class="n lv2">{{stats.fuzzy}}</view><view class="muted">模糊</view></view>
-      <view class="cell"><view class="n lv1">{{stats.weak}}</view><view class="muted">薄弱</view></view>
-      <view class="cell"><view class="n accent">{{stats.dueToday}}</view><view class="muted">今日待复习</view></view>
-      <view class="cell"><view class="n">{{stats.unmarked}}</view><view class="muted">未标记</view></view>
+      <view class="cell"><view class="n">{{stats.total}}</view><view class="muted">📚 总卡片</view></view>
+      <view class="cell"><view class="n lv3">{{stats.known}}</view><view class="muted">✅ 已掌握</view></view>
+      <view class="cell"><view class="n lv2">{{stats.fuzzy}}</view><view class="muted">🟡 模糊</view></view>
+      <view class="cell"><view class="n lv1">{{stats.weak}}</view><view class="muted">🔥 薄弱</view></view>
+      <!-- 今日待复习：用 dueTodayPlan（今天实际要刷几张）而不是 dueToday（全库到期数）。
+           400 张库里 398 张没背过 → dueToday 常年 400，而学习页一次只给 20 张。
+           这里再补一格「待学新卡」= fresh，把那 400 拆成有意义的两部分。 -->
+      <view class="cell"><view class="n accent">{{stats.dueTodayPlan}}</view><view class="muted">⏰ 今日待复习</view></view>
+      <view class="cell"><view class="n">{{stats.unmarked}}</view><view class="muted">✏️ 未标记</view></view>
+      <view class="cell"><view class="n" style="font-size:26rpx;color:var(--dim)">到期 {{stats.dueLearned}} · 新卡 {{stats.fresh}}</view><view class="muted">🗂️ 到期构成</view></view>
     </view>
   </view>
 
   <view class="foot">
-    <button class="btn ghost block" bindtap="logout">退出登录</button>
+    <button class="btn ghost block" bindtap="logout">🚪 退出登录</button>
   </view>
 </block>
 

@@ -1,70 +1,100 @@
-<view wx:if="{{loading}}" class="empty">加载中…</view>
+<view wx:if="{{loading && !stats}}" class="empty">加载中…</view>
 
-<block wx:elif="{{error}}">
+<block wx:elif="{{error && !stats}}">
   <view class="card">
     <view class="title">加载失败</view>
     <view class="oneLine">{{error}}</view>
-    <button class="btn" bindtap="load" style="margin-top:20rpx">重试</button>
+    <button class="btn" bindtap="reload" style="margin-top:20rpx">重试</button>
   </view>
 </block>
 
-<block wx:else>
-  <!-- 未登录引导 -->
-  <view wx:if="{{!loggedIn}}" class="card" bindtap="goMine">
+<!-- 未登录引导 -->
+<view wx:elif="{{!loggedIn}}" class="card hint" bindtap="goMine">
+  <view>
     <view class="title">未登录</view>
-    <view class="oneLine">登录后同步复习进度 →</view>
+    <view class="oneLine">登录后同步复习进度</view>
+  </view>
+  <view class="arrow">→</view>
+</view>
+
+<block wx:else>
+  <!-- 主状态：今日待复习（整块可点，进学习页）。数字是页面唯一的视觉焦点。
+       ⚠️ 用 dueTodayPlan（后端算好的「今天实际要刷几张」，= min(到期数, 20)）
+       而不是 dueToday（**全库**到期数）。400 张库里 398 张没背过 →
+       dueToday 常年 400，而复习队列一次只给 20 张。摆 400 的话用户点进去
+       发现只有 20 张，会以为系统挑错了或者数据丢了。 -->
+  <view class="card hero" bindtap="goLearn">
+    <view class="heroTop">
+      <view class="heroNum">{{stats.dueTodayPlan}}</view>
+      <view class="heroUnit">张待复习</view>
+    </view>
+    <view class="heroLine" wx:if="{{stats.dueTodayPlan > 0}}">
+      {{pick.length ? '今日自选 ' + pick.length + ' 张 · 刷完就收工' : '间隔重复 · 先复习再学新'}}
+    </view>
+    <!-- 积压说明：有排队时才出现。说清「为什么库里 N 张、今天只刷 M 张」。
+         ⚠️ 顺序有讲究：wx:if → wx:elif → wx:else 必须**连续**且 elif 在 else 之前。
+         第一版把 elif 写在 else 后面，WXML 直接编译报错（整页白屏）。
+         所以这里的 if/elif/else 是**一整组连续指令**，中间不能插别的节点，
+         按钮那组（wx:if / wx:else）是独立的一组。 -->
+    <view class="heroLine dim" wx:elif="{{stats.dueToday > stats.dueTodayPlan}}">
+      还有 {{stats.dueToday - stats.dueTodayPlan}} 张排队 · 到期 {{stats.dueLearned}} · 新卡 {{stats.fresh}}
+    </view>
+    <view class="heroLine" wx:else>今天的到期卡都刷完了 · 可以学新卡</view>
+    <view class="heroBtn" wx:if="{{stats.dueTodayPlan > 0}}">开始复习</view>
+    <view class="heroBtn ghost" wx:else bindtap="goCards">去学新卡</view>
+    <view class="metrics">
+      <view class="metric"><view class="mv">{{stats.total}}</view><view class="ml">全部</view></view>
+      <view class="metric"><view class="mv lv3">{{stats.known}}</view><view class="ml">已掌握</view></view>
+      <view class="metric"><view class="mv lv2">{{stats.fuzzy}}</view><view class="ml">模糊</view></view>
+      <view class="metric"><view class="mv lv1">{{stats.weak}}</view><view class="ml">薄弱</view></view>
+    </view>
   </view>
 
-  <!-- 统计四宫格 -->
-  <view class="stats" wx:if="{{stats}}">
-    <view class="stat card">
-      <view class="num">{{stats.total}}</view>
-      <view class="muted">全部卡片</view>
+  <!-- BKT 掌握度分布：上面那四个数字是「自评档位」计数（三档、很粗），
+       这一条是 BKT 的连续概率 p 算出来的分布，能看出「模糊」里有多少
+       其实快忘了。computed=0（还没练过）时不显示 —— 先验 p 画出来没意义。 -->
+  <view class="card" wx:if="{{mastery && mastery.computed > 0}}">
+    <view class="cardHead">
+      <view class="title">掌握度分布</view>
+      <view class="muted">已练 {{mastery.computed}} / {{mastery.total}} 张</view>
     </view>
-    <view class="stat card">
-      <view class="num lv3">{{stats.known}}</view>
-      <view class="muted">已掌握</view>
+    <view class="mbar">
+      <view class="seg sg-weak" style="flex-grow:{{mastery.weak}}"></view>
+      <view class="seg sg-mid" style="flex-grow:{{mastery.mid}}"></view>
+      <view class="seg sg-strong" style="flex-grow:{{mastery.strong}}"></view>
     </view>
-    <view class="stat card">
-      <view class="num lv2">{{stats.fuzzy}}</view>
-      <view class="muted">模糊</view>
-    </view>
-    <view class="stat card">
-      <view class="num lv1">{{stats.weak}}</view>
-      <view class="muted">薄弱</view>
+    <view class="mlegend">
+      <view class="mlg"><view class="dot sg-weak"></view>薄弱 {{mastery.weak}}</view>
+      <view class="mlg"><view class="dot sg-mid"></view>一般 {{mastery.mid}}</view>
+      <view class="mlg"><view class="dot sg-strong"></view>扎实 {{mastery.strong}}</view>
     </view>
   </view>
 
-  <!-- 今日 CTA：挑过清单按清单口径（一天 311 张刷不完，挑了才来得及） -->
-  <view class="card cta" bindtap="goLearn" wx:if="{{stats}}">
-    <view>
-      <view class="title" wx:if="{{pick.length}}">今日自选 {{pick.length}} 张</view>
-      <view class="title" wx:else>今日待复习 {{stats.dueToday}} 张</view>
-      <view class="oneLine">{{pick.length ? '按清单复习，刷完就收工' : '间隔重复，先复习再学新'}}</view>
+  <!-- 学习方向（模块）：图标网格，点一下进卡包按这个模块筛，能逐张翻 -->
+  <view class="card">
+    <view class="cardHead">
+      <view class="title">学习方向</view>
+      <view class="muted">按模块刷 · 可逐张翻</view>
     </view>
-    <view class="arrow">→</view>
+    <view class="dirs">
+      <view class="dtile" wx:for="{{directions}}" wx:key="id"
+            data-id="{{item.id}}" bindtap="pickDir">
+        <view class="di">{{item.emoji || '📁'}}</view>
+        <view class="dn">{{item.name}}</view>
+        <view class="dc">{{item.count}} 张</view>
+      </view>
+    </view>
   </view>
 
   <!-- 分类 → 科目 -->
   <view class="card" wx:for="{{catalog}}" wx:key="id" wx:for-item="cat">
-    <view class="title">{{cat.name}}</view>
-    <view class="oneLine">{{cat.desc}}</view>
-    <view style="margin-top:18rpx">
-      <view class="chip" wx:for="{{cat.subjects}}" wx:key="id"
-            data-id="{{item.id}}" bindtap="pickSubject">{{item.name}}</view>
+    <view class="cardHead">
+      <view class="title">{{cat.emoji || '📖'}} {{cat.name}}</view>
+      <view class="muted" wx:if="{{cat.subjects.length}}">{{cat.subjects.length}} 个科目</view>
     </view>
-  </view>
-
-  <!-- 学习方向预览：点一下进卡包按这个模块筛，能逐张翻 -->
-  <view class="card">
-    <view class="title">学习方向</view>
-    <view class="dir" wx:for="{{directions}}" wx:key="id" wx:for-item="d"
-          data-id="{{d.id}}" bindtap="pickDir">
-      <view class="row">
-        <view class="sub accent">{{d.name}}</view>
-        <view class="muted dcnt">{{d.count}} 张</view>
-      </view>
-      <view class="muted">{{d.desc}}</view>
+    <view class="chips">
+      <view class="chip" wx:for="{{cat.subjects}}" wx:key="id"
+            data-id="{{item.id}}" bindtap="pickSubject">{{item.emoji}} {{item.name}}</view>
     </view>
   </view>
 </block>

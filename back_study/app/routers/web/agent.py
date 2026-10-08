@@ -24,6 +24,7 @@ import time
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
+from pydantic import BaseModel
 
 from ...config import LLM_ERR
 from ...deps import current_user
@@ -96,15 +97,21 @@ async def agent_ask(body: AgentAskIn, user=Depends(current_user)):
     hist = _hist(body)
     prof = _prof(body, user.get('id') if user else None)
 
+    uid = user.get('id') if user else None
+
     # 流式走 SSE，由 StreamingResponse 在线程池里驱动同步生成器，不堵事件循环
     if body.stream:
-        return StreamingResponse(_sse(rt, q, hist, prof, body.webSearch),
+        return StreamingResponse(_sse(rt, q, hist, prof, body.webSearch, uid),
                                  media_type='text/event-stream')
 
     t0 = time.time()
     try:
+        # uid 显式传参，不靠 contextvar自动传播：asyncio.to_thread 会
+        # **复制**当前 context（copy_context），在请求里 set 的值确实能传进去，
+        # 但流式那条路走的是线程池里的同步生成器、又是另一条传播路径 ——
+        # 两条路都靠「碰巧能传」就是下一次重构就会踩的雷。
         out = await asyncio.to_thread(rt.ask_full, q, body.mode, hist, prof,
-                                      body.webSearch)
+                                      body.webSearch, uid)
         answer = out['answer']
         sources = out.get('sources') or []
         steps = out.get('steps')
@@ -120,13 +127,16 @@ async def agent_ask(body: AgentAskIn, user=Depends(current_user)):
                        steps=steps, ms=int((time.time() - t0) * 1000))
 
 
-def _sse(rt, question, hist=None, prof=None, web=False):
+def _sse(rt, question, hist=None, prof=None, web=False, uid=None):
     """SSE 生成器。
 
     帧协议（前端 api/agent.js 按 event 名分流，**改动必须两边同步**）：
       无 event 名  = 正文增量，data 是一行文本（换行已转义）
+      event: step   = 「当前到哪一步」，data 是 {text} —— 给前端画步骤条用，
+                  不进正文。检索/联网最慢，先发这一步，别让用户干等空白。
       event: sources = 这次引用到的卡片 id，data 是 JSON 数组 —— 必须在 done
                   之前发，因为 react 模式要等生成完才抽得出来 id
+      event: verify = 校验引用卡的结果（有错才发），data 是建议列表
       event: done    = 正文流结束，data 为空
       event: error   = 出错，data 是错误信息
 
@@ -139,13 +149,50 @@ def _sse(rt, question, hist=None, prof=None, web=False):
         box['sources'] = ids or []
 
     try:
+        from agent.qa import tools as qa_tools
+        qa_tools.set_current_user(uid)   # 生成器跑在 worker 线程里
+        # 「到哪一步了」：检索+联网最慢（要跑 web 搜索），先单独发一帧，
+        # 否则用户面对空白干等。step 帧不进正文，只是给前端画步骤条。
+        yield 'event: step\ndata: %s\n\n' % _json.dumps(
+            {'text': '检索卡片库与联网资料…'}, ensure_ascii=False)
+        answered = False
         for piece in rt.stream_react(question, hist, prof,
-                                     on_sources=on_sources, web=web):
+                                     on_sources=on_sources, web=web,
+                                     user_id=uid):
+            if not answered:
+                answered = True
+                yield 'event: step\ndata: %s\n\n' % _json.dumps(
+                    {'text': '组织回答…'}, ensure_ascii=False)
             yield 'data: %s\n\n' % piece.replace('\n', '\\n')
         if box['sources'] is not None:
             yield 'event: sources\ndata: %s\n\n' % _json.dumps(box['sources'],
                                                                ensure_ascii=False)
+        # ★ 先发 done：让前端立刻解除「生成中」，用户可以接着聊。
+        #   卡片校验（联网+模型）比较慢，放到 done 之后跑，结果作 verify 帧补发，
+        #   绝不让校验把「答案已出」这件事卡住几分钟。
         yield 'event: done\ndata: \n\n'
+
+        # done 之后：校验这次引用到的卡，有错的反问用户是否修正（慢，但已不阻塞 UI）
+        started = False
+        try:
+            from agent.verify import runtime as verify_rt
+            if box['sources']:
+                started = True
+                yield 'event: step\ndata: %s\n\n' % _json.dumps(
+                    {'text': '校验引用卡片…'}, ensure_ascii=False)
+            cited = [qa_tools.find_card(i) for i in (box['sources'] or [])]
+            sugg = verify_rt.verify_cards([c for c in cited if c], user_id=uid)
+            if sugg:
+                yield 'event: verify\ndata: %s\n\n' % _json.dumps(sugg,
+                                                                  ensure_ascii=False)
+        except Exception:
+            pass    # 校验是增强，挂了不影响已给出的答案
+        finally:
+            # 收尾信号（放 finally）：把「校验引用卡片…」标记完成。即使校验抛异常
+            # 也必须发，否则步骤条上那个转圈会一直转。done:true = 只收尾、不新增。
+            if started:
+                yield 'event: step\ndata: %s\n\n' % _json.dumps(
+                    {'text': '', 'done': True}, ensure_ascii=False)
     except Exception as e:
         yield 'event: error\ndata: %s\n\n' % str(e).replace('\n', ' ')
 
@@ -286,3 +333,94 @@ def put_profile(body: AgentProfileIn, user=Depends(current_user)):
         raise HTTPException(401, '未登录')
     p = db.save_profile(uid, body.model_dump(exclude_unset=True))
     return {'ok': True, 'profile': p}
+
+
+# ---------------------------------------------------------------------------
+# 卡片校验 / 自纠（verify）：把「联网搜索 + 快速执行」合并成一条校验流水线
+#   查库 → 联网(web+github) → 模型对比 → 给出建议 patch（不落库）
+#   用户确认后调 apply，把卡片原文改掉（内置卡走同 id 自定义覆盖）
+# ---------------------------------------------------------------------------
+class VerifyIn(BaseModel):
+    query: str = ''          # 知识点（与 card_id 二选一，优先 card_id）
+    card_id: str = ''
+
+
+class ApplyIn(BaseModel):
+    card_id: str
+    patch: dict
+
+
+def _verify_rt():
+    """延迟导入校验执行层（和 _runtime 同款懒加载）。"""
+    try:
+        from agent.verify import runtime
+    except ImportError as e:
+        raise HTTPException(503, '%s（%s）' % (MISSING, e))
+    return runtime
+
+
+@router.post('/agent/verify', summary='校验一张卡片：本地 vs 网络')
+async def agent_verify(body: VerifyIn, user=Depends(current_user)):
+    """跑 查库 → 联网 → 模型对比，返回判定 + 建议 patch（不落库）。"""
+    rt = _verify_rt()
+    try:
+        out = await asyncio.to_thread(rt.verify, body.query or '', body.card_id or '',
+                                      user.get('id') if user else None)
+    except RuntimeError as e:
+        raise HTTPException(502, str(e))
+    except Exception as e:
+        raise HTTPException(502, '校验失败：%s' % e)
+    if not out.get('ok'):
+        return {'ok': False, 'msg': out.get('msg', '校验未完成')}
+    return out
+
+
+@router.post('/agent/verify/apply', summary='确认后把修正落库')
+async def agent_verify_apply(body: ApplyIn, user=Depends(current_user)):
+    """用户确认 proposed_patch 后调用：改卡片原文。
+    内置卡无法直接改，走「同 id 自定义覆盖」（见 db.apply_card_patch）。"""
+    import db
+    if not body.card_id or not isinstance(body.patch, dict) or not body.patch:
+        raise HTTPException(400, 'card_id 与 patch 都不能为空')
+    try:
+        patched = await asyncio.to_thread(db.apply_card_patch, body.card_id, body.patch)
+    except Exception as e:
+        raise HTTPException(502, '落库失败：%s' % e)
+    if not patched:
+        raise HTTPException(404, '卡片不存在或无需修改')
+    return {'ok': True, 'card': patched}
+
+
+class RevertIn(BaseModel):
+    card_id: str
+
+
+@router.post('/agent/verify/revert', summary='撤销一张卡的修正覆盖层')
+async def agent_verify_revert(body: RevertIn, user=Depends(current_user)):
+    """把某张卡的覆盖层修正还原成原始内容（只删覆盖层，不动原始卡）。
+    已应用过修正、想反悔时用。"""
+    import db
+    if not body.card_id:
+        raise HTTPException(400, 'card_id 不能为空')
+    try:
+        done = await asyncio.to_thread(db.revert_override, body.card_id)
+    except Exception as e:
+        raise HTTPException(502, '还原失败：%s' % e)
+    return {'ok': True, 'reverted': bool(done)}
+
+
+class RevertIn(BaseModel):
+    card_id: str
+
+
+@router.post('/agent/verify/revert', summary='撤销一张卡的修正覆盖层')
+async def agent_verify_revert(body: RevertIn, user=Depends(current_user)):
+    """把某张卡的覆盖层修正还原成原始内容（只删覆盖层，不动原始卡）。"""
+    import db
+    if not body.card_id:
+        raise HTTPException(400, 'card_id 不能为空')
+    try:
+        done = await asyncio.to_thread(db.revert_override, body.card_id)
+    except Exception as e:
+        raise HTTPException(502, '还原失败：%s' % e)
+    return {'ok': True, 'reverted': bool(done)}

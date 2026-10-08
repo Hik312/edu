@@ -496,6 +496,22 @@ async function onClear() {
   align-items: start;
 }
 
+/* 宽屏：两列各自独立滚动 —— 滚左列不动右列。
+   原理：.content 是 flex:1（definite 高），根容器 height:100% 正好占满它，
+   列 stretch 撑满后内部各自 overflow-y:auto，页面本身就不再滚了。
+   align-items 必须从 start 改回 stretch：start 会让列按内容高度、整页一起滚。
+   窄屏（≤1080px）单列堆叠，留在整页滚，不做独立滚动。 */
+@media (min-width: 1081px) {
+  .gen {
+    height: 100%;
+    align-items: stretch;
+  }
+  .gen > .panel {
+    min-height: 0;
+    overflow-y: auto;
+  }
+}
+
 .counter {
   font-size: var(--fs-sm);
   color: var(--mu);

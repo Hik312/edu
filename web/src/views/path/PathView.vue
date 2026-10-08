@@ -79,10 +79,24 @@ const pickSet = computed(() => new Set(learning.picked))
 const pickOn = computed(() => learning.pickActive)
 
 /** 今天的计划量 = 清单口径（挑了）或每日目标前 N 张（没挑）。 */
+/** 今天真正要学的卡：永远排除 level 3（已掌握）。
+ *
+ * ★ 为什么必须排：level 3 的语义是「已经会了、今天不用管」——
+ *   本页的 doneCount 也是按这个口径说的，两处不排除就自相矛盾。
+ *   实测（2026-10-03）哪些入口真会带它进来：
+ *   - `all=1`：**不会**。后端按 FIELD(level,1,2,0,3) 排，level 3 在最后，
+ *     新卡数量远大于目标张数时根本轮不到它。
+ *   - **今日自选清单：一定会**。清单是用户点名挑的，`pick=1` 照单全收，
+ *     挑到已掌握的卡就会原样推出去（实测8 张全 level 3）。
+ *   - 用户手动把每日目标调得很大时，`all=1` 也会碰到（末尾进入视野）。
+ *   所以过滤不是多余的保险，是清单模式下的必需品。
+ *   注意 mustLearn 要在**截断之前**过滤：先 slice 再滤会拿到不足 dailyTarget 张。 */
+const mustLearn = c => c.level !== 3
+
 const planItems = computed(() =>
   pickOn.value
     ? learning.queue.filter(c => pickSet.value.has(c.id))
-    : learning.queue.slice(0, learning.dailyTarget)
+    : learning.queue.filter(mustLearn).slice(0, learning.dailyTarget)
 )
 
 const total = computed(() => planItems.value.length)
@@ -102,12 +116,18 @@ async function togglePick(cid) {
   }
 }
 
-/** 按每日目标自动挑：取当前队列（后端 due 排序）前 N 张当今天的清单。 */
+/** 按每日目标自动挑：取当前队列（后端 due 排序）里**未掌握**的前 N 张。
+ *  必须复用 planItems 的同一条口径（mustLearn）—— 这里挑的就是稍后
+ *  autoPick 之后复习页会推的清单，两处算得不一样 = 用户按了「按目标挑」
+ *  却得到一堆已掌握的卡。 */
 async function autoPick() {
   try {
-    const ids = learning.queue.slice(0, learning.dailyTarget).map(c => c.id)
+    const items = planItems.value
+    const ids = items.map(c => c.id)
     await learning.savePick(ids)
-    ElMessage.success('已按每日目标挑 ' + ids.length + ' 张')
+    ElMessage.success(
+      ids.length ? '已按每日目标挑 ' + ids.length + ' 张' : '没有需要挑的卡（都已掌握）'
+    )
   } catch (e) {
     ElMessage.error('清单保存失败：' + (e.message || e))
   }

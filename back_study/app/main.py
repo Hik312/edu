@@ -81,13 +81,24 @@ class SpaStatic(GuardedStatic):
     """
 
     async def get_response(self, path: str, scope) -> Response:
+        rel = (path or '').replace('\\', '/').lstrip('/')
+        # 非法文件名（WinError 123）当 404 处理，别让它变成 500。
+        # ★ 2026-10-03 实测踩到：节点 id 形如 'sub:work/ai'，含 ':' 和 '/'，
+        #   拼进静态路径后 Windows 直接抛 OSError —— 它**不是** HTTPException，
+        #   上面的 except 抓不到，于是穿成 500「服务器内部错误」，
+        #   而真因（URL 少编码了一位）被彻底掩盖。
+        #   兜底的代价只是把一种 404 报成另一种 404，收益是不掩盖真因。
         try:
             return await super().get_response(path, scope)
         except StarletteHTTPException as e:
             if e.status_code != 404:
                 raise
+        except OSError:
+            if not (rel == 'api' or rel.startswith('api/')
+                    or os.path.splitext(rel)[1]):
+                pass                        # 前端路由：继续往下走回落
+            raise StarletteHTTPException(404)
 
-        rel = (path or '').replace('\\', '/').lstrip('/')
         # `rel == 'api'` 这一条是补的：旧写法只判 `startswith('api/')`，
         # 于是 `/api` 和 `/api/` 既不命中它、也不带扩展名 → 回落成 index.html
         # 返回 200 HTML。模块自己的注释早就写了「/api/... 的 404 保持 404」，
@@ -125,8 +136,12 @@ def _banner():
     print('交互文档 http://127.0.0.1:%d/docs' % port)
 
     s = db.stats()
-    print('卡片 %d 张（自定义 %d）· 今日待复习 %d'
-          % (s['total'], s['custom'], s['dueToday']))
+    # ★ 不再打「今日待复习 N」：进度从2026-10-03 起是 per-user 的，
+    #   启动时还没有登录用户，只能读匿名桶（永远是空的）→ 这个数字会变成
+    #   「全库卡数」，看着像 bug。横幅要打的是**不依赖登录上下文**的事实，
+    #   个人口径的数字交给 /api/stats（带 token 时才有）。
+    print('卡片 %d 张（自定义 %d）'
+          % (s['total'], s['custom']))
 
     try:
         n = db.user_count()

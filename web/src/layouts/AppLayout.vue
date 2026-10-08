@@ -20,7 +20,7 @@
  * 早先版本按当前页切深/浅色，已随「全站统一牛皮纸」一起删除；
  * 谁要加回来，先看 router/index.js 里那段注释。
  */
-import { computed } from 'vue'
+import { computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { useAuthStore } from '@/stores/auth'
@@ -57,13 +57,23 @@ const ICON = {
 
 /** 导航分组。**管理那一组只对管理员显示** —— 普通学习者看到一堆自己
  *  点不开的入口，只会觉得这产品做得糙。 */
+/* 分组的排法有两条原则，都是踩出来的：
+ *
+ * 1. **按「多久用一次」排，不按「功能像不像」排。** 复习队列排在今日路径
+ *    前面 —— 每天要做的是前者，路径是有了队列之后才需要看的东西。
+ *    「AI 问答 / 生成」原来埋在「工具」组第 3、4 位，而它们恰恰是这个
+ *    项目跟「一个静态卡片列表」拉开差距的地方。现在独立成组、放在内容之后。
+ * 2. **管理组垫底，且非管理员看不见**（admin: true）。
+ */
 const NAV = [
   { group: '总览', items: [{ name: 'dashboard', label: '学习驾驶舱' }] },
   {
     group: '学习',
     items: [
-      { name: 'path', label: '今日路径' },
-      { name: 'review', label: '复习队列' }
+      // badge: 'due' —— 侧栏直接显示今天有几张卡到期，**不用点进去才知道**。
+      // 数字取 /api/stats 的 dueToday（驾驶舱本来就在拉，零新增请求）。
+      { name: 'review', label: '复习队列', badge: 'due' },
+      { name: 'path', label: '今日路径' }
     ]
   },
   {
@@ -74,12 +84,17 @@ const NAV = [
     ]
   },
   {
+    group: 'AI 助手',
+    items: [
+      { name: 'ask', label: 'AI 问答' },
+      { name: 'generate', label: '生成' }
+    ]
+  },
+  {
     group: '工具',
     items: [
       { name: 'graph', label: '知识图谱' },
-      { name: 'notes', label: '笔记' },
-      { name: 'generate', label: '生成' },
-      { name: 'ask', label: 'AI 问答' }
+      { name: 'notes', label: '笔记' }
     ]
   },
   {
@@ -93,6 +108,62 @@ const NAV = [
 ]
 
 const visibleNav = computed(() => NAV.filter(g => !g.admin || auth.user?.role === 'admin'))
+
+/** 到期总数（后端按全库算的口径）。
+ *
+ *  取 `/api/stats` 的 `dueToday` 而不是 `learning.total`：
+ *  total 是**当前已加载队列**的长度，用户在别的页签筛过方向/自选清单后
+ *  它会变成另一个数，拿它当「今天要复习几张」会骗人。
+ *
+ *  ⚠️ 这个数**会大得离谱**：`due_list` 把「从没背过」的卡也算到期，
+ *  而新卡从不自动 `nextAt`，所以 400 张库里 398 张没标过 → dueToday=400。
+ *  直接把它当角标显示，用户看到的就是「99+」，而复习页实际只会给
+ *  dailyTarget（默认 20）张 —— **角标在吓人，而产品一次就要他学 99 张**。
+ */
+const dueTotal = computed(() => learning.stats?.dueToday ?? 0)
+
+/** 角标真正该显示的数：**今天实际要学几张**，不是库里积了多少。
+ *
+ *  上限是 `dailyTarget`（用户自己设的每日目标，5~100，档案里存着）。
+ *  这个上限本来就在复习页生效（`fetchDue({limit: dailyTarget})`），
+ *  角标却没跟它对齐 —— 于是同一套系统里出现两个矛盾的「今天要做多少」：
+ *  侧栏说 99+，复习页说 1/20。
+ *
+ *  dailyTarget 拿不到时**退回 0 而不是退回 dueTotal**：拿不到设置就干脆
+ *  不显示角标，好过显示一个必然错的大数。真到那一步用户点进去也还是
+ *  默认值 20。
+ */
+const dueTodayPlan = computed(() => {
+  const target = learning.dailyTarget
+  if (!target) return 0
+  return Math.min(dueTotal.value, target)
+})
+
+/** 积压总数（今天学不完的那部分）。用于角标的 title 提示。 */
+const dueBacklog = computed(() => Math.max(dueTotal.value - dueTodayPlan.value, 0))
+
+/** 角标文案。**带积压时不加任何视觉噪音**（徽标位置塞不下），
+ *  完整信息放 title —— 鼠标悬停能看全，不悬停也不干扰扫视。 */
+const dueBadgeText = computed(() => {
+  const n = dueTodayPlan.value
+  return n > 99 ? '99+' : String(n)
+})
+const dueBadgeTitle = computed(() => {
+  if (!dueTotal.value) return '今天没有到期的卡片'
+  if (dueBacklog.value) {
+    return `今天要学 ${dueTodayPlan.value} 张（每日目标 ${learning.dailyTarget}）· ` +
+      `另有 ${dueBacklog.value} 张积压，做不完会顺延到明天`
+  }
+  return `今天要学 ${dueTodayPlan.value} 张`
+})
+
+/** 顺带在布局里补拉 stats + 每日目标：驾驶舱之外的页面往往还没拉过，
+ *  没有这次补拉，角标在非驾驶舱页面上是空的（一个"只在某页有效"的角标
+ *  等于没有角标）。两者都很轻，且和驾驶舱共用同一个 store，不算浪费。 */
+onMounted(() => {
+  if (!learning.stats) learning.fetchStats()
+  learning.ensureSettings()
+})
 
 const readyNames = computed(() => {
   const root = router.options.routes.find(r => r.path === '/')
@@ -162,6 +233,12 @@ function onLogout() {
           >
             <svg class="ico" viewBox="0 0 24 24" v-html="ICON[it.name]" />
             <span class="txt">{{ it.label }}</span>
+            <span
+              v-if="it.badge === 'due' && dueTodayPlan > 0"
+              class="badge"
+              :title="dueBadgeTitle"
+              >{{ dueBadgeText }}</span
+            >
             <span v-if="!readyNames.has(it.name)" class="soon">待建</span>
           </button>
         </div>
@@ -381,6 +458,24 @@ function onLogout() {
   border-radius: 4px;
   color: var(--dim);
   border: 1px dashed var(--line2);
+}
+
+/* 今日待复习角标。用实心靛蓝而不用虚线描边（.soon 那个）：
+ * 「待建」是状态说明，不该吸引注意；「今天有 12 张要复习」是**待办**，
+ * 是整个侧栏里唯一需要被余光扫到的东西，所以给它实心 + 白字。 */
+.badge {
+  flex: none;
+  min-width: 20px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: var(--ac);
+  color: #fdfaf3;
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  line-height: 18px;
+  text-align: center;
+  font-variant-numeric: tabular-nums; /* 数字等宽，跳动时不抖 */
 }
 
 .me {

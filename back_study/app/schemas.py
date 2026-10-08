@@ -14,7 +14,6 @@ from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
-
 class Loose(BaseModel):
     """允许携带未知字段的基类。
 

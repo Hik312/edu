@@ -348,13 +348,17 @@ const pyFiles = [
   "back_study/scripts/gen_cards.py",
   // 脚本 · 文档批量摄取（data/docs 下 md/pdf 走 parse_document→enrich→to_card→草稿，2026-09-29 加）
   "back_study/scripts/gen_docs.py",
+  // 脚本 · 小程序 tabBar 图标离线生成（PIL 画 8 个 PNG，2026-10-02 加）
+  "back_study/scripts/gen_miniapp_icons.py",
   // 算法层（间隔重复 / 知识追踪，2026-09-29 加，零依赖叶子包）
   // 分层：base 契约 / sm2 + fsrs 实现 / __init__ 注册表 / demo 对拍台
   "back_study/algo/__init__.py",
   "back_study/algo/base.py",
   "back_study/algo/sm2.py",
   "back_study/algo/fsrs.py",
+  "back_study/algo/hlr.py",
   "back_study/algo/bkt.py",
+  "back_study/algo/eval.py",
   "back_study/algo/demo.py",
   // 缓存层（Redis 优先 / 内存降级，2026-09-29 加）
   "back_study/core/cache.py",
@@ -809,6 +813,38 @@ async function smoke(py) {
     const s = (await call("/api/stats")).body.stats;
     return s && typeof s.total === "number" && typeof s.dueToday === "number";
   });
+  // ★ dueToday 拆成「真到期」和「新卡」两个数（2026-10-03）。
+  //   原来 dueToday 把「从没背过」的卡也算到期，400 张库里 398 张没标过 →
+  //   界面报 400、复习页只给 20 张，同一套系统两个矛盾口径。
+  //   契约：dueToday 仍 = dueLearned + fresh（老调用方不改也能跑），
+  //   且 dueTodayPlan = min(dueToday, 20) 才是「今天实际要学几张」。
+  await t("stats 到期口径拆分：dueToday = dueLearned + fresh", async () => {
+    const s = (await call("/api/stats")).body.stats;
+    if (!s) return false;
+    if (typeof s.dueLearned !== "number" || typeof s.fresh !== "number") {
+      err("缺 dueLearned / fresh 字段 —— stats 口径没拆开");
+      return false;
+    }
+    if (s.dueToday !== s.dueLearned + s.fresh) {
+      err(
+        `dueToday(${s.dueToday}) != dueLearned(${s.dueLearned}) + fresh(${s.fresh})`,
+      );
+      return false;
+    }
+    return true;
+  });
+  await t("mini home 的 dueTodayPlan = min(到期, 20)，且不超队列上限", async () => {
+    const s = (await call("/api/mini/home")).body.stats;
+    if (!s || typeof s.dueTodayPlan !== "number") {
+      err("缺 dueTodayPlan");
+      return false;
+    }
+    if (s.dueTodayPlan > 20) {
+      err(`dueTodayPlan=${s.dueTodayPlan} 超过队列默认上限 20`);
+      return false;
+    }
+    return s.dueTodayPlan === Math.min(s.dueToday, 20);
+  });
   // ★ 标记进度**必须带 token**：复习事件要记到具体的人头上，端点加了登录要求。
   //   这里不带 token 的话会拿到 401，而 401 和「业务拒绝」长得不一样 ——
   //   校验脚本看不出差别，会把「没登录」当成「接口坏了」。
@@ -841,9 +877,18 @@ async function smoke(py) {
       headers: PH,
       body: JSON.stringify({ level: 3 }),
     });
+    // 刻意**不**断言「同一张卡连点三次『会』、间隔必须严格变大」——
+    // 那是 SM-2 的实现细节（纯规则 iv *= ef），不是跨算法的契约。
+    // FSRS 是记忆模型：同一天重复答对时 R≈1、记忆稳定性几乎不涨，间隔
+    // **就应该原地不动**（这正是 FSRS 强过 SM-2 的地方，不是 bug）。
+    // 本项目 ALGO 可切（sm2/fsrs/bkt），冒烟要断言所有算法都成立的契约：
+    // reps 记到 3、间隔是正整数、且不倒退。
+    const ia = a.body.progress.interval;
+    const ic = c.body.progress.interval;
     return (
-      c.body.progress.interval > a.body.progress.interval &&
-      c.body.progress.reps === 3
+      c.body.progress.reps === 3 &&
+      ic >= 1 &&
+      ic >= ia
     );
   });
   await t("非法 level 被拒", async () => {
@@ -881,6 +926,71 @@ async function smoke(py) {
     "复习队列返回",
     async () => (await call("/api/review/due?limit=5")).body.queue.length > 0,
   );
+  await t("复习队列默认排序不因 BKT 共存而改变", async () => {
+    // 默认 by=level：不带 p 字段，且仍是「不会→模糊→未标记→会」的老顺序。
+    // 这条是共存改动的护栏 —— 默认路径必须和以前逐字一致。
+    const r = await call("/api/review/due?limit=10");
+    const q = r.body.queue || [];
+    if (!q.length) return false;
+    if (q.some((x) => "p" in x)) return false; // 默认不该出现半截的 p
+    const rank = { 1: 0, 2: 1, 0: 2, 3: 3 };
+    for (let i = 1; i < q.length; i++) {
+      if (rank[q[i - 1].level] > rank[q[i].level]) return false;
+    }
+    return true;
+  });
+  await t("复习队列 by=bkt：带 p 且按掌握度低的优先", async () => {
+    // all=1 把未到期的也带上，才能看到「刚标的卡」参与排序。
+    // 三级排序键 (p, level档, 逾期)：p 相同要能退回老规则，不能把
+    // 原本确定的顺序弄乱。
+    const r = await call("/api/review/due?limit=10&by=bkt&all=1");
+    const q = r.body.queue || [];
+    if (!q.length) return false;
+    if (q.some((x) => typeof x.p !== "number" || x.p < 0 || x.p > 1)) return false;
+    for (let i = 1; i < q.length; i++) {
+      if (q[i - 1].p > q[i].p) return false; // p 必须非降序
+    }
+    return true;
+  });
+  await t("BKT 掌握度接口：汇总 + 每卡 p∈[0,1] + 四参数", async () => {
+    const r = await call("/api/mastery");
+    if (r.code !== 200) return false;
+    const s = r.body.summary || {};
+    const cards = r.body.cards || [];
+    if (typeof s.total !== "number" || typeof s.avgP !== "number") return false;
+    if (!cards.length) return false;
+    if (cards.some((c) => !(c.p >= 0 && c.p <= 1))) return false;
+    const p = r.body.params || {};
+    return ["p_init", "p_transit", "p_slip", "p_guess"].every((k) => k in p);
+  });
+  await t("BKT 拟合接口：数据不够时如实报 fitted=false + 原因", async () => {
+    // 关键：不够数据时**不能**硬凑一个「看起来拟合过了」的参数。
+    const r = await call("/api/review/fit-bkt", { method: "POST" });
+    if (r.code !== 200) return false;
+    const info = r.body.info || {};
+    if (typeof info.fitted !== "boolean") return false;
+    if (info.fitted === false && !info.reason) return false; // 必须说明为什么
+    return true;
+  });
+  await t("存储复探端点：立刻重探并如实返回 restored", async () => {
+    // 不要求 restored=true —— MySQL 真挂时它本来就该是 false。
+    // 这里断言的是「调用能跑通 + 状态仍然可见」，不是「一定能连上」。
+    const r = await call("/api/storage/reprobe", { method: "POST" });
+    if (r.code !== 200) return false;
+    if (typeof r.body.restored !== "boolean") return false;
+    const st = r.body.storage || {};
+    return typeof st.store === "string" && "degraded" in st;
+  });
+  await t("算法端点：当前算法 + 可切换项 + 每个都声明了 efNote", async () => {
+    // 换 ALGO 之后界面上完全看不出来，这个端点就是补这个信息缺口。
+    const r = await call("/api/algo");
+    if (r.code !== 200) return false;
+    const c = r.body.current || {};
+    if (!c.name || !c.label || !c.efNote) return false;
+    const opts = r.body.options || [];
+    // 四个算法（sm2/fsrs/hlr/bkt），且当前用的必须在列表里
+    return opts.length >= 4 && opts.some((o) => o.name === c.name);
+  });
   await t("分类树可读取", async () => {
     const r = await call("/api/catalog");
     return r.body.catalog && r.body.catalog.length >= 2;

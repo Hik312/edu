@@ -20,6 +20,7 @@ import json
 import os
 import sys
 import threading
+import time
 
 # 只导真正用得上的那个名字。这里以前还有三行「供外部转引」的 re-export
 # （Store / json_loads / json_dumps / jsonfile / JsonFileStore），2026-09-26 删掉：
@@ -33,6 +34,15 @@ CONFIG_FILE = os.path.join(BACK_DIR, 'config.local.json')
 _lock = threading.Lock()
 _current = None
 _degraded = None            # None = 正常；str = 降级原因
+
+#: 降级后**按需复探**的最小间隔（秒）。
+#:
+#: 背景：MySQL 中途才起来时，老进程会一直写 JSON，得重启才切得回去 ——
+#: 那个年代的结论是「加重启按钮」。现在改成自动，但**不能每个请求都 ping**
+#: 一次：连接超时要 1~2 秒，真挂的时候会把整站拖死（比不切更糟）。
+#: 所以：只在**已经降级**时复探、且每 REPROBE_TTL 最多试一次。
+PROBE_TTL = 30.0
+_last_probe = 0.0
 
 
 # ---------------------------------------------------------------- 配置
@@ -67,12 +77,89 @@ def wanted_backend():
 
 # ---------------------------------------------------------------- 工厂
 def get():
-    """拿当前后端（进程内只建一次）。"""
+    """拿当前后端（进程内只建一次）。
+
+    降级状态下会顺带**按需复探**（见 `_maybe_reprobe`）——
+    这是「MySQL 中途起来」不用重启就能自动切回去的关键。
+    """
+    if _degraded is not None:
+        _maybe_reprobe()
     global _current
     with _lock:
         if _current is None:
             _current = _build()
         return _current
+
+
+def _maybe_reprobe():
+    """已经降级时，隔够 PROBE_TTL 就再试一次能不能连回 MySQL。
+
+    为什么是「按需」而不是后台定时线程：
+
+    - 后台线程每 15 秒 ping 一次，在「MySQL 真的挂了」时会一直做无用连接，
+      而且这个线程得自己管生命周期（异常退出、重入、进程退出时清理）；
+    - 按需复探只在**有请求进来**时才试，天然跟着流量走，没人用就不试。
+
+    代价是「MySQL 起来后要等下一个请求 + 最多 30 秒才切」，对本地工具完全够用；
+    想要立刻切，走 `POST /api/storage/reprobe`（reprobe_now）。
+
+    **只在降级时探**：正常状态下一个请求都不额外发连接。
+    换 MySQL 不会给正在跑的请求加延迟。
+    """
+    global _last_probe
+    now = time.monotonic()
+    if now - _last_probe < PROBE_TTL:
+        return
+    with _lock:
+        # 抢到锁后再判一次：等锁期间可能已经有别的线程探过了
+        if _degraded is None:
+            return
+        now = time.monotonic()
+        if now - _last_probe < PROBE_TTL:
+            return
+        _last_probe = now
+        ok = _rebuild()
+
+
+def _rebuild():
+    """重建后端。成功切回 MySQL 返回 True，仍不可用返回 False。
+
+    线程安全的部分（换 `_current`、读 `_degraded`）靠调用方持有 `_lock`。
+    """
+    global _current, _degraded
+    old = _current
+    old_reason = _degraded
+    _current = None
+    _degraded = None
+    try:
+        st = _build()          # 内部失败会走 _fallback，把 _degraded 设上
+    except Exception as e:     # _build 理论上不抛，兜底别让它把请求带崩
+        _current = old
+        _degraded = old_reason or ('重建后端失败: %s' % (type(e).__name__,))
+        return False
+    if _degraded is None:
+        # 恢复成功。**必须打横幅**：降级可见是硬要求，恢复同理 ——
+        # 用户需要知道「从刚才起又开始写数据库了」。
+        print('[store] MySQL 已恢复，已自动切回 MySQL 后端（此前：%s）' % old_reason,
+              file=sys.stderr)
+        return True
+    # 还是不行：把旧实例放回去（_build 已经装了个新的 JsonFileStore，
+    # 换掉它没意义而且会丢掉可能有的写缓冲），并保留**新的**降级原因
+    _current = old
+    return False
+
+
+def reprobe_now():
+    """强制立刻复探一次，不管 TTL（给端点/按钮用）。
+
+    返回 `(ok, info)`，语义和 `_maybe_reprobe` 一样：
+    ok=True 表示已切回 MySQL。
+    """
+    global _last_probe
+    with _lock:
+        _last_probe = time.monotonic()
+        ok = _rebuild()
+    return ok, info()
 
 
 def reload():

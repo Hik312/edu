@@ -72,8 +72,12 @@ async function submit() {
         ? back
         : '/dashboard'
     router.replace(target)
-  } catch {
-    // 错误提示由 api/client.js 的拦截器统一弹，这里不重复弹
+  } catch (e) {
+    // 这里**必须**自己弹：api/client.js 的拦截器只 reject、不弹提示
+    // （它只在 401 时弹「登录已过期」）。登录失败是 400，错误对象 e.message
+    // 已带后端 msg（如「用户名或密码不对」）。从前这里写空 catch + 一句
+    // 「由拦截器统一弹」的注释 —— 实际拦截器根本不弹，登录失败就静默了。
+    ElMessage.error((e && e.message) || '登录失败')
   } finally {
     submitting.value = false
   }

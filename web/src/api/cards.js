@@ -81,18 +81,12 @@ export function getOutline() {
   return client.get('/outline')
 }
 
-/** 知识图谱。节点带 type（category / subject / topic / card）与 degree，
- * 分层下钻和「哪些是枢纽」都靠这两个字段。
- * @returns {Promise<{ok:boolean, graph:{nodes:Array, links:Array}}>}
- */
-export function getGraph() {
-  return client.get('/graph')
-}
-
-/** 某张卡的邻居（related 关系展开后的节点与边）。
- * @param {string} cid
- * @returns {Promise<{ok:boolean, nodes:Array, links:Array}>}
- */
-export function getNeighbors(cid) {
-  return client.get('/graph/neighbors/' + encodeURIComponent(cid))
-}
+/* getGraph / getNeighbors 2026-10-03 删。
+ *
+ * 两个问题叠在一起，留着比删掉更危险：
+ *   1. **零调用**——图谱页 import 的是 api/system.js 的 graph()/neighbors()。
+ *      这两个是 2026-09 早期加的，从没被接过。
+ *   2. **字段名是错的**——jsdoc 写 `{nodes, links}`，后端实际返回
+ *      `{nodes, edges}`。哪天有人照着它 import，edges 会是 undefined，
+ *      图渲染成一片孤点，而且没有任何报错提示 —— 契约不一致最阴的就是这个。
+ * 图谱相关的接口统一去 api/system.js。 */

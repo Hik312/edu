@@ -34,6 +34,17 @@ export function catalog() {
   return client.get('/catalog')
 }
 
+/** 当前间隔调度算法 + 可切换项。
+ *
+ * `ALGO` 换掉之后界面上完全看不出来（同一批卡、同一套队列），
+ * 但背后的间隔模型已经变了。驾驶舱用它显示一个徽标，
+ * 让「现在是谁在算我的复习间隔」这个问题有个答案。
+ * @returns {Promise<{ok:boolean, current:Object, options:Array<Object>}>}
+ */
+export function getAlgo() {
+  return client.get('/algo')
+}
+
 /** 知识框架（MOC 树）：比 catalog 深一层，铺到 topicPath。
  * @returns {Promise<{ok:boolean, tree:Array<Object>}>}
  */
@@ -43,8 +54,9 @@ export function outline() {
 
 /** 知识图谱。节点是卡片，边来自 related 的 prereq / extends / compare。
  * @param {Object} [params]
- * @param {string} [params.scope] 下钻层级，见后端 system.py
- * @returns {Promise<{ok:boolean, nodes:Array, edges:Array}>}
+ * @param {string} [params.category] 一级分类，如 'work'
+ * @param {string} [params.subject]  科目，如 'java'。传了它就忽略 category
+ * @returns {Promise<{ok:boolean, graph:{nodes:Array,edges:Array}}>}
  */
 export function graph(params) {
   return client.get('/graph', { params })
@@ -52,10 +64,78 @@ export function graph(params) {
 
 /** 某张卡的直接邻居。图谱页面点节点时用，不用每次拉全图。
  * @param {string} cid 卡片 id
- * @returns {Promise<{ok:boolean, nodes:Array, edges:Array}>}
+ * @param {number} [depth] 1~3
+ * @returns {Promise<{ok:boolean, center:string, nodes:Array, edges:Array}>}
  */
-export function neighbors(cid) {
-  return client.get('/graph/neighbors/' + encodeURIComponent(cid))
+/** 某节点的邻居子图。
+ *
+ *  ★ 用 **query 传 cid**，不要拼进路径。节点 id 形如 `sub:work/ai`、
+ *    `topic:ai/Agent/框架` —— 含 `:` 和 `/`。拼进路径会有两个致命问题：
+ *    ① 路径参数不跨 `/` → 路由匹配不上，请求掉进 SPA 回落；
+ *    ② 回落拿 `dist/api/.../sub:work/ai` 当静态文件找 →
+ *       Windows 抛 WinError 123，前端收到 500「服务器内部错误」，
+ *       真因（URL 少编码一位）被彻底掩盖。
+ *
+ * @param {string} cid 节点 id（卡或章节都行，原样传）
+ * @param {number} [depth=1] 1~3 跳
+ * @param {boolean} [untilCards=false] 展开到见到卡为止。
+ *   **点章节节点（subject/topic/category）时必须开**：层级是
+ *   subject → topic → … → card，卡挂的层数不固定，按跳数停会只看见章节。
+ * @returns {Promise<{ok:boolean, center:string, nodes:Array, edges:Array}>}
+ */
+export function neighbors(cid, depth, untilCards) {
+  return client.get('/graph/neighbors', { params: { cid, depth, untilCards } })
+}
+
+/** 图结构洞察：中心性 + 社区 + 体检。比 /graph 重（要跑迭代），别频繁调。
+ *
+ * @param {Object} [params]
+ * @param {string} [params.category]
+ * @param {string} [params.subject]
+ * @returns {Promise<{ok:boolean, pagerank:Array, betweenness:Array,
+ *                    communities:Array, coverage:Object}>}
+ *  pagerank[]    : {id,label,type,value,degree,oneLine} 全局权威知识点
+ *  betweenness[] : {id,label,value,...} 必经之路（关卡）
+ *  communities[] : {size,members[]} Louvain 自动分块
+ *  coverage      : {nodes,cards,edges,components,largest,coverage,
+ *                   orphanCards,orphanRate,orphanList} 连通性体检
+ */
+export function graphInsight(params) {
+  return client.get('/graph/insight', { params })
+}
+
+/** 图推荐：以「我不会的卡」为种子的个性化 PageRank，每条带推荐理由。
+ * @param {Object} [params]
+ * @param {number} [params.limit] 1~30，默认 8
+ * @param {string} [params.category]
+ * @param {string} [params.subject]
+ * @returns {Promise<{ok:boolean, items:Array, seeds:Array, algo:string,
+ *                    seedCount:number, weakCount:number, note?:string}>}
+ *  items[] : {id,label,oneLine,score,level,because[]} because 是种子卡 id 列表
+ *  allDone : true 表示全部掌握，没东西可推（不是出错）
+ */
+export function graphRecommend(params) {
+  return client.get('/graph/recommend', { params })
+}
+
+/** 两卡之间的最短学习路径（只沿 prereq）。
+ * @param {string} src 起点卡 id
+ * @param {string} dst 终点卡 id
+ * @returns {Promise<{found:boolean, nodes:Array, edges:Array, hops:number, reason:string}>}
+ *  found=false 是**正常答案**（两卡之间没有依赖链），不是错误，别弹错误提示
+ */
+export function graphPath(src, dst) {
+  return client.get('/graph/path', { params: { src, dst } })
+}
+
+/** 批量查卡在图里的排名。给卡片详情页用。
+ * @param {string|string[]} ids 卡片 id，数组会自动 join
+ * @returns {Promise<{ok:boolean, ranks:Object, missing:string[]}>}
+ *  missing 是查不到的 id —— 通常意味着传错了，静默吞掉会让「排名不显示」无法定位
+ */
+export function graphRank(ids) {
+  const q = Array.isArray(ids) ? ids.join(',') : ids
+  return client.get('/graph/rank', { params: { ids: q } })
 }
 
 /** 岗位定义（data/roles.js 预置的几个 + 各自的 keywords/subjects）。

@@ -86,7 +86,10 @@ def load_candidates(user_id, include_all=True):
     · `overdue == 999` 是哨兵值，意思是**这张卡从没复习过**，
       不是「逾期 999 天」。它的掌握度要从 p_init 算起（mastery_of 已经处理了）。
     """
-    rows = db.due_list(include_all=include_all)
+    # ★ user_id 必须透传：进度是 per-user 的（2026-10-03 起），
+    #   不传就读匿名桶（永远空）→ 候选队列全是「未标记」，
+    #   页面于是给一个从没复习过的人排出「巩固已学」的路径。
+    rows = db.due_list(include_all=include_all, user_id=user_id)
     out = []
     for x in rows:
         c = x.get('card') or {}

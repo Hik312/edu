@@ -11,8 +11,13 @@
     python back_study/algo/demo.py                     # 默认序列，365 天
     python back_study/algo/demo.py --seq 3,3,2,1,3 --days 180
     python back_study/algo/demo.py --algo fsrs --retention 0.85
+    python back_study/algo/demo.py --eval          # 多算法量化对拍（复习次数之外还比留存）
 
 评级：1=不会 2=模糊 3=会。序列循环使用（复习次数多于序列长度时从头再来）。
+
+★ 上面三种跑法都是「拿同一串评级喂给算法」，只能比**一张卡**排出的计划。
+  要比「哪个算法更好」用 `--eval`：它仿真一整批卡（带遗忘曲线 + 用户拖延），
+  比的是期末留存 / 掌握卡数 / 效率 / AUC，见 algo/eval.py。
 """
 
 import os
@@ -105,6 +110,15 @@ def main():
 
     horizon = opt('--days', int, 365)
     retention = opt('--retention', float, None)
+
+    # --eval 走评测层（algo/eval.py）：单卡序列比不出算法好坏，
+    # 那是「复习次数」这一个指标；评测层用遗忘曲线仿真 + 回忆成功率来比。
+    if '--eval' in args:
+        from algo import eval as ev
+        print(ev.report(n_cards=opt('--cards', int, 300), horizon=horizon,
+                        seed=opt('--seed', int, 7)))
+        return
+
     seq = (tuple(int(x) for x in args[args.index('--seq') + 1].split(','))
            if '--seq' in args else DEFAULT_SEQ)
     picked = [args[args.index('--algo') + 1]] if '--algo' in args else algo.names()
@@ -135,7 +149,7 @@ def main():
                 tag = '一样多'
             print('   %-6s 复习 %d 次（%s），末次间隔 %d 天' % (n, cnt, tag, iv))
         print('\n   注意：复习次数少 ≠ 更好。FSRS 排得少是因为它**认为**你记得住；'
-              '\n   真正的判据是实际回忆成功率 —— 那需要事件流，现在还没有。')
+              '\n   真正的判据是实际回忆成功率 —— 跑 --eval 拿这张表。')
 
 
 if __name__ == '__main__':

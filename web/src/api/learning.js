@@ -86,3 +86,13 @@ export function putPick(ids) {
 export function getStats() {
   return client.get('/stats')
 }
+
+/** BKT 掌握度汇总（brief=1：只回 summary + params，不回每张卡明细）。
+ *
+ * brief 是为驾驶舱加的：那里只画一条分布条，拉 400 张卡的 p 纯属浪费。
+ * 需要逐卡掌握度（比如按 p 排选题）时不带 brief。
+ * @returns {Promise<{ok:boolean, params:Object, summary:Object}>}
+ */
+export function getMasteryBrief() {
+  return client.get('/mastery?brief=1')
+}

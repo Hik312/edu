@@ -16,7 +16,7 @@
 import { ref, reactive, onMounted, nextTick, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import { ElMessage } from 'element-plus'
-import { getAgentStatus, getProfile } from '@/api/agent'
+import { getAgentStatus, getProfile, applyVerify, revertVerify } from '@/api/agent'
 import * as cardsApi from '@/api/cards'
 import { useChatStore } from '@/stores/chat'
 import { answerHtml } from './answerHtml'
@@ -70,6 +70,7 @@ async function loadMeta() {
     /* 引用卡片标题拿不到就退化显示 id，不影响问答 */
   }
   try {
+    // getProfile() 已返回档案本身（解包在 api/agent.js）
     const p = await getProfile()
     profile.value = p && (p.role || (p.topics || []).length || (p.weak || []).length) ? p : null
   } catch {
@@ -107,6 +108,72 @@ async function openCard(id) {
 
 function closeDrawer() {
   drawer.open = false
+}
+
+/* ---- react 回答后的卡片校验（反问用户是否修正）----
+ * 校验是 react 问答的内置环节：答完 → 拿联网资料核对引用到的卡 → 有错就
+ * 挂一条 verify 建议到该条消息上（m.verify），在这里渲染「是否修正」。
+ * 用户点「修正」才调 apply 落库，点「忽略」只收起 —— 绝不自动改知识库。 */
+const FIELD_LABEL = {
+  oneLine: '一句话结论',
+  mechanism: '原理拆解',
+  why: '为什么',
+  analogy: '类比',
+  scene: '使用场景',
+  keywords: '关键词',
+  interviewQ: '面试追问'
+}
+
+// 修正中 / 已处理的卡片 id：按钮置灰防重复点
+const fixBusy = ref('')
+const fixedIds = ref([])      // 已点过「修正」的卡
+const ignoredIds = ref([])    // 已点过「忽略」的卡
+
+function isFixed(id) {
+  return fixedIds.value.includes(id)
+}
+function isIgnored(id) {
+  return ignoredIds.value.includes(id)
+}
+
+async function applySuggestion(m, s) {
+  if (!s || !s.card_id || fixBusy.value) return
+  fixBusy.value = s.card_id
+  try {
+    await applyVerify({ card_id: s.card_id, patch: s.proposed_patch || {} })
+    if (!fixedIds.value.includes(s.card_id)) fixedIds.value.push(s.card_id)
+    ElMessage.success('已修正这张卡，检索/问答立即生效')
+  } catch (e) {
+    ElMessage.error('修正失败：' + (e && e.message ? e.message : e))
+  } finally {
+    fixBusy.value = ''
+  }
+}
+
+function ignoreSuggestion(m, s) {
+  if (!s || !s.card_id) return
+  if (!ignoredIds.value.includes(s.card_id)) ignoredIds.value.push(s.card_id)
+  ElMessage.info('已忽略本次建议，卡片保持原样')
+}
+
+async function revertSuggestion(m, s) {
+  if (!s || !s.card_id || fixBusy.value) return
+  fixBusy.value = s.card_id
+  try {
+    await revertVerify({ card_id: s.card_id })
+    fixedIds.value = fixedIds.value.filter(x => x !== s.card_id)
+    ElMessage.success('已还原为原始内容')
+  } catch (e) {
+    ElMessage.error('还原失败：' + (e && e.message ? e.message : e))
+  } finally {
+    fixBusy.value = ''
+  }
+}
+
+// 一条建议里要展示的字段 diff（字段名 → 中文标签 + 建议新值）
+function diffFields(s) {
+  const p = (s && s.proposed_patch) || {}
+  return Object.keys(p).map(k => ({ field: k, label: FIELD_LABEL[k] || k, val: p[k] }))
 }
 </script>
 
@@ -168,7 +235,14 @@ function closeDrawer() {
 
       <div v-for="(m, i) in messages" :key="i" class="row" :class="m.role">
         <div class="bubble">
-          <span v-if="m.streaming && !m.text" class="typing">思考中…</span>
+          <!-- Agent 步骤条：让用户看到「到哪一步了」。进行中转圈、已完成打勾。
+               校验那一步在 done 之后仍会转，直到校验收尾帧到。 -->
+          <div v-if="m.steps && m.steps.length" class="steps">
+            <div v-for="(s, si) in m.steps" :key="si" class="step" :class="{ act: !s.done, fin: s.done }">
+              <i class="sd" />{{ s.text }}
+            </div>
+          </div>
+          <span v-if="m.streaming && !m.text && !(m.steps && m.steps.length)" class="typing">思考中…</span>
           <!-- 公式/粗体渲染：v-html + answerHtml（普通文本先转义，见 answerHtml.js） -->
           <span class="body" v-html="answerHtml(m.text)" />
 
@@ -177,6 +251,39 @@ function closeDrawer() {
             <button v-for="id in m.sources" :key="id" class="chip" @click="openCard(id)">
               {{ titleOf(id) }}
             </button>
+          </div>
+
+          <!-- react 答完后的卡片校验：拿联网资料核对引用卡，有错就反问是否修正 -->
+          <div v-if="m.role === 'assistant' && m.verify && m.verify.length" class="vcheck">
+            <div v-for="s in m.verify" :key="s.card_id" class="vcard">
+              <div class="vcard-h">
+                <span class="vcard-badge">校验发现可疑</span>
+                <b>{{ s.title }}</b>
+              </div>
+              <p class="vcard-sum">{{ s.summary }}</p>
+              <div v-for="(is, i) in s.issues || []" :key="i" class="vcard-issue">
+                · [{{ FIELD_LABEL[is.field] || is.field }}] {{ is.why }}
+              </div>
+              <div v-for="d in diffFields(s)" :key="d.field" class="vcard-diff">
+                <span class="vcard-dk">{{ d.label }}</span>
+                <div class="vcard-dnew">{{ d.val }}</div>
+              </div>
+              <div class="vcard-act">
+                <template v-if="isFixed(s.card_id)">
+                  <span class="vcard-done">已修正 ✓</span>
+                  <button class="ghost" :disabled="fixBusy === s.card_id" @click="revertSuggestion(m, s)">还原</button>
+                </template>
+                <template v-else-if="isIgnored(s.card_id)">
+                  <span class="vcard-done">已忽略，卡片保持原样</span>
+                </template>
+                <template v-else>
+                  <button class="send vbtn" :disabled="fixBusy === s.card_id" @click="applySuggestion(m, s)">
+                    {{ fixBusy === s.card_id ? '修正中…' : '确认修正' }}
+                  </button>
+                  <button class="ghost" @click="ignoreSuggestion(m, s)">忽略</button>
+                </template>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -559,5 +666,136 @@ function closeDrawer() {
 .d-scene {
   margin: 3px 0 3px 48px;
   color: var(--tx);
+}
+
+/* react 回答后的卡片校验块（聊天气泡内） */
+.vcheck {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px dashed var(--line2);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.vcard {
+  border: 1px solid var(--line2);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  padding: 10px 12px;
+}
+.vcard-h {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--fs-sm);
+  color: var(--tx);
+  margin-bottom: 6px;
+}
+.vcard-badge {
+  flex: none;
+  font-size: var(--fs-xs);
+  color: #b4553f;
+  border: 1px solid #b4553f;
+  border-radius: 999px;
+  padding: 1px 8px;
+}
+.vcard-sum {
+  font-size: var(--fs-xs);
+  color: var(--mu);
+  line-height: 1.6;
+  margin: 0 0 6px;
+}
+.vcard-issue {
+  font-size: var(--fs-xs);
+  color: var(--tx);
+  line-height: 1.6;
+  margin: 3px 0;
+}
+.vcard-diff {
+  margin: 6px 0;
+  padding: 6px 8px;
+  border: 1px dashed var(--line2);
+  border-radius: var(--radius-sm);
+}
+.vcard-dk {
+  font-size: var(--fs-xs);
+  color: var(--mu);
+  font-weight: 600;
+}
+.vcard-dnew {
+  white-space: pre-wrap;
+  font-size: var(--fs-xs);
+  color: var(--tx);
+  line-height: 1.6;
+  margin-top: 2px;
+}
+.vcard-act {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+.vcard-done {
+  font-size: var(--fs-xs);
+  color: #2f7a4f;
+}
+.vbtn {
+  height: 30px;
+  padding: 0 14px;
+  font-size: var(--fs-xs);
+  border-radius: var(--radius-sm);
+}
+
+/* Agent 步骤条 */
+.steps {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+.step {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: var(--fs-xs);
+  color: var(--mu);
+  line-height: 1.6;
+}
+.step .sd {
+  flex: none;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 1.5px solid var(--line2);
+  position: relative;
+}
+.step.fin .sd {
+  border-color: #2f7a4f;
+  background: #2f7a4f;
+}
+.step.fin .sd::after {
+  /* 勾 */
+  content: '';
+  position: absolute;
+  left: 3.5px;
+  top: 0.5px;
+  width: 3px;
+  height: 6px;
+  border: solid #fdfaf3;
+  border-width: 0 1.5px 1.5px 0;
+  transform: rotate(43deg);
+}
+.step.act {
+  color: var(--tx);
+}
+.step.act .sd {
+  border-color: var(--ac);
+  border-right-color: transparent;
+  animation: spin 0.7s linear infinite;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 </style>

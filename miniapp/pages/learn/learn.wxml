@@ -16,7 +16,7 @@
   <button wx:if="{{pickMode}}" class="btn ghost" bindtap="clearPick" style="margin-top:24rpx">
     清空清单 · 看自动队列
   </button>
-  <button wx:else class="btn ghost" bindtap="reload" style="margin-top:24rpx">刷新队列</button>
+  <button wx:else class="btn ghost" bindtap="reload" style="margin-top:24rpx">🔄 刷新队列</button>
 </view>
 
 <block wx:else>
@@ -44,17 +44,17 @@
           <view class="oneLine accent">{{detail.oneLine}}</view>
 
           <view class="sec" wx:if="{{detail.mechanism && detail.mechanism.length}}">
-            <view class="secT">原理</view>
+            <view class="secT">⚙️ 原理</view>
             <view class="para" wx:for="{{detail.mechanism}}" wx:key="*this">{{item}}</view>
           </view>
 
           <view class="sec" wx:if="{{detail.scene && detail.scene.length}}">
-            <view class="secT">什么时候会遇到</view>
+            <view class="secT">🎯 什么时候会遇到</view>
             <view class="para" wx:for="{{detail.scene}}" wx:key="*this">· {{item}}</view>
           </view>
 
           <view class="sec" wx:if="{{detail.why}}">
-            <view class="secT">为什么重要</view>
+            <view class="secT">💡 为什么重要</view>
             <view class="para">{{detail.why}}</view>
           </view>
         </view>
@@ -64,9 +64,9 @@
 
   <!-- 三键作答：只在翻面后出现 -->
   <view class="answers" wx:if="{{revealed}}">
-    <button class="ans lv1" data-level="1" disabled="{{submitting}}" bindtap="answer">不会</button>
-    <button class="ans lv2" data-level="2" disabled="{{submitting}}" bindtap="answer">模糊</button>
-    <button class="ans lv3" data-level="3" disabled="{{submitting}}" bindtap="answer">会</button>
+    <button class="ans lv1" data-level="1" disabled="{{submitting}}" bindtap="answer">😕 不会</button>
+    <button class="ans lv2" data-level="2" disabled="{{submitting}}" bindtap="answer">🤔 模糊</button>
+    <button class="ans lv3" data-level="3" disabled="{{submitting}}" bindtap="answer">😊 会</button>
   </view>
   <view class="muted tip" wx:else>先翻面，再选掌握程度</view>
 </block>

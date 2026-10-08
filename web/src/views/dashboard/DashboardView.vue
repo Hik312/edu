@@ -29,8 +29,9 @@ import { useRouter } from 'vue-router'
 import EChart from '@/components/EChart.vue'
 import { useAuthStore } from '@/stores/auth'
 import { useLearningStore } from '@/stores/learning'
-import { storage } from '@/api/system'
+import { storage, getAlgo } from '@/api/system'
 import { getLlmStatus } from '@/api/ai'
+import { getMasteryBrief } from '@/api/learning'
 import { CHART_BG, INK, chartBase, colorOf, levelColor, SEQ } from '@/config/theme'
 
 const router = useRouter()
@@ -41,6 +42,14 @@ const learning = useLearningStore()
 const base = chartBase()
 
 const storeInfo = ref(null)
+/* BKT 掌握度汇总。和 /api/stats 的三档计数**不是一回事**：
+ * stats 的 known/fuzzy/weak 是用户自评的三档（粗糙、只有三档），
+ * 这里的 weak/mid/strong 是 BKT 从复习事件回放出的连续概率 p 分的档。
+ * 两者并存是有意的：自评快、但区分不出「模糊」的轻重；p 慢但细。 */
+const mastery = ref(null)
+/* 当前间隔调度算法（sm2/fsrs/hlr/bkt）。ALGO 改配置就换算法，
+ * 而界面上看不出来 —— 徽标就是补这个信息缺口。 */
+const algoInfo = ref(null)
 /* AI 可用性**必须问 /api/llm/status**，不能读 /api/health 的 llm 字段。
  *
  * health.llm 的定义是 `bool(os.environ['LLM_API_KEY'])` —— 它只表示
@@ -71,9 +80,58 @@ onMounted(async () => {
     // ok:false 是正常状态（可选能力没开），拿不到就当未启用
     llmInfo.value = null
   }
+  // 同样各自 try/catch：这两个都是「有则锦上添花」的信息，
+  // 任何一个失败都不该影响驾驶舱的主功能（数字 + 图表 + 队列）。
+  try {
+    const r = await getMasteryBrief()
+    mastery.value = r.summary || null
+  } catch {
+    // 算法库不可用 / 未登录。少一条分布条而已，不报错。
+    mastery.value = null
+  }
+  try {
+    algoInfo.value = (await getAlgo()).current
+  } catch {
+    algoInfo.value = null
+  }
 })
 
 const s = computed(() => learning.stats || {})
+
+/** ★ 今天实际要学几张 = min(后端到期总数, 我的每日目标)。
+ *
+ *  后端 `dueToday` = 学过但排期到了的（dueLearned）+ 从没背过的新卡（fresh），
+ *  400 张库里 398 张没标过 → dueToday=400。但复习页只取 `dailyTarget`（默认 20）张，
+ *  所以**界面报 400、进去只有 20**，是同一套系统的两个矛盾口径。
+ *  这里统一成「今天要做多少」，跟侧栏角标、复习页三处一致。
+ */
+const dueToday = computed(() => {
+  const total = s.value.dueToday ?? 0
+  return Math.min(total, learning.dailyTarget || 0)
+})
+
+/** 积压 = 到期总数 - 今天要学的。积压不是失败，是「按每日目标排队」的正常结果，
+ *  所以文案是「排队」而不是「欠债」—— 后者会让人有挫败感然后弃用。 */
+const dueBacklog = computed(() => Math.max((s.value.dueToday ?? 0) - dueToday.value, 0))
+
+/** 一句话说明「400 到底是什么意思」。只在真有积压时出现。 */
+const dueBacklogText = computed(() => {
+  const learned = s.value.dueLearned ?? 0
+  const fresh = s.value.fresh ?? 0
+  if (!dueBacklog.value) return ''
+  const parts = []
+  if (learned > 0) parts.push(`到期 ${learned}`)
+  if (fresh > 0) parts.push(`新卡 ${fresh}`)
+  return `${parts.join(' · ')}，按每日 ${learning.dailyTarget} 张排队`
+})
+
+/** 库里一张卡都没有 —— 空驾驶舱的判据。
+ *
+ *  这个状态**必须单独设计**，不能当成"有数据但数字是 0"来渲染：
+ *  之前 0 张卡时，页面照样画四个 0 的指标卡、一张空环形图，
+ *  图表区还大片留白 —— 新用户看到的是「这里什么都没有」，
+ *  而不是「该去导入/生成第一批卡」。空驾驶舱是这个产品最容易劝退人的第一屏。 */
+const isEmpty = computed(() => (s.value.total ?? 0) === 0)
 
 /** 今天的日期，写成「9月24日 周三」这种一眼能认的形式。 */
 const todayText = computed(() => {
@@ -94,9 +152,9 @@ const metrics = computed(() => {
     {
       key: 'due',
       label: '今日待复习',
-      value: v.dueToday ?? 0,
+      value: dueToday.value,
       color: INK.accent,
-      ratio: (v.dueToday ?? 0) / total
+      ratio: dueToday.value / total
     },
     {
       key: 'known',
@@ -146,9 +204,6 @@ const masteryOption = computed(() => {
         radius: ['54%', '76%'],
         center: ['50%', '50%'],
         avoidLabelOverlap: true,
-        // 描边用纸面本色而不是深色：扇区之间靠"露出的纸"分开，
-        // 在浅底上比画黑缝干净
-        itemStyle: { borderColor: CHART_BG.paper, borderWidth: 2, borderRadius: 5 },
         label: {
           // 只有一档时**不画标签**（比如 20 张全部未标记）。
           // 整圈一个颜色，标签给不出任何可区分的信息，却一定会贴在环上
@@ -156,9 +211,25 @@ const masteryOption = computed(() => {
           show: data.length > 1,
           color: CHART_BG.label,
           fontSize: 13,
-          formatter: '{b}\n{d}%',
+          // ★ 占比过小的扇区也不标。「会 99.5% / 模糊 0.5%」这种分布下，
+          // 那条 0.5% 的标签会被挤到环的正上方、还带着一根几乎看不见的
+          // 引线，读的人会先看到它再去找它指哪块。0.5% 的人数为 2 张，
+          // 悬停 tooltip 一样能查出来，没必要写在图面上。
+          formatter: (p) => (p.percent < 3 ? '' : `${p.name}\n${p.percent}%`),
           lineHeight: 18
         },
+        // ⚠️ 别给极小的扇区加圆角。
+        // 0.75% 的扇区在环上只有约 3° 的弧长，两端各 5px 的 borderRadius
+        // 正好把它整段抹掉 —— 加上纸色描边，视觉上就是**环上开了个白口子**，
+        // 看起来像渲染坏了（2026-10-03 用户就指着这个图问是不是坏了）。
+        // 圆角是给「有面积的扇区」做视觉柔化的，对一根线来说它是灾难。
+        // 同理，<3% 的扇区描边也收窄到 1px，避免描边占掉的宽度超过它本身。
+        itemStyle: (p) => ({
+          borderColor: CHART_BG.paper,
+          borderWidth: p.percent < 3 ? 1 : 2,
+          borderRadius: p.percent < 3 ? 0 : 5,
+          color: p.data.itemStyle.color
+        }),
         labelLine: { length: 10, length2: 12, lineStyle: { color: CHART_BG.line } },
         data
       }
@@ -198,7 +269,9 @@ const domainOption = computed(() => {
   const rows = Object.entries(s.value.domains || {}).sort((a, b) => b[1] - a[1])
   return {
     ...base,
-    grid: { left: 8, right: 26, top: 8, bottom: 4, containLabel: true },
+    // 右边必须留出数字的位置。原来 right:26 只够放两位数，
+    // 「170」这种三位数会被条形压住半个 —— 数值标签压在条上是这页最刺眼的一处。
+    grid: { left: 8, right: 46, top: 8, bottom: 4, containLabel: true },
     tooltip: { ...base.tooltip, formatter: '{b}：{c} 张' },
     xAxis: { type: 'value', show: false, max: Math.max(...rows.map(r => r[1]), 1) },
     yAxis: {
@@ -320,16 +393,22 @@ const boardOption = computed(() => {
   return {
     header: ['待办卡片', '领域'],
     data: rows.length ? rows : [['暂无待复习卡片', '']],
-    rowNum: Math.min(rows.length || 1, 6),
+    rowNum: Math.min(rows.length || 1, 8),
     headerBGC: 'rgba(31, 75, 107, 0.09)',
     oddRowBGC: 'rgba(58, 47, 33, 0.035)',
     evenRowBGC: 'transparent',
     headerHeight: 36,
+    rowHeight: 30,
     columnWidth: [340, 130],
     align: ['left', 'right'],
     index: false,
     waitTime: 2600,
-    carousel: 'page',
+    // ★ 刻意**关掉自动翻页**（carousel: 'page' → ''）。
+    // 滚动榜是用来展示「看不完的量」的，而今日队列最多 8 条 ——
+    // 让它自己滚，读的人就得盯着等下一行，一行标题都读不完整。
+    // 8 条一次摊开（rowNum 8 + rowHeight 30 = 240px，刚好落进 252px 的框），
+    // 想上下扫自己滚就够了。数据量真涨到几十条时再把翻页开回来。
+    carousel: '',
     hoverPause: true
   }
 })
@@ -360,24 +439,68 @@ const storeText = computed(() => {
   if (st.degraded) return `⚠ 降级运行 · ${st.store}`
   return st.store === 'mysql' ? 'MySQL' : '文件存储'
 })
+
+/** 调度算法徽标。刻意只显示**名字**，不显示 needs 那一长串 ——
+ *  「FSRS-4.5（记忆稳定性模型）」够了；数据需求写在系统状态页，
+ *  驾驶舱是「扫一眼」的页面，塞长句会破坏它的节奏。 */
+const algoName = computed(() => algoInfo.value?.label || '')
+
+/** 掌握度分布条的三段。computed=0（没练过）时前端不画 ——
+ *  那时每张卡的 p 都等于先验，画出来是一条三等分的假分布。 */
+const bktBars = computed(() => {
+  const m = mastery.value
+  if (!m || !m.computed) return []
+  return [
+    { key: 'weak', name: '薄弱', value: m.weak, color: INK.weak },
+    { key: 'mid', name: '一般', value: m.mid, color: INK.fuzzy },
+    { key: 'strong', name: '扎实', value: m.strong, color: INK.known }
+  ]
+})
+
+/** 平均掌握度 → 百分比字符串。p 是 0~1 的概率，不是分数。 */
+const bktAvg = computed(() => {
+  const p = mastery.value?.avgP
+  return typeof p === 'number' ? `${Math.round(p * 100)}%` : ''
+})
 </script>
 
 <template>
   <div class="dash">
     <!-- ===== 卷宗题头：总卡数是这一页唯一的主角 ===== -->
-    <section class="hero rise">
+    <section class="hero rise" :class="{ blank: isEmpty }">
       <div class="hero-left">
-        <div class="eyebrow">
-          {{ greeting }}，{{ auth.user?.displayName || auth.user?.username }}
-        </div>
-        <div class="hero-num">
-          <span class="num mono">{{ s.total ?? 0 }}</span>
-          <span class="unit">张卡片</span>
-        </div>
-        <div class="hero-sub">
+        <template v-if="isEmpty">
+          <!-- 空库：不显示「0 张卡片」这个大号 0。大号 0 在这里是
+               最糟的排版 —— 它把「你还没开始」渲染成了「你什么都没有」，
+               而这其实是**这个产品最容易劝退人的第一屏**。改成邀请。 -->
+          <div class="eyebrow">{{ greeting }}，{{ auth.user?.displayName || auth.user?.username }}</div>
+          <div class="hero-title">还没有卡片</div>
+          <div class="hero-sub">
+            <span>这个产品的一切都从卡片开始 —— 导入一份文档，或让 AI 生成第一批</span>
+          </div>
+        </template>
+        <template v-else>
+          <div class="eyebrow">
+            {{ greeting }}，{{ auth.user?.displayName || auth.user?.username }}
+          </div>
+          <div class="hero-num">
+            <span class="num mono">{{ s.total ?? 0 }}</span>
+            <span class="unit">张卡片</span>
+          </div>
+        </template>
+        <div class="hero-sub" v-if="!isEmpty">
           <span>{{ todayText }}</span>
           <span class="dot" />
-          <span>今日待复习 {{ s.dueToday ?? 0 }} 张</span>
+          <span>今日待复习 {{ dueToday }} 张</span>
+          <!-- 积压解释：为什么库里 400 张、今天只学 20 张。
+               这一行是**必须**的 —— 不解释的话用户会以为系统只挑了 20 张给他，
+               或者以为数据丢了。 -->
+          <template v-if="dueBacklogText">
+            <span class="dot" />
+            <span class="backlog" :title="`后端到期 ${s.dueToday} 张（含没学过的）`">
+              还有 {{ dueBacklog }} 张排队 · {{ dueBacklogText }}
+            </span>
+          </template>
           <template v-if="learning.dirText">
             <span class="dot" />
             <span class="dir">{{ learning.dirText }}</span>
@@ -386,17 +509,64 @@ const storeText = computed(() => {
             <span class="dot" />
             <span class="store">{{ storeText }}</span>
           </template>
+          <template v-if="algoName">
+            <span class="dot" />
+            <span class="algo" title="复习间隔由哪个算法计算（config.local.json 的 ALGO）">
+              {{ algoName }}
+            </span>
+          </template>
         </div>
       </div>
       <div class="hero-right">
-        <button class="go" @click="router.push({ name: 'review' })">
+        <!-- 零状态：今天没有到期卡时**别再用主色召唤「开始复习」** ——
+             那是个死路（队列是空的），点了只会让人以为页面坏了。
+             主色让位给「去学新卡」，这才是此刻真正该做的事。 -->
+        <button v-if="isEmpty" class="go" @click="router.push({ name: 'generate' })">
+          生成第一批卡片
+          <svg viewBox="0 0 24 24"><path d="M5 12h13M13 6l6 6-6 6" /></svg>
+        </button>
+        <button v-else-if="dueToday > 0" class="go" @click="router.push({ name: 'review' })">
           开始复习
           <svg viewBox="0 0 24 24"><path d="M5 12h13M13 6l6 6-6 6" /></svg>
         </button>
+        <button v-else class="go" @click="router.push({ name: 'cards' })">
+          去学新卡
+          <svg viewBox="0 0 24 24"><path d="M5 12h13M13 6l6 6-6 6" /></svg>
+        </button>
         <button class="go ghost" @click="router.push({ name: 'path' })">今日路径</button>
+        <button v-if="isEmpty" class="go ghost" @click="router.push({ name: 'docs' })">
+          导入文档
+        </button>
       </div>
     </section>
 
+    <!-- ===== 空库：给一屏引导，而不是四个 0 + 五张空图 ===== -->
+    <section v-if="isEmpty" class="blank-panel rise">
+      <div class="bp-steps">
+        <div class="bp">
+          <div class="bp-n">1</div>
+          <div class="bp-t">导入一份文档</div>
+          <div class="bp-d">Markdown / PDF / Word 丢进来，自动按标题分章，再转成卡片</div>
+          <button class="go ghost sm" @click="router.push({ name: 'docs' })">去导入</button>
+        </div>
+        <div class="bp">
+          <div class="bp-n">2</div>
+          <div class="bp-t">或让 AI 生成</div>
+          <div class="bp-d">给一个方向，本地模型按大纲批量造卡，生成后先进草稿箱</div>
+          <button class="go ghost sm" @click="router.push({ name: 'generate' })">去生成</button>
+        </div>
+        <div class="bp">
+          <div class="bp-n">3</div>
+          <div class="bp-t">开始复习</div>
+          <div class="bp-d">每天到期一批，算法会按你的掌握情况安排下一次</div>
+          <button class="go ghost sm" @click="router.push({ name: 'review' })">看队列</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- 以下全部是「有卡之后才成立」的内容。空库时整块撤掉，
+         只留上面那三步引导 —— 摆 four 个 0 和五张空图只会让人以为坏了。 -->
+    <template v-if="!isEmpty">
     <!-- ===== 四张指标 ===== -->
     <section class="metrics">
       <div
@@ -413,17 +583,16 @@ const storeText = computed(() => {
       </div>
     </section>
 
-    <!-- ===== 图表区 ===== -->
+    <!-- ===== 图表区 =====
+         栅格分配的依据是**每块图表要放多少字**，不是"看起来匀"。
+         · 领域分布 5 列：横向条的左边要放得下「求职·AI工程」这种长领域名，
+           给 4 列时标签和条会挤在一起（原来就是这样）；
+         · 自评档位 3 列：环形图本身不需要宽，多给的列只是把图撑稀；
+         · BKT 4 列：三段条 + 一段说明文字，比环形图需要更多的行内空间。
+         ⚠️ 每行必须凑满 12（5+3+4 / 7+5 / 12）。之前是 4+4+4 / 4+7 / 5，
+         右边永远缺一块，页面看着是"没排完"而不是"排好了"。 -->
     <section class="grid">
-      <div class="panel span-4 rise" :style="{ animationDelay: '80ms' }">
-        <header class="panel-head">
-          <h3>掌握度分布</h3>
-          <span class="hint">按三档标记统计</span>
-        </header>
-        <EChart :option="masteryOption" height="252px" />
-      </div>
-
-      <div class="panel span-4 rise" :style="{ animationDelay: '130ms' }">
+      <div class="panel span-5 rise" :style="{ animationDelay: '80ms' }">
         <header class="panel-head">
           <h3>领域分布</h3>
           <span class="hint">卡片按知识领域统计</span>
@@ -431,7 +600,66 @@ const storeText = computed(() => {
         <EChart :option="domainOption" height="252px" />
       </div>
 
-      <div class="panel span-4 rise" :style="{ animationDelay: '180ms' }">
+      <div class="panel span-3 rise" :style="{ animationDelay: '105ms' }">
+        <header class="panel-head">
+          <!-- 原先这里叫「掌握度分布」，但它画的是 users 自评的三档标记，
+             不是掌握度。名字和内容对不上比不写更糟 —— 会让人以为
+             系统已经算出了真实的掌握程度。改成「自评档位」，
+             真正的掌握度挪到右边那张 BKT 卡（那是真的 p）。 -->
+          <h3>自评档位</h3>
+          <span class="hint">三档标记</span>
+        </header>
+        <EChart :option="masteryOption" height="252px" />
+      </div>
+
+      <div class="panel span-4 rise" :style="{ animationDelay: '130ms' }">
+        <header class="panel-head">
+          <h3>BKT 掌握度</h3>
+          <span class="hint">
+            {{ bktBars.length ? `已练 ${mastery.computed} 张 · 均值 ${bktAvg}` : '尚无数据' }}
+          </span>
+        </header>
+        <!-- 用 CSS 条而不是 ECharts：这里只有三段，引入一个图表实例
+             去画三段 div 完全不划算（这一页已经有 4 个 ECharts 实例了）。
+             没数据时**不留 252px 的空框**（见 .bkt-empty）：一块纯文字却
+             占着跟环形图一样高，是这一页最明显的「像坏了」的地方。 -->
+        <div v-if="bktBars.length" class="bkt">
+          <div class="bkt-bar">
+            <i
+              v-for="b in bktBars"
+              :key="b.key"
+              :style="{ flexGrow: b.value, background: b.color }"
+            />
+          </div>
+          <div class="bkt-legend">
+            <span v-for="b in bktBars" :key="b.key">
+              <i :style="{ background: b.color }" />{{ b.name }} {{ b.value }}
+            </span>
+          </div>
+          <p class="bkt-note">
+            由复习事件回放出的概率 p 划档，比左边三档自评细 ——
+            能看出「模糊」里有多少其实快忘了。没练过的卡不算在内。
+          </p>
+        </div>
+        <div v-else class="bkt-empty">
+          <p class="bkt-empty-t">还没有可算的掌握度</p>
+          <p class="bkt-empty-d">
+            BKT 要靠复习事件回放概率 p。去
+            <button class="link" @click="router.push({ name: 'review' })">复习页</button>
+            标几张卡，这里就会出现分布。
+          </p>
+        </div>
+      </div>
+
+      <div class="panel span-7 rise" :style="{ animationDelay: '180ms' }">
+        <header class="panel-head">
+          <h3>科目构成</h3>
+          <span class="hint">扇区半径与面积同时编码数量</span>
+        </header>
+        <EChart :option="subjectOption" height="288px" />
+      </div>
+
+      <div class="panel span-5 rise" :style="{ animationDelay: '230ms' }">
         <header class="panel-head">
           <h3>今日队列</h3>
           <span class="hint">共 {{ learning.total }} 张</span>
@@ -441,50 +669,55 @@ const storeText = computed(() => {
           <p v-else class="empty">今天没有到期的卡片 —— 先去「卡片」页挑几张新的吧</p>
         </div>
       </div>
+    </section>
 
-      <div class="panel span-7 rise" :style="{ animationDelay: '230ms' }">
-        <header class="panel-head">
-          <h3>科目构成</h3>
-          <span class="hint">扇区半径与面积同时编码数量</span>
-        </header>
-        <EChart :option="subjectOption" height="288px" />
-      </div>
-
-      <div class="panel span-5 rise" :style="{ animationDelay: '280ms' }">
-        <header class="panel-head">
+    <!-- ===== 底部状态条 =====
+         原来「卡片构成」和「系统状态」挤在同一个 span-5 的窄面板里，
+         堆叠条只有 64px 高、下面拖着三行小字，右侧空 7 列。
+         改成一条**横贯整行**的状态条：左边是构成条，右边三格是运行状态。
+         信息量没变，但 12 列的宽度正好够 —— 这行本来就是收尾，
+         不该再跟上面的图表抢注意力。 -->
+    <section class="statusbar rise">
+      <div class="sb-compose">
+        <div class="sb-head">
           <h3>卡片构成</h3>
-          <span class="hint">内置 / 自建</span>
-        </header>
-        <EChart :option="composeOption" height="64px" />
+          <span class="hint">内置 {{ Math.max((s.total ?? 0) - (s.custom ?? 0), 0) }} · 自建 {{ s.custom ?? 0 }}</span>
+        </div>
+        <EChart :option="composeOption" height="44px" />
         <div class="legend-row">
           <span><i :style="{ background: INK.accent }" />内置</span>
           <span><i :style="{ background: INK.known }" />自建</span>
         </div>
-
-        <!-- 系统状态摘要。
-             放在这里是刻意的：degraded 藏在管理页里没人会去看，
-             而它直接决定「我写的东西到底存到哪了」。 -->
-        <div class="sys">
-          <div class="sys-row">
-            <span class="dim">存储后端</span>
-            <span class="mono">{{ storeInfo?.store || '-' }}</span>
-          </div>
-          <div class="sys-row">
-            <span class="dim">内置卡 / 库内</span>
-            <span class="mono">
-              {{ storeInfo?.builtin?.inFile ?? '-' }} / {{ storeInfo?.builtin?.inDb ?? '未同步' }}
-            </span>
-          </div>
-          <div class="sys-row">
-            <span class="dim">AI 精读</span>
-            <span>{{ llmInfo?.ok ? '可用' : '未启用' }}</span>
-          </div>
-          <button class="link" @click="router.push({ name: 'admin-system' })">
-            查看运行状态 →
-          </button>
-        </div>
       </div>
+
+      <div class="sb-sep" />
+
+      <!-- ⚠️ 拿不到时**写「检测中」而不是 `-`**：一个孤零零的横杠
+           读起来像「坏了/没有」，而真相是「这个请求还没回来」。
+           这三格是 per-request 拉的，页面刚打开的那一瞬间必然是空的。 -->
+      <div class="sb-cell">
+        <span class="dim">存储后端</span>
+        <span class="mono">{{ storeInfo?.store || '检测中' }}</span>
+      </div>
+      <div class="sb-cell">
+        <span class="dim">内置卡 / 库内</span>
+        <span class="mono">
+          {{
+            storeInfo
+              ? (storeInfo?.builtin?.inFile ?? '-') + ' / ' + (storeInfo?.builtin?.inDb ?? '未同步')
+              : '检测中'
+          }}
+        </span>
+      </div>
+      <div class="sb-cell">
+        <span class="dim">AI 精读</span>
+        <span>{{ llmInfo === null ? '检测中' : llmInfo?.ok ? '可用' : '未启用' }}</span>
+      </div>
+      <button class="link sb-more" @click="router.push({ name: 'admin-system' })">
+        运行状态 →
+      </button>
     </section>
+    </template>
   </div>
 </template>
 
@@ -493,6 +726,74 @@ const storeText = computed(() => {
   display: flex;
   flex-direction: column;
   gap: 20px;
+}
+
+/* ===== 空库引导 =====
+ * 空驾驶舱不是「数据为 0 的驾驶舱」，是另一个页面。所以：
+ *   - hero 的大号 0 换成一句邀请（.blank 去掉靛蓝压线，压线是「数据在这」的信号）；
+ *   - 指标卡与图表区整块 v-if 撤掉（摆四个 0 和五张空图只会像坏了）；
+ *   - 给三步「导入 / 生成 / 复习」，每步都带一个真的能点的按钮。 */
+.hero.blank::before {
+  display: none;
+}
+.hero-title {
+  font-size: 34px;
+  font-weight: 700;
+  line-height: 1.15;
+  margin: 8px 0 6px;
+  color: var(--tx);
+}
+.blank-panel {
+  padding: 8px 4px 4px;
+}
+.bp-steps {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 14px;
+}
+.bp {
+  padding: 20px 20px 18px;
+  border-radius: var(--radius);
+  border: 1px solid var(--line);
+  background: var(--panel);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.62);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+.bp-n {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: var(--ac);
+  color: #fdfaf3;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  line-height: 26px;
+  text-align: center;
+  margin-bottom: 12px;
+}
+.bp-t {
+  font-size: var(--fs-md);
+  font-weight: 600;
+  color: var(--tx);
+  margin-bottom: 6px;
+}
+.bp-d {
+  font-size: var(--fs-sm);
+  line-height: 1.65;
+  color: var(--mu);
+  margin-bottom: 14px;
+}
+.go.sm {
+  margin-top: auto;
+  padding: 7px 14px;
+  font-size: var(--fs-sm);
+}
+@media (max-width: 900px) {
+  .bp-steps {
+    grid-template-columns: 1fr;
+  }
 }
 
 /* ===== 卷宗题头 =====
@@ -569,6 +870,24 @@ const storeText = computed(() => {
   border: 1px solid var(--ac-dim);
   background: var(--ac-glow);
   color: var(--ac);
+}
+/* 积压说明。用**中性描边**而不是警示色 —— 积压不是错误，
+   400 张库里只学 20 张是「按计划排队」，标成橙色会让人以为坏了。 */
+.backlog {
+  font-size: var(--fs-xs);
+  padding: 2px 9px;
+  border-radius: 20px;
+  border: 1px solid var(--line2);
+  color: var(--dim);
+}
+/* 调度算法：也是「系统在替你做什么」的说明，但它是**配置**而不是
+ * 内容状态，所以用中性描边（不抢主色的戏）。title 里给全称。 */
+.algo {
+  font-size: var(--fs-xs);
+  padding: 2px 9px;
+  border-radius: 20px;
+  border: 1px dashed var(--line2);
+  color: var(--dim);
 }
 
 .hero-right {
@@ -664,11 +983,16 @@ const storeText = computed(() => {
 /* ===== 图表网格 =====
  * 12 栅格，按信息复杂度分配列数，**不要平均** ——
  * 平均分配的结果就是六块一样大的方块，眼睛找不到重点。
+ * ⚠️ 每一行的 span 之和必须等于 12：4+4+4 / 4+7 / 5 这种排法右边
+ * 永远缺一块，页面读起来像「没排完」。现在是 5+3+4 / 7+5 / 12（全宽条）。
  * .panel / .panel-head 用 tokens.css 里的全局类，这里只写栅格。 */
 .grid {
   display: grid;
   grid-template-columns: repeat(12, 1fr);
   gap: 14px;
+}
+.span-3 {
+  grid-column: span 3;
 }
 .span-4 {
   grid-column: span 4;
@@ -682,6 +1006,71 @@ const storeText = computed(() => {
 
 .board {
   height: 252px;
+}
+
+/* ===== BKT 掌握度分布 =====
+ * 三段条用 flex-grow 分配宽度（值由 wxml/模板传进来），某段为 0 时
+ * flex-grow:0 → 自然不占宽，不用额外写隐藏判断。 */
+.bkt {
+  display: flex;
+  flex-direction: column;
+  height: 252px;
+  padding: 18px 2px 0;
+}
+/* 无数据状态：**不撑高**。
+ * 之前用 `.empty`（height:100%）放在 252px 的面板里，一段纯文字
+ * 独占一整块竖直空间，跟旁边的环形图齐平 —— 视觉上像"图加载失败"。
+ * 现在改成从上往下排的一段短文字，块里留白是版式的呼吸，不是缺东西。 */
+.bkt-empty {
+  padding: 22px 2px 0;
+}
+.bkt-empty-t {
+  font-size: var(--fs-md);
+  font-weight: 600;
+  color: var(--mu);
+  margin-bottom: 8px;
+}
+.bkt-empty-d {
+  font-size: var(--fs-sm);
+  line-height: 1.75;
+  color: var(--dim);
+}
+/* 说明文字里的按钮要跟正文基线对齐，且不能有自己的下边框残留 */
+.bkt-empty-d .link {
+  font-size: var(--fs-sm);
+  vertical-align: baseline;
+}
+.bkt-bar {
+  display: flex;
+  height: 16px;
+  border-radius: 999px;
+  overflow: hidden; /* 段间不留缝，靠圆角裁出连续的条 */
+}
+.bkt-bar i {
+  flex-basis: 0;
+}
+.bkt-legend {
+  display: flex;
+  gap: 18px;
+  margin-top: 16px;
+  font-size: var(--fs-xs);
+  color: var(--mu);
+}
+.bkt-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.bkt-legend i {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+}
+.bkt-note {
+  margin: auto 0 0;
+  font-size: var(--fs-xs);
+  line-height: 1.7;
+  color: var(--dim);
 }
 
 /* DataV 滚动榜的文字色写死在它自己的 CSS 里（.dv-scroll-board{color:#fff}），
@@ -729,19 +1118,90 @@ const storeText = computed(() => {
   border-radius: 3px;
 }
 
-.sys {
-  border-top: 1px solid var(--line);
-  padding-top: 12px;
+/* ===== 底部状态条 =====
+ * 「卡片构成 + 运行状态」从原来那个 span-5 的窄面板改成横贯整行的一条。
+ * 动机有两条，缺一不可：
+ *   1. **填满栅格**。原来这行只占了 5 列，右边空 7 列。
+ *   2. **宽度要够放三格状态**。「存储后端 / 内置卡 / AI 精读」挤在
+ *      半屏里时每格都得折行，现在每格分到 200px 上下，一行放得下。
+ * 用 grid 而不是 flex：flex + 三格 + 一个按钮，宽度分配全靠 flex-grow
+ * 猜，而这里每格内容长度差别很大（"mysql" vs "未同步"），得按内容定量。 */
+.statusbar {
+  display: grid;
+  grid-template-columns: minmax(260px, 1.4fr) 1px repeat(3, minmax(120px, 1fr)) auto;
+  align-items: center;
+  gap: 18px;
+  padding: 16px 22px;
+  border-radius: var(--radius);
+  border: 1px solid var(--line);
+  background: var(--panel);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.62);
+}
+/* 竖分隔线：只把"构成"和"运行状态"分开，三格状态之间不隔 ——
+ * 它们是同一组信息，格子之间加线会让人以为是三件独立的事。 */
+.sb-sep {
+  align-self: stretch;
+  background: var(--line);
+}
+.sb-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+.sb-head h3 {
+  font-size: var(--fs-md);
+  font-weight: 600;
+  color: var(--tx);
+}
+.sb-head .hint {
+  font-size: var(--fs-xs);
+  color: var(--dim);
+}
+.sb-compose .legend-row {
+  padding: 6px 0 0;
+}
+.sb-cell {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-}
-.sys-row {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
+  gap: 4px;
+  min-width: 0;
   font-size: var(--fs-sm);
 }
+/* 标签在上、值在下：横向排的话「存储后端」四个字 + "mysql"
+ * 在 150px 里会顶到同一行然后折行，值和标签就错位了。 */
+.sb-cell .dim {
+  font-size: var(--fs-xs);
+  color: var(--dim);
+}
+.sb-cell .mono {
+  color: var(--tx);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sb-more {
+  align-self: center;
+  white-space: nowrap;
+}
+@media (max-width: 1100px) {
+  /* 窄屏时状态条的四列排不下，退回两行两列。
+   * 不能靠 flex-wrap：那样第一格会把整行宽度吃掉，第二行只剩一个按钮。 */
+  .statusbar {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 14px 20px;
+  }
+  .sb-sep {
+    display: none;
+  }
+  .sb-compose {
+    grid-column: 1 / -1;
+  }
+  .sb-more {
+    justify-self: start;
+  }
+}
+
 .link {
   align-self: flex-start;
   margin-top: 2px;
@@ -760,10 +1220,17 @@ const storeText = computed(() => {
   .metrics {
     grid-template-columns: repeat(2, 1fr);
   }
+  .span-3,
   .span-4,
   .span-5,
   .span-7 {
     grid-column: span 12;
+  }
+  /* 图表全部拉满宽之后，252px 的定高对「今日队列」和 BKT 都偏矮，
+   * 但 ECharts 高度是 prop 写死的，这里只把 CSS 容器放开。 */
+  .board,
+  .bkt {
+    height: 288px;
   }
 }
 </style>

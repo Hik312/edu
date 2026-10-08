@@ -67,7 +67,11 @@ client.interceptors.response.use(
       return Promise.reject(e401)
     }
 
-    // 其它错误在这里统一弹一次，业务代码只管 catch 后回滚状态
+    // 其它错误：**不**在这里弹提示，只把状态码和 msg 挂到错误对象上 reject。
+    // 调用方自己决定怎么展示（页面级 catch 弹 ElMessage，或写进行内错误）。
+    // 之所以不全局弹：很多调用方 catch 后会弹自己的文案（如卡片加载失败），
+    // 全局再弹一次就重复了；而且空 catch 的调用方（如登录页）会各自负责。
+    // ⚠️ 别被老注释骗了——这层曾经写着「统一弹一次」但其实没弹，导致登录 400 静默。
     const e = new Error(msg)
     e.status = status || 0
     return Promise.reject(e)

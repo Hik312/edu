@@ -70,6 +70,7 @@ CREATE TABLE IF NOT EXISTS `cards` (
 -- progress：复习进度（SM-2）。全标量列 + next_at 索引 = 到期队列一条 SQL
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS `progress` (
+  `user_id`    VARCHAR(64)  NOT NULL DEFAULT '' COMMENT '归属用户；''=匿名桶（脚本/迁移用）',
   `card_id`    VARCHAR(96)  NOT NULL,
   `level`      TINYINT      NOT NULL DEFAULT 0  COMMENT '0未标记 1不会 2模糊 3会',
   `interval_d` INT          NOT NULL DEFAULT 0  COMMENT '当前间隔（天）',
@@ -77,16 +78,19 @@ CREATE TABLE IF NOT EXISTS `progress` (
   `reps`       INT          NOT NULL DEFAULT 0  COMMENT '连续答对次数',
   `next_at`    DATE             NULL            COMMENT '下次复习日',
   `updated_at` DATE             NULL,
-  PRIMARY KEY (`card_id`),
-  KEY `ix_progress_due`   (`next_at`),
-  KEY `ix_progress_level` (`level`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='复习进度';
+  -- ★ 主键必须带 user_id：不带的话 ON DUPLICATE KEY UPDATE 判重只看 card_id，
+  --   两个用户复习同一张卡写的还是同一行（2026-10-03 踩过：探针把真人进度全盖掉）。
+  PRIMARY KEY (`user_id`, `card_id`),
+  KEY `ix_progress_due`   (`user_id`, `next_at`),
+  KEY `ix_progress_level` (`user_id`, `level`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='复习进度（按用户隔离）';
 
 -- ---------------------------------------------------------------------------
 -- notes：笔记（独立笔记 + 挂在卡片下的「我的理解」，后者有 card_id）
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS `notes` (
   `id`         VARCHAR(96)  NOT NULL,
+  `user_id`    VARCHAR(64)  NOT NULL DEFAULT '' COMMENT '归属用户；''=匿名桶',
   `card_id`    VARCHAR(96)      NULL            COMMENT '非空 = 这张卡的「我的理解」',
   `category`   VARCHAR(48)  NOT NULL DEFAULT '',
   `subject`    VARCHAR(48)  NOT NULL DEFAULT '',
@@ -95,11 +99,12 @@ CREATE TABLE IF NOT EXISTS `notes` (
   `tags`       JSON             NULL,
   `created_at` DATE             NULL,
   `updated_at` DATE             NULL,
-  PRIMARY KEY (`id`),
-  KEY `ix_notes_card`    (`card_id`),
-  KEY `ix_notes_scope`   (`category`, `subject`),
-  KEY `ix_notes_updated` (`updated_at`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='笔记';
+  -- 同 progress：主键必须带 user_id，否则两人笔记会互相覆盖
+  PRIMARY KEY (`user_id`, `id`),
+  KEY `ix_notes_card`    (`user_id`, `card_id`),
+  KEY `ix_notes_scope`   (`user_id`, `category`, `subject`),
+  KEY `ix_notes_updated` (`user_id`, `updated_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='笔记（按用户隔离）';
 
 -- ---------------------------------------------------------------------------
 -- documents：整份导入的资料（md/txt/pdf 切成章节）

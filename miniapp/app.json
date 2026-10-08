@@ -17,12 +17,32 @@
     "color": "#63543c",
     "selectedColor": "#1f4b6b",
     "backgroundColor": "#f8f3e6",
-    "borderStyle": "black",
+    "borderStyle": "white",
     "list": [
-      { "pagePath": "pages/index/index", "text": "首页" },
-      { "pagePath": "pages/learn/learn", "text": "学习" },
-      { "pagePath": "pages/cards/cards", "text": "卡包" },
-      { "pagePath": "pages/mine/mine", "text": "我的" }
+      {
+        "pagePath": "pages/index/index",
+        "text": "首页",
+        "iconPath": "images/tab/home.png",
+        "selectedIconPath": "images/tab/home-on.png"
+      },
+      {
+        "pagePath": "pages/learn/learn",
+        "text": "学习",
+        "iconPath": "images/tab/learn.png",
+        "selectedIconPath": "images/tab/learn-on.png"
+      },
+      {
+        "pagePath": "pages/cards/cards",
+        "text": "卡包",
+        "iconPath": "images/tab/cards.png",
+        "selectedIconPath": "images/tab/cards-on.png"
+      },
+      {
+        "pagePath": "pages/mine/mine",
+        "text": "我的",
+        "iconPath": "images/tab/mine.png",
+        "selectedIconPath": "images/tab/mine-on.png"
+      }
     ]
   },
   "style": "v2",

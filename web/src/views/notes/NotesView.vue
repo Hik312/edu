@@ -288,6 +288,29 @@ onMounted(() => {
   flex-direction: column;
 }
 
+/* 宽屏：两列各自独立滚动。左列头部/搜索/新建固定、只列表滚；右编辑器整列滚。
+   .items 原本是 max-height: calc(100vh - 320px) 魔数（和右列无关、各自为政），
+   这里改成 flex:1 —— 由「根容器占满内容区、列 stretch」决定高度，更稳。 */
+@media (min-width: 1081px) {
+  .notes {
+    height: 100%;
+    align-items: stretch;
+  }
+  .list,
+  .editor {
+    min-height: 0;
+  }
+  .items {
+    flex: 1;
+    min-height: 0;
+    max-height: none;
+    overflow-y: auto;
+  }
+  .editor {
+    overflow-y: auto;
+  }
+}
+
 /* 列表区有滚动：笔记多了以后把整个页面撑长，
    右侧编辑器会跟着滚到屏幕外面去 */
 .items {

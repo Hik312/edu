@@ -6,7 +6,7 @@
   <view class="browse" wx:if="{{browsing}}">
     <button class="bbtn" disabled="{{pos <= 0}}" bindtap="prev">‹ 上一张</button>
     <view class="bpos">
-      <view class="bmod">{{modName || '当前筛选'}}</view>
+      <view class="bmod">{{modEmoji}} {{modName || '当前筛选'}}</view>
       <view class="muted bnum">{{pos + 1}} / {{total}}</view>
     </view>
     <button class="bbtn" disabled="{{pos >= total - 1}}" bindtap="next">下一张 ›</button>
@@ -31,7 +31,7 @@
   </view>
 
   <view class="card" wx:if="{{card.mechanism && card.mechanism.length}}">
-    <view class="secT">原理 / 机制</view>
+    <view class="secT">⚙️ 原理 / 机制</view>
     <view class="para" wx:for="{{card.mechanism}}" wx:key="*this">
       <view class="step">{{index + 1}}</view>
       <text>{{item}}</text>
@@ -39,33 +39,33 @@
   </view>
 
   <view class="card" wx:if="{{card.scene && card.scene.length}}">
-    <view class="secT">什么时候会遇到</view>
+    <view class="secT">🎯 什么时候会遇到</view>
     <view class="para" wx:for="{{card.scene}}" wx:key="*this">· {{item}}</view>
   </view>
 
   <view class="card" wx:if="{{card.why}}">
-    <view class="secT">为什么重要</view>
+    <view class="secT">💡 为什么重要</view>
     <view class="para">{{card.why}}</view>
   </view>
 
   <view class="card" wx:if="{{card.analogy}}">
-    <view class="secT">类比理解</view>
+    <view class="secT">🧠 类比理解</view>
     <view class="para">{{card.analogy}}</view>
   </view>
 
   <view class="card" wx:if="{{card.interviewQ && card.interviewQ.length}}">
-    <view class="secT">面试官会怎么问</view>
+    <view class="secT">🎤 面试官会怎么问</view>
     <view class="para" wx:for="{{card.interviewQ}}" wx:key="*this">Q{{index + 1}} {{item}}</view>
   </view>
 
   <!-- 图示：小程序端占位（Web 端有完整播放器，这里标记种类，详情不重复实现） -->
   <view class="card" wx:if="{{card.diagram}}">
-    <view class="secT">过程图示</view>
+    <view class="secT">📊 过程图示</view>
     <view class="para muted">{{card.diagram.kind}} 图示 · 回 Web 端看逐步播放</view>
   </view>
 
   <view class="card" wx:if="{{card.relatedBrief && card.relatedBrief.length}}">
-    <view class="secT">相关卡片</view>
+    <view class="secT">🔗 相关卡片</view>
     <view class="rel" wx:for="{{card.relatedBrief}}" wx:key="id"
           data-id="{{item.id}}" bindtap="openRelated">
       <view class="grow">
@@ -77,6 +77,6 @@
   </view>
 
   <view class="foot">
-    <button class="btn block" bindtap="goReview">去复习这张</button>
+    <button class="btn block" bindtap="goReview">▶️ 去复习这张</button>
   </view>
 </block>

@@ -19,6 +19,15 @@
 4. 写方法要对**单行**友好（`*_put` / `*_del`）。整表覆盖的 `*_replace`
    只给「列表式」调用方兜底，热路径（打复习进度、写 AI 精读）必须走单行，
    否则一次评级要把整个 documents 表重写一遍。
+5. **个人数据必须按 user_id 隔离**（2026-10-03 加）。progress / notes 是
+   per-user 的，MySQL 侧主键是 `(user_id, card_id)` / `(user_id, id)`。
+   以前两处主键都只有 card_id / id，于是两个用户复习同一张卡会**互相覆盖**
+   —— 不是"看到别人的数据"这种明显故障，而是后写的把先写的静默顶掉，
+   谁的档位、间隔、笔记都丢了，且没有任何日志。实测踩过：探针账号把本人
+   6 行进度全盖成自己的。
+   `user_id=None` 一律当**匿名公共桶**（user_id='' 那一档），只给脚本 /
+   迁移 / 种子数据用。业务端点必须传真实 uid —— 鉴权看的是
+   「响应里有没有个人数据」，不是方法名上带没带 put。
 """
 import json
 import os
@@ -40,10 +49,14 @@ class Store(object):
     def custom_all(self):
         raise NotImplementedError
 
-    def progress_all(self):
+    def progress_all(self, user_id=None):
+        """某人的全部进度：{card_id: {level, interval, ef, reps, nextAt, updatedAt}}。
+
+        `user_id=None` 读匿名公共桶，**不是**「读所有人的」。
+        """
         raise NotImplementedError
 
-    def notes_all(self):
+    def notes_all(self, user_id=None):
         raise NotImplementedError
 
     def docs_all(self):
@@ -63,20 +76,21 @@ class Store(object):
         raise NotImplementedError
 
     # ---------------- 写：进度 ----------------
-    def progress_put(self, cid, rec):
+    def progress_put(self, cid, rec, user_id=None):
         raise NotImplementedError
 
-    def progress_del(self, cid):
+    def progress_del(self, cid, user_id=None):
         raise NotImplementedError
 
-    def progress_clear(self):
+    def progress_clear(self, user_id=None):
+        """`user_id=None` 只清匿名桶；要清所有人得显式传 `user_id='*'`。"""
         raise NotImplementedError
 
     # ---------------- 写：笔记 ----------------
-    def note_put(self, note):
+    def note_put(self, note, user_id=None):
         raise NotImplementedError
 
-    def note_del(self, nid):
+    def note_del(self, nid, user_id=None):
         raise NotImplementedError
 
     # ---------------- 写：文档 ----------------

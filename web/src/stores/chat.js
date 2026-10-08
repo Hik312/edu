@@ -23,11 +23,16 @@ export const useChatStore = defineStore('chat', () => {
   const profile = ref(null) // L3 长期档案 {role, topics, weak}，拿不到就是 null
 
   /** L1 刷新不丢：整段对话存 localStorage（只存 role/text/sources，渲染态不存）。
-   *  上限 100 条 —— 会话历史不是存档，无限堆迟早顶穿 5MB 配额。 */
+   *  上限 100 条 —— 会话历史不是存档，无限堆迟早顶穿 5MB 配额。
+
+   *  ★ 连「生成中」的消息也存：从前的守卫是「有streaming 就不落盘」，
+   *    想避免存半截。但 react 流式动辄几十秒，用户很可能**在生成途中就刷新**——
+   *    守卫一旦命中，整条正在生成的对话在刷新后**全部消失**（实测踩过）。
+   *    半截文本也比空屏好：用户看到的是「已经出的那部分」，和刷新前一致。 */
   function saveChat() {
     try {
       const slim = messages.value
-        .filter(m => m.text && !m.streaming)
+        .filter(m => m.text)
         .slice(-100)
         .map(m => ({ role: m.role, text: m.text, sources: m.sources || [] }))
       localStorage.setItem('edu.chat', JSON.stringify(slim))
@@ -53,12 +58,41 @@ export const useChatStore = defineStore('chat', () => {
     }
   }
 
+  /* ---- 按钮选项（模式 / 联网开关）也要持久化 ----
+   * 用户诉求：「刷新后问答还在，但答案没显示，而且那些按钮选项也改变了，都要持久化」。
+   * mode / webSearch 之前没存，刷新一律回默认（flow + 不联网）。
+   * 单独放一个 key：它是「偏好」，不是「对话」，清空对话时不该被重置。 */
+  const PREFS_KEY = 'edu.chat.prefs'
+  function savePrefs() {
+    try {
+      localStorage.setItem(PREFS_KEY, JSON.stringify({ mode: mode.value, webSearch: webSearch.value }))
+    } catch {
+      /* 忽略 */
+    }
+  }
+  function restorePrefs() {
+    try {
+      const p = JSON.parse(localStorage.getItem(PREFS_KEY) || '{}')
+      if (p.mode === 'flow' || p.mode === 'react') mode.value = p.mode
+      if (typeof p.webSearch === 'boolean') webSearch.value = p.webSearch
+    } catch {
+      /* 坏数据当作默认 */
+    }
+  }
+
   restoreChat() // setup 期恢复：在下面的 watch 之前跑，不会误触发一次写盘
+  restorePrefs()
+  watch([mode, webSearch], savePrefs)
+  // 节流落盘：流式时每个 token 都会触发 watch，不节流会把 localStorage 写爆。
+  let saveTimer = null
   watch(
     messages,
     () => {
-      if (messages.value.some(m => m.streaming)) return // 流式生成中不落盘，结束那次再存
-      saveChat()
+      if (saveTimer) return
+      saveTimer = setTimeout(() => {
+        saveTimer = null
+        saveChat()
+      }, 600)
     },
     { deep: true }
   )
@@ -75,7 +109,7 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   function pushAssistant() {
-    const m = { role: 'assistant', text: '', sources: [], streaming: true }
+    const m = { role: 'assistant', text: '', sources: [], streaming: true, verify: null, steps: [] }
     messages.value.push(m)
     return m
   }
@@ -114,8 +148,23 @@ export const useChatStore = defineStore('chat', () => {
         onText: t => {
           m.text = t
         },
+        onStep: s => {
+          // 「到哪一步」进度帧：{text} 新增一步，{done:true} 收尾当前步。
+          if (!m.steps) m.steps = []
+          const last = m.steps[m.steps.length - 1]
+          if (s && s.done) {
+            if (last && !last.done) last.done = true
+          } else if (s && s.text) {
+            if (last && !last.done) last.done = true
+            m.steps.push({ text: s.text, done: false })
+          }
+        },
         onSources: ids => {
           m.sources = ids || []
+        },
+        onVerify: list => {
+          // react 答完后校验引用卡的结果；有错卡才推过来，前端渲染「是否修正」
+          m.verify = list && list.length ? list : null
         },
         onDone: () => {
           m.streaming = false

@@ -32,6 +32,15 @@ STORE_DIR = os.path.join(DATA_DIR, 'store')
 # 普通 Lock 在这里会自死锁。
 _lock = threading.RLock()
 
+#: 匿名桶的键。真实 uid 都得转成 str 存（MySQL 那边id 是 int，
+#: JSON 这边是字符串，不统一就会出现 '1' 和 1 两份进度）。
+ANON = ''
+
+
+def _uid(user_id):
+    return ANON if user_id is None else str(user_id)
+
+
 # 这里以前还有 FILE_PROGRESS / FILE_CUSTOM / FILE_DRAFTS / FILE_NOTES / FILE_DOCS
 # 五个模块级常量，2026-09-26 删掉：真正生效的是下面 self.file 那个字典，
 # 五个常量一个字都没被引用过。**文件清单只留一个真相源。**
@@ -65,11 +74,40 @@ class JsonFileStore(Store):
     def custom_all(self):
         return self._read('cards.custom', [])
 
-    def progress_all(self):
-        return self._read('progress', {})
+    def progress_all(self, user_id=None):
+        return self._user_bucket('progress', user_id, {})
 
-    def notes_all(self):
-        return self._read('notes', [])
+    def notes_all(self, user_id=None):
+        return self._user_bucket('notes', user_id, [])
+
+    def _user_bucket(self, kind, user_id, fallback):
+        """读某个人的那一格。
+
+        ★ 2026-10-03 起progress.json / notes.json **多了一层 user_id**：
+        `{uid: {cid: rec}}` / `{uid: [note, ...]}`。以前是扁平的
+        `{cid: rec}` / `[note, ...]`，等于全系统共用一份 —— 两个用户复习
+        同一张卡就互相覆盖（不是"看见别人的数据"，是后写的把先写的静默顶掉）。
+
+        兼容老格式：读出来若不像带 uid 的结构（旧版 progress 顶层全是
+        card_id，notes 顶层是 list 而非 dict），就整体当成**匿名桶**
+        （uid=''）返回。降级路径也必须能读老库 —— 不然关掉 MySQL 就不是
+        "回到老样子"，而是数据凭空消失。
+        """
+        raw = self._read(kind, None)
+        if raw is None:
+            return fallback
+        if kind == 'notes':
+            if isinstance(raw, list):                 # 老格式：顶层就是列表
+                return raw if not user_id else []
+            return (raw.get(_uid(user_id)) or []) if isinstance(raw, dict) else list(raw)
+        if not isinstance(raw, dict):
+            return fallback
+        # 老 progress 格式 = {card_id: {...}}；新 = {uid: {card_id: {...}}}
+        if raw and all(isinstance(v, dict) and any(
+                k in v for k in ('level', 'interval', 'reps', 'nextAt'))
+                for v in raw.values()):
+            return raw if not user_id else {}          # 老格式且要个人视图 → 没有个人数据
+        return raw.get(_uid(user_id)) or {}
 
     def docs_all(self):
         return self._read('documents', [])
@@ -101,38 +139,71 @@ class JsonFileStore(Store):
             self._write('cards.custom', list(lst))
 
     # ---------------- 写：进度 ----------------
-    def progress_put(self, cid, rec):
+    def progress_put(self, cid, rec, user_id=None):
         with _lock:
-            m = self.progress_all()
-            m[cid] = rec
-            self._write('progress', m)
+            raw = self._read('progress', {})
+            if not isinstance(raw, dict) or (raw and not all(
+                    isinstance(v, dict) for v in raw.values())):
+                raw = {}
+            # 老格式是 {cid: rec}，会被误当成 {uid: ...} 的一层 ——
+            # 先按新格式判断，认不出就包一层。这是唯一能原地升级的地方，
+            # 因为只有写路径知道"这个文件以后都要按新格式存"。
+            if raw and all(isinstance(v, dict) and any(
+                    k in v for k in ('level', 'interval', 'reps', 'nextAt'))
+                    for v in raw.values()):
+                raw = {ANON: raw}
+            raw.setdefault(_uid(user_id), {})[cid] = rec
+            self._write('progress', raw)
 
-    def progress_del(self, cid):
+    def progress_del(self, cid, user_id=None):
         with _lock:
-            m = self.progress_all()
-            m.pop(cid, None)
-            self._write('progress', m)
+            raw = self._read('progress', {})
+            if not isinstance(raw, dict):
+                return
+            uid = _uid(user_id)
+            if uid in raw and isinstance(raw[uid], dict):
+                raw[uid].pop(cid, None)
+                self._write('progress', raw)
 
-    def progress_clear(self):
+    def progress_clear(self, user_id=None):
         with _lock:
-            self._write('progress', {})
+            uid = _uid(user_id)
+            if uid == '*':                             # 显式要清所有人
+                self._write('progress', {})
+                return
+            raw = self._read('progress', {})
+            if not isinstance(raw, dict):
+                return
+            if uid in raw:
+                raw[uid] = {}
+                self._write('progress', raw)
 
     # ---------------- 写：笔记 ----------------
-    def note_put(self, note):
+    def note_put(self, note, user_id=None):
         with _lock:
-            lst = self.notes_all()
+            raw = self._read('notes', {})
+            if isinstance(raw, list):# 老格式 → 包一层
+                raw = {ANON: raw}
+            elif not isinstance(raw, dict):
+                raw = {}
+            lst = raw.setdefault(_uid(user_id), [])
             for i, n in enumerate(lst):
                 if n.get('id') == note.get('id'):
                     lst[i] = note
                     break
             else:
                 lst.append(note)
-            self._write('notes', lst)
+            self._write('notes', raw)
 
-    def note_del(self, nid):
+    def note_del(self, nid, user_id=None):
         with _lock:
-            self._write('notes',
-                        [n for n in self.notes_all() if n.get('id') != nid])
+            raw = self._read('notes', {})
+            if not isinstance(raw, dict):
+                return
+            uid = _uid(user_id)
+            if uid in raw:
+                raw[uid] = [n for n in raw[uid] if n.get('id') != nid]
+                self._write('notes', raw)
 
     # ---------------- 写：文档 ----------------
     def doc_put(self, doc):

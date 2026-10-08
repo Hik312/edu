@@ -49,6 +49,7 @@ async function loadMap() {
     ElMessage.error('岗位列表加载失败')
   }
   try {
+    // getProfile() 已返回档案本身（解包在 api/agent.js）
     const p = await getProfile()
     savedRole.value = (p && p.role) || ''
   } catch {
@@ -109,22 +110,35 @@ function toggleSubject(sid) {
   loadPlan()
 }
 
+/** 取知识地图。**后发先回的旧响应必须丢掉**。
+ *
+ * ★ 和 stores/learning.js 的 dueSeq 同一个道理：loadPlan 有 4 个触发点
+ *   （切岗位 / 切自定义 / 点科目 / 恢复上次），每个都是「改一个选中态就重取」，
+ *   用户连点三个岗位就会发出三个请求。网络不保证返回顺序，
+ *   慢的那次晚回来就赢 —— 于是**高亮的是岗位 C，地图画的是岗位 A**。
+ *   mapLoading 只挡 UI 不挡竞态，防抖也只缩小窗口、不保证顺序。
+ */
+let planSeq = 0
+
 async function loadPlan() {
   if (customOn.value && !picked.value.length) {
     plan.value = null
     return
   }
+  const seq = ++planSeq
   mapLoading.value = true
   try {
     const r = customOn.value
       ? await getPlan({ subjects: picked.value.join(',') })
       : await getPlan({ role: mapRole.value })
+    if (seq !== planSeq) return          // 已有更新的请求，丢弃这份旧结果
     plan.value = r.plan || null
   } catch (e) {
+    if (seq !== planSeq) return
     plan.value = null
     ElMessage.error('知识点地图算不出来：' + (e.message || e))
   } finally {
-    mapLoading.value = false
+    if (seq === planSeq) mapLoading.value = false
   }
 }
 

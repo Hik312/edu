@@ -10,6 +10,7 @@ Page({
     // ---- 逐张浏览（从卡包带筛选进来时才有值） ----
     browsing: false,
     modName: "",
+    modEmoji: "",
     pos: 0, // 当前在清单里的下标
     total: 0,
     // ---- 今日自选清单 ----
@@ -29,6 +30,7 @@ Page({
       q: query.q || "",
     };
     this.modName = query.modName || "";
+    this.modEmoji = query.modEmoji || "";
     this.load();
     // 有筛选、或明确点进浏览模式（browse=1）→ 拉 id 清单开翻页
     if (query.browse || this.filter.dirs || this.filter.subject || this.filter.q) {
@@ -69,7 +71,13 @@ Page({
       const pos = ids.indexOf(this.id);
       if (pos < 0) return; // 当前卡不在筛选里（如相关卡跳过来的）→ 不进浏览模式
       this.ids = ids;
-      this.setData({ browsing: true, pos, total: ids.length, modName: this.modName });
+      this.setData({
+        browsing: true,
+        pos,
+        total: ids.length,
+        modName: this.modName,
+        modEmoji: this.modEmoji,
+      });
     } catch (e) {
       // 拿不到清单只是少了翻页条，单卡照常看
     }
@@ -130,6 +138,7 @@ Page({
     if (this.filter.subject) q.push("subject=" + encodeURIComponent(this.filter.subject));
     if (this.filter.q) q.push("q=" + encodeURIComponent(this.filter.q));
     if (this.modName) q.push("modName=" + encodeURIComponent(this.modName));
+    if (this.modEmoji) q.push("modEmoji=" + encodeURIComponent(this.modEmoji));
     wx.redirectTo({ url: "/pages/detail/detail?" + q.join("&") });
   },
 

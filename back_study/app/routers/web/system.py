@@ -11,6 +11,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
+import algo
 import db
 import store as store_pkg
 from ...deps import current_user
@@ -66,10 +67,42 @@ def storage(user=Depends(current_user)):
     return {'ok': True, 'storage': db.storage_info()}
 
 
+@router.post('/storage/reprobe', summary='立刻重新探测存储后端（切回 MySQL）')
+def storage_reprobe(user=Depends(current_user)):
+    """不等 TTL，立刻重探一次 MySQL，起来了就切回去。
+
+    自动复探（`store._maybe_reprobe`）已经覆盖了「等一个请求 + 最多 30 秒」
+    这条路，这个端点补的是**立刻**那一段：MySQL 刚起、用户正盯着
+    存储状态页看，不想干等下一次请求。
+
+    返回 `restored` 明确告诉你切没切成功 —— 失败时 `storage.degraded`
+    里是**这次**的新原因（可能和上次不同，比如从「连不上」变成「缺表」）。
+    """
+    ok, info = store_pkg.reprobe_now()
+    return {'ok': True, 'restored': ok, 'storage': info}
+
+
 @router.get('/catalog', summary='分类树')
 def catalog():
     """一级分类 → 二级科目。改动 data/catalog.js 后前端导航跟着变。"""
     return {'ok': True, 'catalog': db.load_catalog()}
+
+
+@router.get('/algo', summary='当前调度算法与可切换项')
+def algo_status():
+    """现在用哪个间隔调度算法算复习间隔，以及还有哪些可以切。
+
+    为什么要暴露它：`ALGO` 是个配置项（`ALGO=fsrs` 就换算法），换掉之后
+    **界面上完全看不出来** —— 用户看到的是同一批卡、同一套队列，
+    但背后的间隔模型已经从 SM-2 变成 FSRS 了。算法是这个系统的核心竞争力，
+    藏在配置文件里等于不存在。
+    每个算法都带自己的 `efNote`（ef 这一列在它那儿代表什么），一并吐出来：
+    sm2=难度因子 / fsrs=难度 D / hlr=记忆半衰期(天) / bkt=掌握度 p。
+
+    判据仍是「响应里有没有个人数据」→ 这是纯配置，**不要登录**。
+    """
+    return {'ok': True, 'current': algo.get().describe(),
+            'options': algo.describe_all()}
 
 
 @router.get('/roles', summary='目标岗位列表')
@@ -87,10 +120,10 @@ def directions():
     筛卡本身不在这儿：队列走 `/api/review/due?dirs=`，那边筛完才截断 limit。
     """
     cards = db.all_cards()
-    out = []
-    for d in db.load_directions():
-        kws = [str(k) for k in (d.get('keywords') or [])]
-        out.append(dict(d, count=sum(1 for c in cards if db.card_hit(c, kws))))
+    # 单遍统计：与 /api/mini/home 共用 db.direction_counts，口径必须一致
+    # （卡包页模块 chips 显示的「张数」和小程序首页的得对上，否则用户会困惑）。
+    counts = db.direction_counts(cards)
+    out = [dict(d, count=counts.get(d.get('id'), 0)) for d in db.load_directions()]
     return {'ok': True, 'directions': out}
 
 
@@ -106,7 +139,8 @@ def plan(role: Optional[str] = Query(None, description='预置岗位 id'),
     """
     if not role and not subjects:
         raise HTTPException(400, '要给 role（预置岗位 id）或 subjects（科目组合）之一')
-    p = db.role_plan(role_id=role or None, subjects=subjects or None)
+    p = db.role_plan(role_id=role or None, subjects=subjects or None,
+                     user_id=user.get('id'))
     if p is None:
         raise HTTPException(404, '岗位不存在: %s' % (role or subjects))
     return {'ok': True, 'plan': p}
@@ -117,7 +151,8 @@ def outline(category: Optional[str] = Query(None, description='只看某个一�
             subject: Optional[str] = Query(None, description='只看某个科目'),
             user=Depends(current_user)):
     return {'ok': True, 'tree': db.build_outline(category=category or None,
-                                                 subject=subject or None)}
+                                                 subject=subject or None,
+                                                 user_id=user.get('id'))}
 
 
 @router.get('/graph', summary='知识图谱')
@@ -125,14 +160,91 @@ def graph(category: Optional[str] = Query(None), subject: Optional[str] = Query(
           user=Depends(current_user)):
     """节点 + 边。层级边构成骨架，语义边来自卡片自己的 `related` 字段。"""
     return {'ok': True, 'graph': db.build_graph(category=category or None,
-                                                subject=subject or None)}
+                                                subject=subject or None,
+                                                user_id=user.get('id'))}
 
 
-@router.get('/graph/neighbors/{cid}', summary='某张卡的邻居')
-def graph_neighbors(cid: str, depth: int = Query(1, description='1~3，越深越慢'),
+#: 节点 id 里带 '/'（章节节点是 'sub:work/ai'、'topic:ai/Agent/框架'），
+#: 而路径参数 {cid} 默认不跨 '/' —— 请求会 404 掉、最后落到 SPA 回落，
+#: 拿 dist/api/graph/neighbors/sub:work/ai 当静态文件找，
+#: 在 Windows 上炸 WinError 123（文件名非法）。**点章节节点必坏**。
+#: 改成 query 传参是唯一干净的解法（:path 转换器会让这一段吞掉所有后缀）。
+@router.get('/graph/neighbors', summary='某节点的邻居')
+def graph_neighbors(cid: str = Query(..., description='节点 id（含 / 原样传，别自己拼路径）'),
+                    depth: int = Query(1, description='1~3，越深越慢'),
+                    untilCards: bool = Query(False,
+                                              description='展开到见到卡为止（点章节节点时必开）'),
                     user=Depends(current_user)):
-    """图谱点开某张卡时用：「这张卡还牵着谁」。"""
-    nb = db.neighbors(cid, max(1, min(3, depth)))
+    """图谱点开某个节点时用：「这个节点还牵着谁」。
+
+    ★ until_cards 是给「章节节点」用的：层级是 subject → topic → … → card，
+      卡挂的层数不固定，按跳数停会出现「满屏章节、一张卡都没有」。
+    """
+    nb = db.neighbors(cid, max(1, min(3, depth)), until_cards=bool(untilCards))
     if nb['center'] is None:
-        raise HTTPException(404, '卡片不存在: ' + cid)
+        raise HTTPException(404, '节点不存在: ' + cid)
     return {'ok': True, **nb}
+
+
+# ---------- 图算法接口 ----------
+#
+# 上面三个是「图长什么样」，下面四个是「图算法算出了什么」。
+# 分开是因为**消耗量级差一个数量级**：/graph 只是拼 dict（毫秒级），
+# 而 PageRank + Louvain + Betweenness 三个加起来要跑 60 次幂迭代（0.4s）。
+# 合成一个接口的话，页面每次切筛选都要重算 centrality，纯属浪费。
+#
+# `/graph/rank` 这个查表接口是缓存命中的（graph_raw 带 5 分钟 TTL +
+# mtime 失效），所以详情页随时可以问，不占算力。
+
+@router.get('/graph/insight', summary='图结构洞察（中心性 + 社区 + 体检）')
+def graph_insight(category: Optional[str] = Query(None),
+                  subject: Optional[str] = Query(None),
+                  user=Depends(current_user)):
+    """PageRank / Betweenness / Louvain 社区 + 连通性体检。
+
+    要登录：返回的 betweenness、communities 虽不含个人数据，但它是
+    整个图谱页的上下文，而图谱本身（/graph）带 level → 是个人数据。
+    口径与 /graph 保持一致，不给「图是公共的、所以这个公开」的借口。
+    """
+    return db.graph_insight(category=category or None, subject=subject or None)
+
+
+@router.get('/graph/recommend', summary='图推荐（个性化 PageRank）')
+def graph_recommend(limit: int = Query(8, ge=1, le=30),
+                    category: Optional[str] = Query(None),
+                    subject: Optional[str] = Query(None),
+                    user=Depends(current_user)):
+    """从「我不会的卡」往外推「该学什么」，每条带推荐理由。
+
+    要登录：种子来自当前用户的 progress（level / nextAt），
+    是纯个人数据。没登录时种子为空 → 退化成全局 PageRank → 推荐列表
+    变成「全库最权威的卡」，那不是任何人的学习建议。
+    """
+    return db.graph_recommend(user_id=user.get('id'), limit=limit,
+                              category=category or None, subject=subject or None)
+
+
+@router.get('/graph/path', summary='两卡之间的最短学习路径')
+def graph_path(src: str = Query(..., description='起点卡 id'),
+               dst: str = Query(..., description='终点卡 id'),
+               user=Depends(current_user)):
+    """只沿 prereq 找依赖链。找不到返回 200 + found=false（不是 404）。
+
+    404 是「接口/资源不存在」，这里是「这两张卡之间没有依赖关系」——
+    是正常答案的一种，客户端不该把它当错误弹窗。
+    """
+    return db.graph_path(src, dst)
+
+
+@router.get('/graph/rank', summary='批量查卡在图里的排名')
+def graph_rank(ids: str = Query(..., description='逗号分隔的卡片 id'),
+               user=Depends(current_user)):
+    """给卡片详情页用：一次问清这几张卡的 PageRank 名次 / 社区归属。
+
+    返回 {ranks: {...}, missing: [...]}。missing 是查不到的 id ——
+    通常意味着前端拼错了 id，静默吞掉会让「排名不显示」这个现象
+    无法定位。
+    """
+    want = [x.strip() for x in (ids or '').split(',') if x.strip()][:50]
+    ranks, missing = db.graph_rank_of(want)
+    return {'ok': True, 'ranks': ranks, 'missing': missing}

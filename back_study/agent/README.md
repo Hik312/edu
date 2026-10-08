@@ -9,15 +9,27 @@ agent/
 ├── config.py      【公共】所有可调参数（温度、重试上限、检索条数……）
 ├── model.py       【公共】造模型。唯一决定「用哪个模型、什么参数」的地方
 ├── qa/            【业务】问答 Agent —— 已跑通，接口 /api/agent/ask
-│   ├── tools.py   能做什么：查卡片 / 看细节 / 查邻居 / 查今日到期
+│   ├── tools.py   4 个内部工具：查卡片 / 看细节 / 查邻居 / 查今日到期
 │   ├── nodes.py   每步做什么：检索 / 回答 / 自检（各自的提示词在这）
 │   ├── graph.py   按什么顺序做：把节点连成图（固定流程 & ReAct 两条）
 │   ├── runtime.py 怎么跑起来：实例缓存 / 多轮历史 / 流式输出
 │   ├── websearch.py 联网搜索（360 搜索，免 key；请求带 webSearch:true 才用）
+│   ├── retrieval.py 混合检索（向量 + 关键词双通道，给 RAG 用）
 │   └── demo.py    命令行入口
-└── planner/       【业务】学习路径规划 Agent —— 服务 /path 今日路径页
-    ├── planner.py LangGraph 编排（collect→score→write→verify→route）
-    └── run.py     命令行入口（--dump 验取数 / --top N 跑全图 / --status 探活）
+├── cards/         【业务】造卡 Agent —— 把文档/知识点变成原理卡（详见 docs/学习路线.md 6.1）
+│   ├── nodes.py   refine 定切分点 → draft 出草稿
+│   ├── dedup.py   查重（近重标题去重）
+│   ├── graph.py   造卡流转（只流转，runtime 落盘）
+│   └── runtime.py 实例缓存 / 落盘 / 查重
+├── planner/       【业务】学习路径规划 Agent —— 服务 /path 今日路径页
+│   ├── planner.py LangGraph 编排（collect→score→write→verify→route）
+│   └── run.py     命令行入口（--dump 验取数 / --top N 跑全图 / --status 探活）
+├── mcp.py         【公共】MCP 客户端桥接：起子进程 → 把 server 工具包成 langchain 工具
+└── servers/       【公共】4 个 stdio MCP server（详见下文「外部工具层：MCP」）
+    ├── web_search_mcp.py     联网搜索（360，免 key）
+    ├── code_exec_mcp.py      本地 Python 沙箱（隔离子进程 + 超时）
+    ├── github_resource_mcp.py Github 学习资源检索（搜仓库免 token / 搜代码需 GITHUB_TOKEN）
+    └── cards_mcp.py          造卡能力封装（generate_card，不进每轮 QA）
 ```
 
 **关键约定（2026-09-29 定的）**：
@@ -33,11 +45,14 @@ agent/
 
 ```bash
 .venv/Scripts/pip.exe install -i https://pypi.tuna.tsinghua.edu.cn/simple \
-    langgraph langchain langchain-ollama
+    langgraph langchain langchain-ollama mcp
 ```
 
 2026-09-29 装的版本：langgraph 1.2.12 / langchain 1.4.3 / langchain-core 1.6.5 /
-langchain-ollama 1.1.0（Python 3.10.11），顺带 30 多个间接依赖。
+langchain-ollama 1.1.0 / **mcp 1.30.0**（Python 3.10.11），顺带 30 多个间接依赖。
+
+⚠️ **`mcp` 必须锁 1.x**：2.x 把 `FastMCP` 改名 `MCPServer`、server API 大改，装到 2.3.0 直接 import 报错。
+本机已降到 `mcp==1.30.0`（最后一个 1.x，FastMCP 可用、client stable）；升级到 2.x 需重写 `servers/*.py` 端。
 
 不装也完全能起服务 —— 只有调 `/api/agent/*` 时才返 503 并提示怎么装。
 
@@ -106,6 +121,44 @@ cd E:\AAA_实验室项目\study
 `planner.py` 的图：`collect`（拉候选+先验掌握度）→ `score`（按优先级/先修/到期打分）
 → `write`（**TODO 待填**：调模型生成自然语言路径）→ `verify`（拒空/超限/
 幻觉 id/重复/缺理由）→ `route`（`C.MAX_TRIES` 次内不过就放行）。
+
+## 外部工具层：MCP（Model Context Protocol）
+
+问答 Agent 从「只检索库内卡片」升级成「能调外部工具」——连 Github 拉学习资源、在本地沙箱跑代码、联网搜。
+这是本项目从"只有一个 LangGraph"变成"完整 Agent"的关键。**可选旁支**：没装 `mcp` 包时这些工具自动降级。
+（更细的桥接原理、踩坑见 `docs/学习路线.md` 第 6.1 节。）
+
+### 怎么接
+
+每个 MCP server 是一个独立的 stdio 子进程，走 JSON-RPC。桥接代码在 `mcp.py`：
+
+- `stdio_client` 拉起子进程 → `initialize` 握手 → `list_tools` 拿清单
+- 把每个工具包成 langchain `StructuredTool`（动态 pydantic schema：函数签名+类型提示→入参，docstring→描述）
+- client 是 async、业务运行时是 sync，`mcp.py` 开一条后台线程挂事件循环，用 `run_coroutine_threadsafe` 适配
+- **任一 server 起不来都只降级、不崩服务**（实测 github 搜仓库因网络/代理超时 → 返回中文说明、不抛）
+
+server 清单开关在 `mcp_servers.json`（name / command / args / enabled）。
+
+### 4 个 server
+
+| server | 进每轮 QA？ | 干什么 | 文件 |
+|---|---|---|---|
+| `web-search` | ✅ | 360 搜索，免 key，失败返回空不抛 | `servers/web_search_mcp.py` |
+| `code-exec` | ✅ | 本地 subprocess 跑 Python（超时 10s/上限 30s、输出截断 4k），演示/验证用 | `servers/code_exec_mcp.py` |
+| `github-resource` | ✅ | 学生问知识点时，除卡片库外再拉 **Github 仓库（学习路线/roadmap）/ 代码示例**（搜仓库免 token；搜代码需 `GITHUB_TOKEN`） | `servers/github_resource_mcp.py` |
+| `cards` | ❌ | 造卡能力的 MCP 封装（`generate_card`），**复用 cards Agent 造卡逻辑** | `servers/cards_mcp.py` |
+
+### 工具预算（实测定的）
+
+qwen3:8b 工具一多就选错。最终定调 **4 内部 + 3 MCP = 7 个**进每轮问答工具集
+（`search_cards` / `card_detail` / `related_cards` / `due_today` + `web_search` / `run_python` / `github_search`）。
+**`cards` server 刻意不进每轮 QA 列表**——它属"内容生产"重动作，改由导入流程 / 另一个 Agent 直接 import 调用。
+
+### 坑
+
+1. **`mcp` 2.x 把 `FastMCP` 改名 `MCPServer`、server API 大改**，装到 2.3.0 直接 import 报错，已降到 `mcp==1.30.0`（最后一个 1.x）。升级 2.x 需重写 `servers/*.py` 端。
+2. **stdio server 的 stdout 只能有 JSON-RPC 报文**：框架默认把 "Processing request..." 打到 stdout 会污染流，server 端把 `mcp` logger 设为 WARNING。
+3. **stdio server 里再 fork 子进程（code-exec 跑 Python），必须显式把 stdin 重定向成 `DEVNULL`**，否则子进程继承 JSON-RPC 的 stdin 管道在 Windows 下挂死（不是代码慢，是管道被占）。
 
 ## 三条硬约束
 

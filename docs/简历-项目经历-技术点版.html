@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-page-node-id="bqXnhJoDBdlqcYgwlIYqxB">
+<head data-page-node-id="egO47YALB57WlBnwsLwYMh">
+<meta charset="UTF-8" data-page-node-id="MKLwqS8kNLZLovOponJZrG">
+<title>智径 EduPath · 多 Agent 自适应学习平台 · 简历项目经历（技术点版）</title>
+<style>
+  @page { size: A4; margin: 13mm 11mm; }
+  * { box-sizing: border-box; }
+  body { font-family: "Microsoft YaHei", "SimHei", sans-serif; font-size: 11px;
+         line-height: 1.6; color: #222; background: #fff; margin: 0; padding: 18px 20px; }
+  .wrap { max-width: 940px; margin: 0 auto; }
+  h1 { font-size: 17px; text-align: center; margin: 0 0 3px; letter-spacing: 1px; }
+  .sub { text-align: center; color: #888; font-size: 10.3px; margin-bottom: 14px; }
+  h2 { font-size: 12.6px; color: #fff; background: #2c5f8d; padding: 4px 10px;
+       margin: 18px 0 9px; border-radius: 3px; }
+  h3 { font-size: 11.6px; color: #2c5f8d; margin: 14px 0 6px;
+       border-left: 3px solid #2c5f8d; padding-left: 7px; }
+  .job { border: 1px solid #d8d8d8; border-left: 3px solid #2c5f8d;
+         padding: 10px 13px; margin-bottom: 13px; }
+  .head { display: flex; justify-content: space-between; align-items: baseline;
+          font-weight: bold; font-size: 12px; margin-bottom: 6px; gap: 8px; }
+  .head .t { color: #2c5f8d; white-space: nowrap; }
+  .row { margin-bottom: 4px; }
+  .lbl { font-weight: bold; }
+  ol { margin: 4px 0 0; padding-left: 19px; }
+  li { margin-bottom: 6px; }
+  table { width: 100%; border-collapse: collapse; margin: 7px 0; font-size: 10.4px; }
+  th, td { border: 1px solid #ccc; padding: 4px 6px; text-align: center; }
+  th { background: #eef3f8; }
+  td.l { text-align: left; }
+  .star { color: #d4a017; }
+  .s3 { color: #c0392b; font-weight: bold; }
+  .bad { background: #fdecea; border-left: 3px solid #c0392b; padding: 7px 10px;
+         margin: 7px 0; font-size: 10.6px; }
+  .good { background: #e9f7ef; border-left: 3px solid #1a7f37; padding: 7px 10px;
+          margin: 7px 0; font-size: 10.6px; }
+  .neg { color: #c0392b; font-weight: bold; }
+  .pos { color: #1a7f37; font-weight: bold; }
+  .tp { border: 1px solid #d5d5d5; border-left: 3px solid #d4a017; padding: 9px 12px;
+        margin-bottom: 11px; background: #fdfdfa; }
+  .tp .t { font-weight: bold; color: #8a6d0a; font-size: 11.6px; margin-bottom: 5px; }
+  .kv { margin: 3px 0; }
+  .kv b { color: #555; }
+  .why { background: #eef3f8; padding: 6px 9px; margin-top: 6px; font-size: 10.5px;
+         border-radius: 2px; }
+  code { background: #f0f0f0; padding: 1px 4px; border-radius: 2px; font-size: 10.2px;
+         font-family: Consolas, monospace; }
+  .formula { background: #f6f8fa; padding: 5px 8px; margin: 5px 0; font-size: 10.3px;
+             font-family: Consolas, monospace; }
+  /* ============ 打印 / 存 PDF 专用 ============ */
+  /* Edge/Chrome headless 默认【不打印背景色】——
+     深色标题条、表格头、绿色高亮块会全部变成白底白字/丢失。
+     print-color-adjust: exact 是硬性开关，必须写 !important。 */
+  @page { size: A4; margin: 13mm 11mm; }
+
+  @media print {
+    * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+    html, body { background: #fff !important; }
+    body { font-size: 10.4px !important; line-height: 1.55 !important; }
+    /* 屏幕上留白是为了看着舒服，打印时A4 宽度有限，必须收掉否则溢出 */
+    .wrap { max-width: 100% !important; padding: 0 !important; margin: 0 !important; }
+
+    /* 工具栏只在屏幕上存在，打印时必须整条拿掉 */
+    .toolbar, .noprint { display: none !important; }
+
+    /* 标题不许孤零零留在页尾 */
+    h1, h2, h3 { page-break-after: avoid; page-break-inside: avoid; }
+    h1 { font-size: 15px !important; margin-bottom: 2px !important; }
+    .sub { margin-bottom: 10px !important; }
+    h2 { font-size: 12px !important; margin: 14px 0 7px !important; }
+
+    /* ⚠️ 不要对 .job（整份项目块）设 page-break-inside: avoid ——
+       它比一页还高，浏览器只能把整块推到下一页，于是**留半页空白**，
+       实测第 2 页只放了一个 job 块、下面全空。
+       正确做法：**大块允许拆**，只让内部的语义小单元保持完整。 */
+    .tp, .bad, .good, .why, .qa, tr { page-break-inside: avoid; }
+    li { page-break-inside: avoid; }
+    /* .job 只保住首尾不孤零：标题和最后一条不要被分页切开 */
+    .job { page-break-before: auto; }
+    .job > .head { page-break-after: avoid; }
+    .job > .head, .job > .row:first-of-type { page-break-before: avoid; }
+
+    /* 表格：thead 每页重复（否则第2 页起表头没了），
+       行不断裂，长单元格允许内部换行而不是被截断 */
+    thead { display: table-header-group !important; }
+    tfoot { display: table-footer-group !important; }
+    tr { page-break-inside: avoid; }
+    th, td { padding: 3px 5px !important; }
+
+    /* 孤行寡行控制：标题底下至少留一行正文，段落别只留最后一行 */
+    p, li { orphans: 3; widows: 3; }
+
+    a { color: #222 !important; text-decoration: none !important; }
+    code { background: #f2f2f2 !important; }
+  }
+
+  /* 屏幕上的工具栏：悬浮右下角，不干扰内容 */
+  .toolbar {
+    position: fixed; right: 18px; bottom: 18px; z-index: 99;
+    display: flex; gap: 8px; align-items: center;
+    background: rgba(255,255,255,.96); border: 1px solid #c9d4e0;
+    border-radius: 8px; padding: 9px 11px;
+    box-shadow: 0 3px 14px rgba(0,0,0,.14);
+    font-family: "Microsoft YaHei", "SimHei", sans-serif;
+  }
+  .toolbar button {
+    font: inherit; font-size: 12.5px; font-weight: bold;
+    color: #fff; background: #2c5f8d; border: none;
+    border-radius: 5px; padding: 8px 15px; cursor: pointer;
+  }
+  .toolbar button:hover { background: #24507a; }
+  .toolbar button.ghost { background: #fff; color: #2c5f8d; border: 1px solid #2c5f8d; }
+  .toolbar button.ghost:hover { background: #eef3f8; }
+  .toolbar .tip { font-size: 11px; color: #666; max-width: 190px; line-height: 1.4; }
+</style>
+</head>
+<body data-page-node-id="8CEx7ddjrk3tuPNS2Hqf8d">
+<div class="toolbar noprint" data-page-node-id="oS0oOycUGONf34uXhEc3Ww">
+  <button onclick="window.print()" data-page-node-id="sAtGGHGdY1g82t14tSVzUP">保存为 PDF / 打印</button>
+  <button class="ghost" onclick="document.title='智径EduPath-简历项目经历';window.print()" data-page-node-id="gDD2rmYag3hVKQ0zsj6fUv">
+    打印时去掉标题后缀
+  </button>
+  <span class="tip" data-page-node-id="Z3KptCQboSukvBpfFAsMOy">在打印对话框里把「目标打印机」选成<b data-page-node-id="N9MUyPK0nGDT4Tqo1GVpSA">「另存为 PDF」</b>；
+  勾选「背景图形」可保留标题条底色。</span>
+</div>
+
+<div class="wrap" data-page-node-id="AVSxauLX7BiYhtg4MIBCja">
+
+<h1 data-page-node-id="7MkmYTWpcwaAmvNyFbFZFv">智径 EduPath · 多 Agent 自适应学习平台 · 简历项目经历（技术点版）</h1>
+<div class="sub" data-page-node-id="4NpiPhinUo4N8mFj9CehQ0">智径 EduPath · 多 Agent 自适应学习平台 · 2026-10-03 实测 · 技术点均可在代码中定位</div>
+
+<h2 data-page-node-id="ssuptABy7DxliyOXfVBO7e">核心区别：职责清单 vs 技术决策</h2>
+<div class="bad" data-page-node-id="rifOON7hKqxP2gV0M9LkCo">
+<b data-page-node-id="O6TB92NX8C5itGhJ9DkByS">✗ 上一版这样写（错）</b><br data-page-node-id="nzM1DuAXaQnS2NyldoUiUD">
+「1. 知识图谱构建：将 416 张卡片按四层建模，沉淀 567 节点 / 2114 边有向图，
+实现 PageRank、Louvain 等 6 个图算法。」<br data-page-node-id="towOpkmAd3kAYJVPASDI7S">
+<b data-page-node-id="t7Mhk9i450YXvmOBp0sFAN">→ 面试官读到的是：<span class="neg" data-page-node-id="fmfp3HAgBzaZj1n0QwGLLp">他调了 6 个算法</span>，顶多算「会用现成的东西」。
+</div>
+<div class="good" data-page-node-id="xNUiewlmzELyv6rJ9GbNME">
+<b data-page-node-id="h8FgrHac1iM4aYE35NaPJi">✓ 这一版这样写（对）</b><br data-page-node-id="P1MbGsTAHIrCkApd1jC6Wr">
+「实现 Louvain 社区发现。定位并修复聚合阶段模块度分母未随自环重算的缺陷 ——
+社区内部边在聚合后变为自环，若沿用第一阶段的 2m 会使所有增益恒为负，
+症状是「社区数 == 节点数、每点自成一社区」，修复后 567 节点稳定收敛为 17 个社区。
+同时放弃经典实现的随机遍历以保证可复现。」<br data-page-node-id="jxjWXcPJHFrQz1Rl1QC3N2">
+<b data-page-node-id="H7OR1VHJKIzvHvvsCrjf4c">→ 面试官读到的是：<span class="pos" data-page-node-id="oIirPBZPF8yn01DMyHqVT0">他知道标准实现的坑在哪、会用「症状→分母口径」定位问题</span>，这是<b data-page-node-id="2oyKDpJKP5ZLhcUeaErIkC">能力</b>而非技能。
+</div>
+
+<h3 data-page-node-id="FbAKoHEWF7e1DIZugEpuwI">本项目的技术点分级（面试就讲前三档）</h3>
+<table data-page-node-id="C86QDaD960bBWMDE7Ar8K7">
+  <tr data-page-node-id="iwLhhF8egHLTHei7awbTgT"><th style="width:14%" data-page-node-id="6hGYJCYWSSHCyrIGhECuZT">级别</th><th style="width:36%" data-page-node-id="x2629ebgcFp8kyX9AA0qaH">技术点</th><th data-page-node-id="EsA3EDEKTeB6G2T22VVjBY">为什么值钱</th></tr>
+  <tr data-page-node-id="vWEuAlKH50Ax71x399FifE"><td class="s3" data-page-node-id="21f51d0Ki6g49yWk7WhYIE">★★★</td><td class="l" data-page-node-id="qXdtblOA4euSIWrQsGieiS">向量检索「查询被编码进文档空间」</td>
+      <td class="l" data-page-node-id="tCsheAFu9IHNYAK6iPdN7P">症状极难定位（分数全挤在 0.67），根因是漏了官方要求的检索前缀，<b data-page-node-id="rqGp78kuIfoq8zJxJx69kK">且修复有代价</b>——索引指纹必须同步升级，否则改了等于没改</td></tr>
+  <tr data-page-node-id="BjPQ2B6YfxdqMFZwxNjEg7"><td class="s3" data-page-node-id="9XTeRhQ9yXOw8UDcl2p3Fg">★★★</td><td class="l" data-page-node-id="c9VQ0BdBKhji1AB8A44Wf9">Louvain 聚合阶段 2m 未重算</td>
+      <td class="l" data-page-node-id="jkR0Um3bdabYG7xI9568VB">标准实现的经典坑，症状伪装成「算法失效」，实际是模块度分母口径错</td></tr>
+  <tr data-page-node-id="kQ3Em5cFQDGrHspSg7MK4r"><td class="s3" data-page-node-id="HE7LjHXgF8xVvD8ifpedq3">★★★</td><td class="l" data-page-node-id="odk1MlsGXlws3BdFdwp8UT">图缓存不存用户 level</td>
+      <td class="l" data-page-node-id="cldZsOcWysiBsjltbwK7cI">架构级安全决策，涉及「哪些数据是个人数据」的判断，写错就是越权</td></tr>
+  <tr data-page-node-id="zV9rW1l7K7uLz8wEffZYh5"><td class="star" data-page-node-id="tJTG8aMAgi0QAEGnMfTYoS">★★☆</td><td class="l" data-page-node-id="G3V1BZoR8tdiFksGqBtaBP">降级必须可见（横幅）</td>
+      <td class="l" data-page-node-id="TJxR524R073EtH0CpapfAX">工程判断：静默降级比崩溃更危险</td></tr>
+  <tr data-page-node-id="THjawalUBSxKJP5odPHqhb"><td class="star" data-page-node-id="A6pVAjiPHkqmbK5A9XSkqN">★★☆</td><td class="l" data-page-node-id="ZLRu6VP2pza0CYAvijYAIS">鉴权判定改为「响应有无个人数据」</td>
+      <td class="l" data-page-node-id="KuM0NFqLBKn3SKg0XsRFVP">懂鉴权的本质是数据归属，不是拦截 API</td></tr>
+  <tr data-page-node-id="8p17anfnXYOQzUcpGlZbKX"><td class="star" data-page-node-id="B9QWly4AXwRGAj01hY8727">★★☆</td><td class="l" data-page-node-id="TgerJ7lzK9461jaVmlVlBi">三算法对比 + 双 seed 验证</td>
+      <td class="l" data-page-node-id="1qoVRnWXtR8uo1MLEwvQ2W">知道仿真评测的结论只在同一条曲线下成立，敢划清能力边界</td></tr>
+  <tr data-page-node-id="NjqrKTLrfo4kwIjBq6fs2v"><td data-page-node-id="IwtqUkUfuGYx7O2KELIdyi">★☆☆</td><td class="l" data-page-node-id="Ik7z0BT3VEBTJHmJ632h1P">邻域展开按语义终止</td>
+      <td class="l" data-page-node-id="rCu0FAJissHw1iG8W648OG">体现理解数据语义而非机械设参</td></tr>
+</table>
+
+<h2 data-page-node-id="KRzxvHJ8xu6lr84HUChjnf">版本 A：主推版（AI Agent / 后端岗通用）</h2>
+<div class="job" data-page-node-id="gZ7LYaa66XPFfGl4ic6iKu">
+  <div class="head" data-page-node-id="MX74XNDvEyKGJBXoJIgYEU"><span data-page-node-id="CthYeCe1AbY2F189pIvMTb">智径 EduPath · 多 Agent 自适应学习平台</span>
+    <span class="t" data-page-node-id="phN2V3sL3AoEDNQwSpzohp">2026/09-至今　全栈开发</span></div>
+  <div class="row" data-page-node-id="wXjLiKTcziNjWHl45qvouT"><span class="lbl" data-page-node-id="6wlNhnb6nekA7roqBAWJyd">技术栈：</span>Python、FastAPI、LangGraph、LangChain、Ollama（qwen3:8b / deepseek-r1:7b / nomic-embed-text）、MySQL、PostgreSQL、Redis、Vue3、Vite、Element Plus、ECharts、JWT</div>
+  <div class="row" data-page-node-id="GdNp26B0WKloHlBtK6VTpG"><span class="lbl" data-page-node-id="YFlLYrVqKGKmypj0njMttT">项目描述</span></div>
+  <div data-page-node-id="rhthKbGFmX4SJAIWIWaxYA">面向计算机与考研知识点的<b data-page-node-id="U3hhnVlTbcQ1KzdvAM0jQM">多 Agent 自适应学习平台<b data-page-node-id="iJbeRXf6jGmL0V4qzHkTXV">。市面上的刷题App
+   都假设你知道自己要学什么，于是只能按固定顺序推送；而真实情况是多数人
+   连「从哪开始、卡住了该往哪走」都判断不了，卡在一道题上常常是因为它的
+   三个前置知识点里有一个没懂。
+   平台的做法是先把知识点之间的<b data-page-node-id="iOv5uCb4G0As4wzne06fuk">先修依赖<b data-page-node-id="yHmfjcDVOa7UrcgLrbqRAB">显式建成图，再由三个 Agent 分工：
+   造卡 Agent 把教材和文档转成结构化卡片、问答 Agent 负责答疑与讲解、
+   规划 Agent 根据你的掌握度决定下一步学什么。掌握度不是自己填的等级，
+   而是由复习行为经贝叶斯知识追踪实时推出来的。
+   「我该学什么」交给它，你只管看懂。</div>
+  <div class="row" style="margin-top:5px" data-page-node-id="5bPjLciuQkhvbVp3NrI14S"><span class="lbl" data-page-node-id="vyW1nTVbjRK02Xm2vWeU5i">主要工作：</span></div>
+  <ol data-page-node-id="gbV9JDDbEk6IWvZCWHLEGR">
+    <li data-page-node-id="ekTi2GcTW6RUYzxqpPNQ6k"><b data-page-node-id="PNTj0AyJWMPt8sQ1AQxM7W">向量检索定位与修复（核心技术点）：</b>排查「向量检索已启用但排序无效果」，定位根因为 nomic-embed-text 未按官方要求区分文档侧 / 查询侧检索前缀，导致查询被编码进文档空间、余弦相似度整体失真（表现为所有卡分数挤在 0.67 附近、top5 差值 &lt; 0.05）。修复后发现新问题：索引内容已变但卡片 id 集合未变，磁盘上的旧索引仍被当作有效缓存复用 —— 遂将缓存指纹升级为带版本前缀，并约定后续每次变更 embedding 输入都必须升版，避免「改了等于没改」。修复后实测向量召回能命中关键词检索完全漏掉的语义近邻卡。</li>
+    <li data-page-node-id="50XnuBrWoxNWBOUKC5PRW0"><b data-page-node-id="mCnfOZQ9ybsGOjDCDlVbjA">图算法落地与踩坑：</b>在自建图上实现 PageRank、Personalized PageRank、介数中心性、Louvain、最短路径、k-core 六个算法。定位并修复 Louvain 聚合阶段的模块度分母错误 —— 社区内部边在聚合后变为自环，若沿用第一阶段的 2m 会使所有增益恒为负，症状是「社区数 == 节点数、每点自成一社区」，修复后 567 节点稳定收敛为 17 个社区。PageRank 刻意不与度中心性混用：造卡产生的 related 关系有噪声，PageRank 抗噪；同时处理悬挂节点秩的均摊回填，避免孤立卡吞掉全图概率质量。</li>
+    <li data-page-node-id="Pvpa8AcsLSWXgEmexTvKoV"><b data-page-node-id="SmDAxzHIc06j5SsSs6jSdO">算法选型与评测边界意识：</b>实现 SM-2、FSRS-4.5、BKT、HLR 四种算法并抽象统一契约，实现热切（环境变量优先、配置次之、写错算法名直接抛错而非静默回落）。构建仿真评测层：同一条遗忘曲线 R(t)=2^(-t/h)、同一随机种子下对 300 张卡做 365 天排期对拍，两个种子复跑验证结论不翻转。实测 FSRS 投入产出最优（效率 0.0186，复习次数较 SM-2 少 20%），HLR 期末留存最高（66.5% vs SM-2 的 56.4%）。<b data-page-node-id="8m0rxl10VBWMnab8tooPF2">主动划清两处能力边界：</b>BKT 不参与排期评测（它答「掌握没」不答「何时复习」）；SM-2 根本不预测留存概率（只有难度因子无概率模型），故概率指标栏它只能缺席。</li>
+    <li data-page-node-id="dFqvhIjHkbpmYBkAfAWNID"><b data-page-node-id="9DREouvD8PKjC6p0cwcJbR">分层与缓存决策：</b>算法层不 import core、不依赖服务，可用 <code data-page-node-id="GE6GfZdh4BAr0wNtHrhZb7">python -c "import algo.graph"</code> 离线对拍；图结构缓存键携带文件 mtime，造卡后自动失效。<b data-page-node-id="G3wX1doaFzszAYAkYnbjSm">关键决策：用户掌握度 level 绝不进图缓存</b> —— 节点边完全由卡片集决定、与用户无关，而 level 属个人数据，混入会造成 A 读到 B 的缓存（越权）。</li>
+    <li data-page-node-id="zpTfjSoiNzQByTOf6Wy6uW"><b data-page-node-id="eT4MMfTkaUdNSAZjoVVjUF">降级可见性设计：</b>MySQL / PostgreSQL / Redis 三层均实现「装不上就降级」，且降级状态一律打到启动横幅。原因是静默降级比崩溃更危险 —— 曾出现 PG 连不上时复习记录静默落盘 JSON、Redis 失效时缓存悄悄退化为进程内存，而启动日志一片安静，看似正常实则数据链路已断。横幅只打不依赖登录上下文的事实，个人口径数字交给带 token 的接口。</li>
+    <li data-page-node-id="wr1Gn8GBfdZ1YQ8Dt9Hqhp"><b data-page-node-id="7gNlkJgWfSwIjWcGIHhcfG">鉴权模型修正：</b>将「是否需要鉴权」的判定标准从读写操作改为「响应是否包含个人数据」。读写粒度判断会漏掉那些 GET 但返回他人学习记录的接口 —— 判定依据应该是数据归属，不是 HTTP 方法。迁移至 PyJWT 零依赖方案（固定 algorithms=['HS256']，避免算法混淆攻击）。</li>
+  </ol>
+</div>
+
+<h2 data-page-node-id="SRbrcLWUX8a7a8YFmfMcSr">版本 B：AI Agent 岗强化版（Agent 与检索提到最前）</h2>
+<div class="job" data-page-node-id="s8FTezgX8oxB6ndQFDtSA1">
+  <div class="head" data-page-node-id="GwohV3LnqRMllAMgf2hTVr"><span data-page-node-id="AfaJdesWvUM87gXQjZE7zW">智径 EduPath · 多 Agent 自适应学习平台</span>
+    <span class="t" data-page-node-id="rtztcqx2bGupn1kI6Yb0yv">2026/09-至今　全栈开发</span></div>
+  <div class="row" data-page-node-id="uQRk6WeCvNHnTDgkDEgT3N"><span class="lbl" data-page-node-id="cgH5ujrRhnL0csL0ghwdIY">技术栈：</span>Python、FastAPI、LangGraph、LangChain、Ollama（qwen3:8b / nomic-embed-text）、MySQL、Redis、Vue3、ECharts</div>
+  <div class="row" data-page-node-id="AfLEoXPY6YPOUANg9GRqca"><span class="lbl" data-page-node-id="QvKSuP5hzva4SrsHjj9FfF">项目描述</span></div>
+  <div data-page-node-id="jz5lzYZheMrSGIdfOHWiSq">面向计算机与考研知识点的<b data-page-node-id="Nqb4qSXJlFc4xid8skCZ5d">多 Agent 自适应学习平台<b data-page-node-id="Ky6mzyshZFj5zdVO1vfWKy">。市面上的刷题App
+   都假设你知道自己要学什么，于是只能按固定顺序推送；而真实情况是多数人
+   连「从哪开始、卡住了该往哪走」都判断不了，卡在一道题上常常是因为它的
+   三个前置知识点里有一个没懂。
+   平台的做法是先把知识点之间的<b data-page-node-id="iUnD16vPgBABnf9MvGZEn2">先修依赖<b data-page-node-id="GiawOx1AsYc5ZQLnSSPrLo">显式建成图，再由三个 Agent 分工：
+   造卡 Agent 把教材和文档转成结构化卡片、问答 Agent 负责答疑与讲解、
+   规划 Agent 根据你的掌握度决定下一步学什么。掌握度不是自己填的等级，
+   而是由复习行为经贝叶斯知识追踪实时推出来的。
+   底层由 LangGraph 编排问答侧的 ReAct 循环，使模型能自主决定检索哪张卡、
+   要不要看关联卡、知识库够不够时是否联网补充；回答以流式返回。
+   「我该学什么」交给它，你只管看懂。</div>
+  <div class="row" style="margin-top:5px" data-page-node-id="1tA8I1wMLJiLpkG5ajdzLp"><span class="lbl" data-page-node-id="PBpcxkf3hod8OK6XCGyU2B">主要工作：</span></div>
+  <ol data-page-node-id="Uj6Y7iJ0HYmjxQdeUBzGlA">
+    <li data-page-node-id="7YeJhevyaqC0SFBv2OY0vM"><b data-page-node-id="Odzk9XKcxJKdNscL0QDyf5">ReAct Agent 编排：</b>基于 LangGraph StateGraph + create_react_agent 实现决策循环，自主调用 4 类工具（卡片检索 / 卡片详情 / 关联卡片 / 今日待复习）并可联网补充；工具 docstring 直接作为模型可见的接口契约，避免额外解析层。回答以 SSE 流式返回。</li>
+    <li data-page-node-id="kzoWHrFij5qcq4Mf1jGHPZ"><b data-page-node-id="caE5wCksOhWgKWQeTTszyv">混合检索（核心技术点）：</b>vector + keyword 双路召回融合。本地 nomic-embed-text 索引覆盖全部 416 卡（4.1MB），按卡片集指纹懒构建、变化即重建。定位并修复「查询被编码进文档空间」的缺陷（缺检索前缀），并处理由此暴露的「旧索引被当有效缓存复用」问题（指纹升版）。实测混合检索 0.296s/次，能召回关键词路径完全漏掉的语义近邻卡。</li>
+    <li data-page-node-id="5WE9CxROVeAf3vH6ehbIHe"><b data-page-node-id="9FZITIs2VOKSdiEfn32xPa">工具调用的数据隔离：</b>QA 工具签名不能带 user_id（要暴露给模型），改用 ContextVar 传递用户身份，并逐层验证线程 / 接口级隔离成立 —— 零进度用户看到的待复习队列是设计而非数据泄漏。</li>
+    <li data-page-node-id="5CjQyLMqHvUrycTb4ZqKo4"><b data-page-node-id="dBcKOVNMCLAXlcO80jrXpl">间隔重复算法选型：</b>实现 SM-2 / FSRS-4.5 / BKT / HLR 四算法 + 统一契约 + 热切机制；构建仿真评测层做 300 卡 × 365 天对拍，双 seed 验证结论稳定，据此确定系统默认算法。划清 BKT 不排期、SM-2 无概率模型两处能力边界。</li>
+    <li data-page-node-id="Mj0DGgGv6opMHMwS4dndr9"><b data-page-node-id="n9Ulect2CS5VLih84Laamu">图谱前端与一致性治理：</b>Vue3 + ECharts 力导向视图支持多级筛选与社区着色。修复「图与统计口径不一致」（社区按全库算、图按筛选算，导致 15 个社区 13 个命名失效）—— 判定标准是：只要前端拿 A 的结果反查 B 的 id 集合，A 和 B 必须来自同一次计算。修复后 13/13 全部正常。</li>
+    <li data-page-node-id="2z3FbcmA6T5hswZpOTwV2P"><b data-page-node-id="pd4CdycS3dWDyzCFGG7JI3">降级可见性与存储分层：</b>MySQL / PG / Redis 三层均支持降级并打到启动横幅；算法层零依赖可离线对拍；鉴权用 PyJWT 零依赖实现，判定标准为「响应是否含个人数据」。</li>
+  </ol>
+</div>
+
+<h2 data-page-node-id="5ve7FXMKQ0A679wfFecx9K">版本 C：算法岗版（算法评测提到绝对前面）</h2>
+<div class="job" data-page-node-id="l0pIlNM1rBtIn0TShBEjF5">
+  <div class="head" data-page-node-id="yJ6TLJ7YJwmA7PZD6NX91z"><span data-page-node-id="nC1G0yg4lh9mCcqfqRHykR">智径 EduPath · 多 Agent 自适应学习平台</span>
+    <span class="t" data-page-node-id="dqL3fOVWC9JE22aYyU5t2w">2026/09-至今　全栈开发</span></div>
+  <div class="row" data-page-node-id="k9CLmlYlIBhFliEJeKSyIX"><span class="lbl" data-page-node-id="CsDWIRoLsbdZy0s3WS3t5u">技术栈：</span>Python、FastAPI、MySQL、PostgreSQL、Redis、Ollama、Vue3、ECharts</div>
+  <div class="row" data-page-node-id="ped9BS2y9AQkCGOfsFelDZ"><span class="lbl" data-page-node-id="9BlaQgZyp545ua44WUjmiR">项目描述</span></div>
+  <div data-page-node-id="HyGYKchUzHSrw9gPI7ct8e">面向计算机与考研知识点的<b data-page-node-id="NfGCPLQIMuMfdziRvmvyFr">多 Agent 自适应学习平台<b data-page-node-id="3c6CFgxIQ29FeMiUU3JOJY">。市面上的刷题App
+   都假设你知道自己要学什么，于是只能按固定顺序推送；而真实情况是多数人
+   连「从哪开始、卡住了该往哪走」都判断不了，卡在一道题上常常是因为它的
+   三个前置知识点里有一个没懂。
+   平台的做法是先把知识点之间的<b data-page-node-id="bboGcFRVmVKlfy9UgZ5WW8">先修依赖<b data-page-node-id="TtdjtD2K2R6Nobr1wk1nWh">显式建成图，再由三个 Agent 分工：
+   造卡 Agent 把教材和文档转成结构化卡片、问答 Agent 负责答疑与讲解、
+   规划 Agent 根据你的掌握度决定下一步学什么。掌握度不是自己填的等级，
+   而是由复习行为经贝叶斯知识追踪实时推出来的。
+   项目的技术重心在算法层：把「哪个间隔重复算法更适合我」和
+   「下一张该学哪张卡」这两件事都变成可计算、可对拍、可复现的问题，
+   而不是靠拍脑袋定策略。
+   「我该学什么」交给它，你只管看懂。</div>
+  <div class="row" style="margin-top:5px" data-page-node-id="Hyssva8fwONaQJZoXWbgFP"><span class="lbl" data-page-node-id="SxKhyoUuiD5sGnUkH1cvQ3">主要工作：</span></div>
+  <ol data-page-node-id="hBx1nf2V6yE846tKBMsrtL">
+    <li data-page-node-id="2sSQvmTetuxfq91e22Fd60"><b data-page-node-id="Ww91BDnSqYKYiZ3NuXWBCC">记忆算法实现与对比评测：</b>独立实现 SM-2、FSRS-4.5、BKT（含四参数拟合）、HLR 四种间隔重复算法，抽象统一契约并支持环境变量热切（算法名写错直接抛错，不静默回落 —— 配置拼错却假装成功比启动失败更糟）。构建仿真评测层，用同一条遗忘曲线、同一随机种子对 300 张卡做 365 天排期对拍，双种子复跑验证结论不翻转。实测 FSRS 效率最优（0.0186，复习次数较 SM-2 少 20%），HLR 期末留存最高（66.5% vs SM-2 56.4%）。并主动划清边界：BKT 不排期故不参与对比；SM-2 无概率模型，概率指标栏只能缺席；三者 AUC 均在 0.51 附近（接近随机），说明评测价值在排期效率而非概率预测精度。</li>
+    <li data-page-node-id="Mco6oyhllEj6zEBab0Zfsm"><b data-page-node-id="BNlF92LPKy8mfGGGk6vHzY">图算法实现与问题定位：</b>实现 PageRank、Personalized PageRank、介数中心性、Louvain 社区发现、最短路径、k-core 六个算法。修复 Louvain 聚合阶段模块度分母未随自环重算的缺陷（症状：社区数 == 节点数，每点自成一社区），修复后 567 节点稳定收敛为 17 个社区；为消除结果不可复现，放弃经典实现的随机遍历打破对称，改为按 id 确定性遍历。PageRank 刻意区别于度中心性以抗造卡噪声。</li>
+    <li data-page-node-id="ehDpOetSghzPIpPzPyFl3w"><b data-page-node-id="AqIrMXopAgFpM5p4K5Um86">图谱建模与查询性能：</b>四层建模（学科 / 章节 / 主题 / 卡片）并维护 234 条先修依赖边；Personalized PageRank 单次推荐 0.42s，加缓存后命中 0.055s。</li>
+    <li data-page-node-id="4xBH9M4NfO1YhlY9uSWFGB"><b data-page-node-id="4OgL1GwaUiVZkYe5zuHs7R">邻域展开语义化：</b>邻居展开从固定 1 跳改为「展开到遇见卡片为止」（上限 8 轮），修复点章节后满屏章节节点却无一张卡的问题，单节点可见卡片数 0 → 129。</li>
+    <li data-page-node-id="lcFdDxwxDMOFg9NmD97w2U"><b data-page-node-id="T15CcYB4UD2afx8p5JvBHH">架构分层与数据安全：</b>算法层不 import core，可离线对拍；图缓存键携带文件 mtime 自动失效，且用户掌握度 level 绝不进图缓存（避免 A 读到 B 的缓存）。</li>
+    <li data-page-node-id="TeJVuTo0ajQshC39qPkaGF"><b data-page-node-id="pfbhyYcTutifZqnTqAbmDW">工程规范：</b>三层存储均支持「装不上就降级」且降级状态打到启动横幅；鉴权用 PyJWT 零依赖实现，判定标准为「响应是否含个人数据」。</li>
+  </ol>
+</div>
+
+<h2 data-page-node-id="CRyBosaoJ3s4KFXPYdmCS6">技术点展开 · 面试逐条讲（每点 90 秒）</h2>
+
+<div class="tp" data-page-node-id="Q7REMZWPNtvD6FzO0MtaWA">
+<div class="t" data-page-node-id="uIC3hRjjAcgf1ITFLDpEsi">★★★ 1. 向量检索：症状是「开了但没效果」，根因是编码空间错了</div>
+<div class="kv" data-page-node-id="Tx3c8DS93WNNYZDhEjpEbD"><b data-page-node-id="KHI42mnWL8JkaIWvDA2L5L">症状</b>　接上 nomic-embed-text 后接口正常返回、索引也建了（4.1MB），但<b data-page-node-id="7IkRcs6GDGeZjFw33RipkX">排序没有效果</b> —— 所有卡相似度分数全挤在 0.67 附近，top5 之间差距不到 0.05。</div>
+<div class="kv" data-page-node-id="QSzMgZKV93uGMN8OyjMzNK"><b data-page-node-id="vnKsMTuQyzPOsfK6NSqi46">难点</b>　这个症状<b data-page-node-id="7rXrC6AADAoWV8twLIS8aC">极具欺骗性</b>：接口不报错、日志不告警、索引文件存在。任何只看「有没有报错」的检查都会判定这里正常。</div>
+<div class="kv" data-page-node-id="PsRXnxDH1MIL1rJkzDGssJ"><b data-page-node-id="IgW6VEHo89L4dQdVN40Kks">根因</b>　nomic-embed-text 是拿 Matryoshka + 检索任务微调过的模型，官方用法硬性要求建索引前缀 <code data-page-node-id="W5xvVxJgSH9TqFgIEfLg1O">search_document:</code>、查询前缀 <code data-page-node-id="72N3f1uP2KY4GGUazVjHir">search_query:</code>。原实现两边共用同一函数且<b data-page-node-id="hFAOZc6MjyWMU0UbvcsBIl">都不加前缀</b> —— 相当于把查询也编码进文档空间，余弦相似度整个量纲失真。</div>
+<div class="kv" data-page-node-id="J49SKFpXrMcVE1lpNxdZxL"><b data-page-node-id="x29oPk4X3vNeOeYQCPUDJ5">修复后的二次问题（最值得讲的地方）</b>　加前缀后索引内容变了，但<b data-page-node-id="i41MBOVeoiCAMuVvsxAe3H">卡片 id 集合没变</b>，而缓存指纹只按 id 集合算 —— 磁盘上那份<b data-page-node-id="ja1OSYVan7T0NHGCHmWYCE">没前缀的坏索引</b>被当成有效缓存继续加载。改前缀等于没改，而且<b data-page-node-id="PbFCvf36HNyCABBvsptXnH">不报任何错</b>。</div>
+<div class="kv" data-page-node-id="RQNASMZCbWhIg9VHvbdDdt"><b data-page-node-id="kOKNSBP2bVEerblxwnIgWK">修法</b>　缓存指纹改成带版本前缀（<code data-page-node-id="uH2ASVzCC0kYgzqfHpYndN">v2|card1|card2|…</code>），并立下约定：以后每次动 embedding 输入（换模型、改文本拼法）都必须升版，否则改的永远是缓存。</div>
+<div class="why" data-page-node-id="QFcWmOXY6HRgauthRJW0CS"><b data-page-node-id="MvIL9E7gDF81lcRdIiCy4k">为什么值钱：</b>同时展示四件事 —— 能识别「无异常不等于正确」这类静默失效、知道官方模型有必须遵守的约定、会为修复付代价（缓存失效）、并把教训写成规则而不是只修一次。</div>
+</div>
+
+<div class="tp" data-page-node-id="jjiPBNUUR5TP4qLl0MSsIn">
+<div class="t" data-page-node-id="9rQXr7CCPjPFxoXBzkL1mW">★★★ 2. Louvain 聚合阶段：分母口径错了，症状伪装成「算法失效」</div>
+<div class="kv" data-page-node-id="GuHQkuBMBFjJrrZWzlBOlJ"><b data-page-node-id="MG4ulOOM8S7fmvUVfQH240">症状</b>　社区发现跑出来后<b data-page-node-id="1kEsfiTYTnmW50SZwWQhza">社区数 == 节点数</b>，每张卡自成一社区，完全没分块。</div>
+<div class="kv" data-page-node-id="gGiTMfvHiq651fRRGRRCLc"><b data-page-node-id="s5bP1rsrN8vmbCI8LHOTwx">为什么诊断有难度</b>　模块度公式里 <code data-page-node-id="mVWcB6hMwf3RqNwviePVap">2m</code> 是「图的总边权」，很多实现只在入口算一次。第一阶段（贪心移动）确实对，但第二阶段会把整个社区聚合成超点，<b data-page-node-id="SjLexwGdDanD7LxKjDvtXX">社区内部的边全部变成自环</b>。经典模块度定义里自环按 <code data-page-node-id="Stkz9CP4htZqtL6D1Jm7OJ">2×self</code> 计入总边权，所以第二阶段的 <code data-page-node-id="ywu8zRZvJQ2fEpJvEc7qyJ">2m</code> 必须<b data-page-node-id="BGAjts4f3vdnoGFh8COJH6">重算</b>。</div>
+<div class="formula" data-page-node-id="VexT6tRLqqevxHoVmwd2hc">沿用第一阶段 m2 → 分母偏小 → 所有节点模块度增益<b data-page-node-id="RMoiYAqXgIoATIIFH0vivz">恒为负</b> → 一个都搬不动 → 每点自成一社区</div>
+<div class="kv" data-page-node-id="yDUQpReW1rinkOCyyxb36L"><b data-page-node-id="JfoYqHaiBtDKGWTRDcnP05">修复</b>　<code data-page-node-id="HFg0ueywMB3PUEpTeiCmn9">2m</code> 每轮重算，聚合阶段额外加上 <code data-page-node-id="3ExgH0F15Yfua5ydIDDnbJ">2 × Σself</code>。</div>
+<div class="kv" data-page-node-id="0oWKr6fnUBjbs1uPsDoLAA"><b data-page-node-id="kbhImCg3tYCU7ZDbSCFB2f">延伸取舍</b>　经典 Louvain 靠随机遍历打破对称，结果不可复现 —— 同一份数据两次跑可能给出不同分块，测试会间歇性挂，界面上「社区」会莫名变一次。改成<b data-page-node-id="6ofIsHZlN45I4J1idgEqyO">按 id 排序确定性遍历</b>，用那点随机性换稳定性。416 节点单线程 &lt; 0.5s，不需要更快的实现。</div>
+<div class="why" data-page-node-id="GiBnriRg8LTwnJLs7ifyUN"><b data-page-node-id="ci53kOPDwUPpylf7tDixFs">为什么值钱：</b>证明你不是在调库，而是在<b data-page-node-id="lvQyinYgo604a2kV5UWwJQ">读实现、算公式、定位到「分母该是什么」这一层</b>。同时展示「知道标准实现哪里会坑」和「主动做有意识的性能 / 稳定性取舍」。</div>
+</div>
+
+<div class="tp" data-page-node-id="prE5CAxmRWDPA7lTwESfRT">
+<div class="t" data-page-node-id="v1fafVT81ikhQiXFRa43i5">★★★ 3. 图缓存：判断「哪些数据是个人数据」</div>
+<div class="kv" data-page-node-id="EH6z19CQQVMmcv3mUGDImm"><b data-page-node-id="3Sr4Op2QEXnO4OLoPlCSty">架构决策</b>　图缓存 key 是 <code data-page-node-id="Ij099v5BDxQqhtPkLEreYc">(category, subject)</code>。判定「为什么能缓存」时明确写下约束：<b data-page-node-id="qHEtngdFejNNR0SW9L79f5">节点和边完全由卡片集决定、与用户无关</b>；而掌握度 level 是从 progress 贴上去的<b data-page-node-id="npDbqFN9Ah4LDOFjEQHkcf">个人数据，绝不能进这个缓存</b> —— 否则 A 的缓存会被 B 读到，正是数据隔离刚修掉的那类越权 bug。</div>
+<div class="kv" data-page-node-id="FkfBETOQVPmHv6Zw8BPV6H"><b data-page-node-id="6c5aLBEyDOHjHraoRFfhp6">关联的坑</b>　缓存失效判定不能只看 TTL，也不能只看某一个目录的 mtime —— 造卡脚本可能只写 <code data-page-node-id="MjnEfEF5BXCvc9sp5WfN3m">store</code> 不碰 <code data-page-node-id="O3DJdZxjGkcKv5XWMwrgGx">data</code>。mtime 必须取 <code data-page-node-id="W8sjopmxzuL0qisH3y1gXd">data/*.js</code>、<code data-page-node-id="ud13ElRPhnxIEC8iO4AtBw">data/</code>、<code data-page-node-id="3yk17CDUKvdpIioX2e2M9u">store/</code> 三个来源的最大值。</div>
+<div class="why" data-page-node-id="yhct5nMzMbwd7Y9NOUOlrS"><b data-page-node-id="Yl6A5L3mrg28tFwt0YKqn9">为什么值钱：</b>体现的是<b data-page-node-id="rq2xf7S8WM3DTQAWccUrnc">威胁模型意识</b> —— 不是「加了缓存性能好了」，而是「我知道这个缓存一旦画错边界会造成什么后果，所以我在代码里立了界」。面试里讲这个比讲缓存命中率提升 10 倍有分量得多。</div>
+</div>
+
+<div class="tp" data-page-node-id="lyQxU3wr2BGaOhL1XkAakq">
+<div class="t" data-page-node-id="u2fDJDfUq41amLJix7YE8h">★★☆ 4. 降级必须可见：静默降级比崩溃更危险</div>
+<div class="kv" data-page-node-id="KjRjVzmtkT0IUPGDP7K9Nd"><b data-page-node-id="nGjzEyMD0OJn74yBoYuCfY">踩过的坑</b>　<code data-page-node-id="jltaWjADg3Ho5zYbE7VwdO">ALGO_STORE=pg</code> 连不上时，复习记录<b data-page-node-id="0eimt6bwiMO3aaE0WJRWtv">静默落进 JSON 文件</b>；Redis 连不上时掌握度缓存悄悄退化成进程内存。两种情况启动日志都一片安静 —— 「能跑、没报错」，但数据链路已经不是配置的那个了。</div>
+<div class="kv" data-page-node-id="YcXJiPOkFiIldsQ0bnYY0M"><b data-page-node-id="Dpsu9VixlwX0gBPZz2tg9A">判断标准</b>　对于依赖可选的系统，「装不上就降级」是对的（不能因为没装 PG 就整个服务起不来），但<b data-page-node-id="Z9t0Cyj5J3kgfzUKurn3gZ">降级必须让使用者看得见</b>。所以三层的 <code data-page-node-id="NpBOgIx0h20HT4v0yBprvA">degraded()</code> 全部接到启动横幅。</div>
+<div class="kv" data-page-node-id="dAWXg0F9IgR8w4rsi2JVsE"><b data-page-node-id="GUoL85DIFjsDLycKNd4ius">顺带一条边界</b>　横幅只打<b data-page-node-id="qCze6Nj1lNmdDofqlDvwLp">不依赖登录上下文</b>的事实。曾想打「今日待复习 N」，但进度已是 per-user 的，启动时没有登录用户只能读匿名桶（永远为空），这个数字会显示成「全库卡数」，看着像 bug。个人口径数字交给带 token 的接口。</div>
+<div class="why" data-page-node-id="IgEHTNzkGeuCkR1wslBYjb"><b data-page-node-id="30pXBwDFH4TFQ6Yzfd9X4Q">为什么值钱：</b>展示的是<b data-page-node-id="bfjmvjIRBYubDwDwX75zZR">工程价值观</b>，而且是可以直接迁移到任何团队的技术判断。讲「我的项目可以降级，但降级一定可见」比讲「我用了 Redis」有价值。</div>
+</div>
+
+<div class="tp" data-page-node-id="D0dEO4ZywGMxhkD7sthj3U">
+<div class="t" data-page-node-id="N5GRWmVVs3kmzYlQExeLme">★★☆ 5. 鉴权：判定标准是数据归属，不是 HTTP 方法</div>
+<div class="kv" data-page-node-id="02jrcEZHUbideKceVUCUVD"><b data-page-node-id="HgQ9SEWRaFxkN7QXYAalKQ">原判定</b>　按读写操作区分 —— GET 公开、写操作要 token。</div>
+<div class="kv" data-page-node-id="YfrurOrOZ33afgBnN9uu3J"><b data-page-node-id="QfI87cTL2eBBNf28GZCDF0">为什么错</b>　会有「GET 但返回他人学习记录」的接口被漏掉。真正的判定依据是<b data-page-node-id="FRzyuNJ26v1kEp3NYACEjL">响应里有没有个人数据</b>，不是请求用了什么方法。</div>
+<div class="kv" data-page-node-id="1NoDGpIKaaEQFBLfDlNelL"><b data-page-node-id="HRnyPi1g9UvFaRhZzZGcQJ">修正后</b>　<code data-page-node-id="PJU0ZNF1s3DPlXU31JBequ">/api/review/due</code> 这类纯 GET 接口因返回个人复习队列而必须鉴权。实现上迁移到 PyJWT 零依赖方案（不引第三方 JWT 库，固定 <code data-page-node-id="68LFipJ6G9NC4lP8PpHqnh">algorithms=['HS256']</code> 避免算法混淆攻击）。</div>
+<div class="kv" data-page-node-id="CeWv5zslwErUNAUwsqKGP8"><b data-page-node-id="1YELC5T6BSuB4pc8HOrBwD">更隐蔽的坑</b>　光给表加 <code data-page-node-id="btFKrEqrC73TH6sF3VVndE">user_id</code> 列<b data-page-node-id="M8snllyfzviYtjcXyqPzH7">不等于</b>做了隔离 —— <code data-page-node-id="DBgdQgwhBAkprg03SyJvIf">ON DUPLICATE KEY UPDATE</code> 只看主键，主键里没有 <code data-page-node-id="VnDVwzBe7KSGjdA5I0p2sp">user_id</code> 的话写路径会<b data-page-node-id="vOm1hxAC8BCh99O1FvwDAd">静默覆盖</b>。两个表的个人数据主键必须都带 user_id。</div>
+</div>
+
+<div class="tp" data-page-node-id="5N2d1E3P7Alxvu1GM6wCpV">
+<div class="t" data-page-node-id="lp9V3W2mhWEbJiJKoAmevE">★★☆ 6. 评测的边界：敢说「我的评测测不出什么」</div>
+<div class="kv" data-page-node-id="3hVwRSy7CDHPJVWGjm92Rt"><b data-page-node-id="sTlGGVNgFPHEtkgHYKqLek">结论</b>　FSRS 效率最优（0.0186），但<b data-page-node-id="uiz63pHKTbC5ugbPW28IF9">我没把系统默认切成 FSRS</b>。</div>
+<div class="kv" data-page-node-id="NbyLyp8t1HQFWk8oAlOlE1"><b data-page-node-id="4KzUtuoE7zPIHBSuKhTg6e">理由</b>　仿真评测的 ground truth 是我自己造的遗忘曲线，它能回答「同一条曲线下谁排期排得好」，<b data-page-node-id="C2GrMJYa5MtIBRusMJqzvu">不能</b>回答「谁对你的学生最好」。FSRS 排期次数少 20% 是因为它<b data-page-node-id="wGYu9l6cjrYnqKmBEVIt0S">认为</b>你记得住 —— 如果这个判断偏乐观，实际留存会掉。真正的判据是真实回忆成功率，需要真实 review log 积累。</div>
+<div class="kv" data-page-node-id="BQgsQuOeKYK7qy4P2mVvHT"><b data-page-node-id="zG0iZALUwJyafE0vtaRlOI">两处主动划清的边界</b><br data-page-node-id="vX19d1QOfB1R7qPVjiD6H7">
+· BKT 不参与排期对比（它答「掌握没」不答「何时复习」，硬让它排期是塞进不属于它的角色）<br data-page-node-id="U6PjVhQmVMUNSCVZlZCd6P">
+· SM-2 根本不预测留存概率（只有难度因子和间隔，没有概率模型），logLoss / AUC 这栏它只能缺席 —— 这不是 bug，是算法真实的能力边界</div>
+<div class="kv" data-page-node-id="MgqP4DhFq423aSuNHbZaDb"><b data-page-node-id="dvzCcXxR67G6jfzfXhpIwJ">还有一条自我批评</b>　三者 AUC 都在 <b data-page-node-id="BN67BSJI4EUt8p0BNpqtxJ">0.51 附近（接近随机）</b>，说明合成曲线下概率预测的区分度有限。评测的价值在排期效率对比，不在概率预测准确度。</div>
+<div class="why" data-page-node-id="HQeQC1UNAD33ibGUQyKPGm"><b data-page-node-id="zFiIykAqejuiYiOt3L9kvW">为什么值钱：</b>校招面试里绝大多数候选人只会说「我实现了 XX 算法」。能说清「我的评测测不出什么、为什么不急着切」的候选人，面试官会立刻区别出来。</div>
+</div>
+
+<h2 data-page-node-id="veVJdDNLpJP7AhX57vowGK">支撑数据（被追问时怎么证明）</h2>
+<table data-page-node-id="j4LaFlmmzn4DUztpiMTcpo">
+  <tr data-page-node-id="OQgZkTcN65bsEPgzJZxZS0"><th data-page-node-id="hhnpVY1oBSqUNcinsW2J4m">算法</th><th data-page-node-id="nzRKJXIixUPq2HuAZ0m7S1">复习次数</th><th data-page-node-id="LEXJnctRoAadM1h0bHw8AO">效率</th><th data-page-node-id="XvSLCjTTqUH012Ul96OK5B">期末留存</th><th data-page-node-id="HU0b9TDB80UnD53V24AnDD">掌握卡数</th><th data-page-node-id="Yk0yuLbFtbp6WfdU4Q1hYu">logLoss</th><th data-page-node-id="CoH0CKMutJeQLJUppVhaEw">AUC</th></tr>
+  <tr data-page-node-id="djaB4l0l7jOe8GYJACfy4P"><td data-page-node-id="YCTnPObgPJvGgG0EWKtx0C">SM-2</td><td data-page-node-id="7eJdoDfRFFrSz29lAFbk0F">11783</td><td data-page-node-id="KDG40EpmS0C0xNuDm1snFi">0.0143</td><td data-page-node-id="3O9Z695cMqAkHxjI4FrWaY">56.36%</td><td data-page-node-id="sp22ifGxQNchdMHOYytydG">120 (40%)</td><td data-page-node-id="oRDxyX5j7Zme48HfhbNi5B">不支持</td><td data-page-node-id="RprGHdzvk1X5CpMijR4jW0">不支持</td></tr>
+  <tr data-page-node-id="PHY1dvBw2cJfdyFxEfTz2Z"><td data-page-node-id="QV7v7muQ8rDYvgrZDWqDFX">FSRS</td><td style="background:#e6f4ea;font-weight:bold" data-page-node-id="GoriHYAqEVPC2CzO05vsU5">9455</td>
+      <td style="background:#e6f4ea;font-weight:bold" data-page-node-id="0224KHiRwDY2TQwoq4M7rk">0.0186</td><td data-page-node-id="NPvzwOM0VRAdPbqRRRMXPM">58.56%</td>
+      <td data-page-node-id="z5ABgwp7Uw2EKjNAXBwWPl">132 (44%)</td><td data-page-node-id="SgFErBi79wYIhvcH8lG4Yc">0.738</td><td data-page-node-id="L4TyguVdGGc3HUBklSxWsf">0.529</td></tr>
+  <tr data-page-node-id="Q7BCb7Cr1Ut0uEJ1fgGzxY"><td data-page-node-id="XrP2bwg7kLzN5J17nsyfPI">HLR</td><td data-page-node-id="iQY7qkcyhLuDtNwRDcTQVI">14317</td><td data-page-node-id="tbBzZTZzTmdoFhYyIQSrC9">0.0139</td>
+      <td style="background:#e6f4ea;font-weight:bold" data-page-node-id="JEJ0AZyYkN1mWjJ3DImkPS">66.52%</td>
+      <td style="background:#e6f4ea;font-weight:bold" data-page-node-id="eOum7OKoz22TGSveGG8IGo">192 (64%)</td>
+      <td style="background:#e6f4ea;font-weight:bold" data-page-node-id="kZ79caSCDbDfO7AJTDdarH">0.628</td><td data-page-node-id="qtUghD3dGetAtFapsRZHZn">0.507</td></tr>
+  <tr data-page-node-id="uMwEsBgWrZMCMzc9beYfBw"><td data-page-node-id="07EilSRKJlZ1hVBAbiBOr7">BKT</td><td data-page-node-id="8v3m8OiEIPbaDscOGTKGSE">—</td><td data-page-node-id="Vrn7l59TUgCV6DjuNwFRyJ">—</td><td data-page-node-id="SsRFcERUlkS0xnNFEekgKH">—</td><td data-page-node-id="JAKq22n80DTix0BDJsIh6w">—</td><td data-page-node-id="YUA0IjEulYNS8VCDtWdXlK">不支持</td><td data-page-node-id="iYNT90cwsbN8DknHcl8w8D">不支持</td></tr>
+</table>
+<div class="why" data-page-node-id="NrDFqPtEyqqSDgrcWTb3Yh">
+<b data-page-node-id="M14hCgAa3J03YaOpZaBSbR">双 seed 一致性（结论可信的关键证据）</b>　seed=7 与 seed=2026 复跑，三者相对排序<b data-page-node-id="GdR3QVihX7dQnzLthgCLCK">不翻转</b>：<br data-page-node-id="XDK8X4Yhi1xnp7FgvFRxuH">
+SM-2 11783→11846 次 / 留存 56.36%→53.81%　·　FSRS 9455→10046 次 / 0.0186→0.0171　·　HLR 14317→13732 次 / 66.52%→68.96%<br data-page-node-id="dtOwPogerqAAjkbRQu5rjH">
+<b data-page-node-id="UrJ8dgWYOphDxgoRPO7V7R">其他可复现数字</b>　416 卡 / 567 节点 / 2114 边 / 234 先修边；向量索引 416 条 / 4.1MB；
+混合检索首建索引 2.9s → 命中 0.296s；PPR 单次 0.42s（缓存命中 0.055s）；
+87 文件 18388 行 Python + 50 文件 13883 行前端；卡片分布 Java 180 / AI 139 / CS 50 / Python 18 / 其他 29。
+</div>
+
+<h2 data-page-node-id="DRWfBW9OZJNClD8NGorZIF">反问面试官的问题（准备两个）</h2>
+<div class="job" data-page-node-id="14eKwVqonkSTcxOvLBAjEE">
+<ol data-page-node-id="bk8up1TTD8T4soZNxBJ4lD">
+  <li data-page-node-id="XBvfiMN5eV3BkNGFKYVsZc">团队现在的知识关联 / 推荐是用图算法，还是纯向量召回？如果是后者，知识图谱在你们体系里的定位是什么？</li>
+  <li data-page-node-id="Gxy1TlJ5xMr2aT91HGcDEc">复习排期这类算法，线上是怎么做效果验证的？有真实 review log 吗？</li>
+</ol>
+<div class="why" data-page-node-id="QSCtqQ527FdjyO4EeVnUon">这两个问题的作用：让面试官意识到你不是抄的项目，是真的做过并想过延伸。</div>
+</div>
+
+</div>
+<script>
+  // 打印时把 <title> 收短，否则 PDF 文件名会带一长串后缀
+  var FULL = document.title;
+  onbeforeprint = function () { document.title = '智径EduPath-简历项目经历'; };
+  onafterprint = function () { document.title = FULL; };
+</script>
+</body>
+</html>

@@ -22,6 +22,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 
 from .. import config as C
 from . import retrieval
+from . import tools
 from . import websearch
 from .graph import build_qa, build_react, recursion_config
 
@@ -233,7 +234,7 @@ def ask(question: str, mode: str = 'flow', web: bool = False) -> str:
 
 
 def ask_full(question: str, mode: str = 'flow', history=None, profile=None,
-             web: bool = False):
+             web: bool = False, user_id=None):
     """带溯源的入口：返回 {'answer', 'sources', 'steps'}。
 
     history  L1 会话历史（[{role, content}]），超预算自动裁剪
@@ -244,6 +245,9 @@ def ask_full(question: str, mode: str = 'flow', history=None, profile=None,
     react 这次改成**从工具返回里抽** —— 模型自己查的卡本来就是引用，
     以前留空等于白给了引用能力却没接上（用户反馈"知识库没有带引用"）。
     前端拿 sources 渲染「引用卡片」，点开跳到对应卡片详情。"""
+    # 工具（due_today）要读当前人的进度，而它的签名给模型看、不能带user_id。
+    # 这里 set 一次，下面 run_react / qa_app().invoke 在同一线程里跑，能读到。
+    tools.set_current_user(user_id)
     if mode == 'react':
         out = run_react(question, history=history, profile=profile, web=web)
         return {'answer': out['answer'], 'sources': out['sources'],
@@ -372,7 +376,7 @@ def _ai(text):
 
 
 def stream_react(question: str, history=None, profile=None, on_sources=None,
-                 web: bool = False):
+                 web: bool = False, user_id=None):
     """流式版本：一边生成一边 yield 文本块，给 FastAPI 的 StreamingResponse / SSE 用。
 
     本地 8B 模型出字慢（实测整答要 20 秒以上），让用户盯着空白等 20 秒
@@ -380,6 +384,7 @@ def stream_react(question: str, history=None, profile=None, on_sources=None,
 
     on_sources：可选回调，生成**结束后**调一次，把这次用到的卡片 id 列表交给
     调用方 —— SSE 用它在 done 帧之前补发一个 sources 帧。"""
+    tools.set_current_user(user_id)
     app = react_app()
     msgs = []
     fp = format_profile(profile)
@@ -430,6 +435,6 @@ def stream_react(question: str, history=None, profile=None, on_sources=None,
                 if isinstance(v, str) and re.fullmatch(r'[A-Za-z][A-Za-z0-9_\-]{1,60}', v):
                     seen.add(v)
 
+    valid = {c.get('id') for c in _all_cards_ids()}
     if on_sources:
-        valid = {c.get('id') for c in _all_cards_ids()}
         on_sources([i for i in sorted(seen) if i in valid])

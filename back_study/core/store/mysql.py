@@ -17,6 +17,15 @@ import threading
 
 from .base import Store, json_dumps, json_loads
 
+#: 个人数据的用户桶。真实 uid 一律 str 化：MySQL 侧 id 是 int
+#: （用户表自增），JSON 侧是字符串，不统一就会变成'1' 和 1 两份数据。
+ANON = ''
+
+
+def _uid(user_id):
+    return ANON if user_id is None else str(user_id)
+
+
 # ---------------------------------------------------------------------------
 # DDL。与 schema.sql 是同一套语句，改一处记得改另一处
 # （schema.sql 是给人读的版本，这里是程序执行的版本）
@@ -50,6 +59,7 @@ DDL_TABLES = [
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4""",
 
     """CREATE TABLE IF NOT EXISTS `progress` (
+      `user_id`    VARCHAR(64)  NOT NULL DEFAULT '',
       `card_id`    VARCHAR(96)  NOT NULL,
       `level`      TINYINT      NOT NULL DEFAULT 0,
       `interval_d` INT          NOT NULL DEFAULT 0,
@@ -57,13 +67,14 @@ DDL_TABLES = [
       `reps`       INT          NOT NULL DEFAULT 0,
       `next_at`    DATE             NULL,
       `updated_at` DATE             NULL,
-      PRIMARY KEY (`card_id`),
-      KEY `ix_progress_due`   (`next_at`),
-      KEY `ix_progress_level` (`level`)
+      PRIMARY KEY (`user_id`, `card_id`),
+      KEY `ix_progress_due`   (`user_id`, `next_at`),
+      KEY `ix_progress_level` (`user_id`, `level`)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4""",
 
     """CREATE TABLE IF NOT EXISTS `notes` (
       `id`         VARCHAR(96)  NOT NULL,
+      `user_id`    VARCHAR(64)  NOT NULL DEFAULT '',
       `card_id`    VARCHAR(96)      NULL,
       `category`   VARCHAR(48)  NOT NULL DEFAULT '',
       `subject`    VARCHAR(48)  NOT NULL DEFAULT '',
@@ -72,10 +83,10 @@ DDL_TABLES = [
       `tags`       JSON             NULL,
       `created_at` DATE             NULL,
       `updated_at` DATE             NULL,
-      PRIMARY KEY (`id`),
-      KEY `ix_notes_card`    (`card_id`),
-      KEY `ix_notes_scope`   (`category`, `subject`),
-      KEY `ix_notes_updated` (`updated_at`)
+      PRIMARY KEY (`user_id`, `id`),
+      KEY `ix_notes_card`    (`user_id`, `card_id`),
+      KEY `ix_notes_scope`   (`user_id`, `category`, `subject`),
+      KEY `ix_notes_updated` (`user_id`, `updated_at`)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4""",
 
     """CREATE TABLE IF NOT EXISTS `documents` (
@@ -267,10 +278,23 @@ class MySQLStore(Store):
     _ADDED_COLUMNS = (
         ('documents', 'stats', 'JSON NULL'),
         ('documents', 'parse', 'JSON NULL'),
+        # 2026-10-03 数据隔离：progress / notes 加user_id。
+        # 光加列不够 —— 主键也得从 (card_id) 变成 (user_id, card_id)，
+        # 否则 INSERT ... ON DUPLICATE KEY UPDATE 照样按 card_id 冲突，
+        # 两个人的进度还是互相覆盖（列加了、主键没改 = 看着对、行为没变）。
+        ('progress', 'user_id', "VARCHAR(64) NOT NULL DEFAULT ''"),
+        ('notes', 'user_id', "VARCHAR(64) NOT NULL DEFAULT ''"),
+    )
+
+    #: 主键/索引要改的表。补列之后必须重建主键，否则隔离不生效。
+    #: 格式：表名 → 新主键的列列表（按顺序）
+    _REKEY_TABLES = (
+        ('progress', ('user_id', 'card_id')),
+        ('notes', ('user_id', 'id')),
     )
 
     def _migrate_schema(self, dbname):
-        """幂等补列：缺哪列补哪列，返回补了哪些（给启动横幅用）。"""
+        """幂等补列 + 改主键，返回改了哪些（给启动横幅用）。"""
         done = []
         for table, col, definition in self._ADDED_COLUMNS:
             row = self._one("""SELECT COUNT(*) AS n FROM information_schema.COLUMNS
@@ -285,6 +309,41 @@ class MySQLStore(Store):
                 # 补列失败不该拦启动：老库能用就先用，横幅会打出来
                 sys.stderr.write('[store] 补列 %s.%s 失败：%s\n'
                                  % (table, col, str(e)[:120]))
+        done += self._rekey(dbname)
+        return done
+
+    def _rekey(self, dbname):
+        """把 progress / notes 的主键改成 (user_id, …)。
+
+        ★ 为什么必须显式改主键，不能只靠加列：
+        `INSERT ... ON DUPLICATE KEY UPDATE` 判重只看**主键/唯一索引**。
+        主键还是 (card_id) 的话，两个用户复习同一张卡写的还是同一行 ——
+        加了 user_id 列、查询也带了 user_id 过滤，但**写**的那一步仍在
+        静默覆盖。「加了列就以为隔离了」是这类改动最隐蔽的失败方式：
+        读路径看着全对，写路径悄悄吃掉数据。
+        """
+        done = []
+        for table, cols in self._REKEY_TABLES:
+            want = ','.join('`%s`' % c for c in cols)
+            try:
+                cur = self._q("""SELECT COLUMN_NAME FROM information_schema.KEY_COLUMN_USAGE
+                                 WHERE TABLE_SCHEMA=%s AND TABLE_NAME=%s
+                                   AND CONSTRAINT_NAME='PRIMARY'
+                                 ORDER BY ORDINAL_POSITION""", (dbname, table), fetch=True)
+                have = tuple(r['COLUMN_NAME'] for r in cur)
+                if have == cols:
+                    continue
+                if not have:
+                    continue                      # 表还没建（不可能，但别猜）
+                # 先删主键名索引，再按新列建 —— MySQL 不支持 ADD PRIMARY KEY
+                # 直接改列，必须 DROP + ADD。
+                self._q('ALTER TABLE `%s` DROP PRIMARY KEY' % table)
+                self._q('ALTER TABLE `%s` ADD PRIMARY KEY (%s)' % (table, want))
+                done.append('%s 主键→(%s)' % (table, ','.join(cols)))
+                sys.stderr.write('[store] %s 主键已从 (%s) 迁移为 (%s)\n'
+                                 % (table, ','.join(have), ','.join(cols)))
+            except Exception as e:
+                sys.stderr.write('[store] %s 改主键失败：%s\n' % (table, str(e)[:160]))
         return done
 
     # ---------------- 读 ----------------
@@ -302,8 +361,9 @@ class MySQLStore(Store):
             out.append(c)
         return out
 
-    def progress_all(self):
-        rows = self._q('SELECT * FROM progress', fetch=True)
+    def progress_all(self, user_id=None):
+        rows = self._q('SELECT * FROM progress WHERE user_id=%s',
+                       (_uid(user_id),), fetch=True)
         out = {}
         for r in rows:
             out[r['card_id']] = {
@@ -318,8 +378,9 @@ class MySQLStore(Store):
             }
         return out
 
-    def notes_all(self):
-        rows = self._q('SELECT * FROM notes ORDER BY updated_at DESC, id', fetch=True)
+    def notes_all(self, user_id=None):
+        rows = self._q('SELECT * FROM notes WHERE user_id=%s '
+                       'ORDER BY updated_at DESC, id', (_uid(user_id),), fetch=True)
         return [_note_of(r) for r in rows]
 
     def docs_all(self):
@@ -332,8 +393,14 @@ class MySQLStore(Store):
                                  fetch=True)]
 
     # ---------------- 到期队列：这条 SQL 是上数据库的主要理由 ----------------
-    def due_cards(self, category=None, subject=None, domain=None, include_all=False):
+    def due_cards(self, category=None, subject=None, domain=None, include_all=False,
+                  user_id=None):
         """一次 JOIN 出「卡 + 进度 + 逾期天数」，且已按复习优先级排好。
+
+        ★ JOIN 条件里**必须有 `p.user_id=%s`**：progress 主键已经是
+        (user_id, card_id)，不加这个条件就是**笛卡尔积** —— 每张卡会匹配到
+        所有人的每一行进度，队列长度直接翻几倍，而且 level/nextAt 全是别人的。
+        这类错误不会报错，只会让复习页莫名其妙全是「已掌握」。
 
         排序规则与 db.due_list 里那份 Python 实现必须一致：
             不会(1) → 模糊(2) → 未标记(0) → 会(3)，同档里逾期久的在前。
@@ -346,12 +413,40 @@ class MySQLStore(Store):
             w.append('c.subject=%s'); a.append(subject)
         if domain:
             w.append('c.domain=%s'); a.append(domain)
-        if not include_all:
-            # 没标记过（LEFT JOIN 落空）算「待学」，永远在队列里
-            w.append('(p.card_id IS NULL OR p.next_at <= CURDATE())')
         # 拼进 WHERE 的每一片都是这里的字面量，值一律走 %s 占位符由驱动转义 ——
         # 所以 `' AND '.join(w)` 这个拼接是安全的。**加条件时只加字面量字符串，
         # 不要把参数值 f-string 进来**（列名也不可能来自外部：只有上面四个 if）。
+        #
+        # ★★ SQL 字符串里**绝对不能写注释**（-- 或 #）。
+        #   本文件的中文注释里带着 `「」` 和单引号，进到 SQL 串里会让 MySQL 语法报错
+        #   （实测1064，报错点出现在注释的中间位置，很難联想到是注释），
+        #   而 due_list 有 Python 降级路径 → 表现为「队列能出来但悄悄变慢了」，
+        #   只有翻降级横幅才发现 SQL 早就废了。解释一律写在 Python 注释里。
+        #
+        # ORDER BY 里的 overdue 用**与 SELECT 完全相同的 CASE**：
+        #   裸的 `DATEDIFF(CURDATE(), p.next_at)` 遇 next_at IS NULL 返回 NULL，
+        #   整列排序键变 NULL、行为未定义（实际退化成只剩 c.id 兜底=
+        #   「先按 level 分档、档内不排逾期」，与 Python 路径不一致）。
+        #   口径必须和 SELECT 对齐，否则同两个字段讲的是两件事。
+        #
+        # 没标记过（LEFT JOIN 落空）算「待学」，永远在队列里。
+        # ★ `next_at IS NULL` 必须单列一项：SQL 里 `NULL <= CURDATE()`
+        #   求值为 NULL（不是 true），整个 WHERE 把这行**静默丢掉**。
+        #   而 Python 路径的 safe_next_at(db.py) 把 next_at 为空判成「今天到期」——
+        #   同一份数据换个后端，队列内容就变了（换后端的触发条件是
+        #   「内置卡指纹过期」或显式降级，不是罕见操作）。
+        #   判据要和 safe_next_at 逐字对齐，别只写 <=。
+        uid = _uid(user_id)
+        if not include_all:
+            w.append('(p.card_id IS NULL OR p.next_at IS NULL OR p.next_at <= CURDATE())')
+        # JOIN 上的 user_id 条件**必须**在这里（而不是只靠 WHERE 过滤）：
+        # 只在 WHERE 里加 `p.user_id=%s`，那些「没标记过」的卡 p.user_id 是 NULL，
+        # 会被这个条件一起滤掉 → 未标记的卡全部从队列消失（LEFT JOIN 被降级成
+        # INNER JOIN 的典型症状，不报错、只是队列变短）。
+        #
+        # 拼装用 str.replace 而不是 `%` 格式化：`%s` 格式化会把整个模板里的占位符
+        # 按顺序吃掉，而 w 的片段里本来就含 %s（那些是留给驱动的），
+        # 两者混用必然错位 —— 而且错位时报错点在驱动层，很难联想到是模板拼装。
         sql = """
             SELECT c.payload, c.id AS cid,
                    p.card_id AS p_cid, p.level, p.interval_d, p.ef, p.reps,
@@ -359,13 +454,15 @@ class MySQLStore(Store):
                    CASE WHEN p.next_at IS NULL THEN NULL
                         ELSE DATEDIFF(CURDATE(), p.next_at) END AS overdue
             FROM cards c
-            LEFT JOIN progress p ON p.card_id = c.id
-            WHERE %s
+            LEFT JOIN progress p ON p.card_id = c.id AND p.user_id = @UID@
+            WHERE @WHERE@
             ORDER BY FIELD(COALESCE(p.level, 0), 1, 2, 0, 3),
                      (p.card_id IS NULL) DESC,
-                     DATEDIFF(CURDATE(), p.next_at) DESC,
+                     CASE WHEN p.next_at IS NULL THEN NULL
+                          ELSE DATEDIFF(CURDATE(), p.next_at) END DESC,
                      c.id
-        """ % ' AND '.join(w)
+        """.replace('@UID@', '%s').replace('@WHERE@', ' AND '.join(w))
+        a = [uid] + a                             # JOIN 的 uid 排在所有 WHERE 值之前
         out = []
         for r in self._q(sql, a, fetch=True):
             card = json_loads(r['payload'], {})
@@ -425,41 +522,48 @@ class MySQLStore(Store):
               card_fingerprint(card)))
 
     # ---------------- 写：进度 ----------------
-    def progress_put(self, cid, rec):
+    def progress_put(self, cid, rec, user_id=None):
         self._q("""
-            INSERT INTO progress (card_id, level, interval_d, ef, reps, next_at, updated_at)
-            VALUES (%s,%s,%s,%s,%s,%s,%s)
+            INSERT INTO progress (user_id, card_id, level, interval_d, ef, reps,
+                                  next_at, updated_at)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
             ON DUPLICATE KEY UPDATE
               level=VALUES(level), interval_d=VALUES(interval_d), ef=VALUES(ef),
               reps=VALUES(reps), next_at=VALUES(next_at), updated_at=VALUES(updated_at)
-        """, (cid, int(rec.get('level') or 0), int(rec.get('interval') or 0),
-              float(rec.get('ef') or 2.5), int(rec.get('reps') or 0),
+        """, (_uid(user_id), cid, int(rec.get('level') or 0),
+              int(rec.get('interval') or 0), float(rec.get('ef') or 2.5),
+              int(rec.get('reps') or 0),
               rec.get('nextAt') or None, rec.get('updatedAt') or None))
 
-    def progress_del(self, cid):
-        self._q('DELETE FROM progress WHERE card_id=%s', (cid,))
+    def progress_del(self, cid, user_id=None):
+        self._q('DELETE FROM progress WHERE user_id=%s AND card_id=%s',
+                (_uid(user_id), cid))
 
-    def progress_clear(self):
-        self._q('DELETE FROM progress')
+    def progress_clear(self, user_id=None):
+        if user_id == '*':
+            self._q('DELETE FROM progress')
+            return
+        self._q('DELETE FROM progress WHERE user_id=%s', (_uid(user_id),))
 
     # ---------------- 写：笔记 ----------------
-    def note_put(self, note):
+    def note_put(self, note, user_id=None):
         n = dict(note)
         self._q("""
-            INSERT INTO notes (id, card_id, category, subject, title, body, tags,
-                               created_at, updated_at)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
+            INSERT INTO notes (id, user_id, card_id, category, subject, title, body,
+                               tags, created_at, updated_at)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
             ON DUPLICATE KEY UPDATE
               card_id=VALUES(card_id), category=VALUES(category),
               subject=VALUES(subject), title=VALUES(title), body=VALUES(body),
               tags=VALUES(tags), updated_at=VALUES(updated_at)
-        """, (n.get('id'), n.get('cardId') or None, n.get('category') or '',
-              n.get('subject') or '', (n.get('title') or '')[:255],
+        """, (n.get('id'), _uid(user_id), n.get('cardId') or None,
+              n.get('category') or '', n.get('subject') or '',
+              (n.get('title') or '')[:255],
               n.get('body') or '', json_dumps(n.get('tags') or []),
               n.get('createdAt') or None, n.get('updatedAt') or None))
 
-    def note_del(self, nid):
-        self._q('DELETE FROM notes WHERE id=%s', (nid,))
+    def note_del(self, nid, user_id=None):
+        self._q('DELETE FROM notes WHERE user_id=%s AND id=%s', (_uid(user_id), nid))
 
     # ---------------- 写：文档 ----------------
     def doc_put(self, doc):

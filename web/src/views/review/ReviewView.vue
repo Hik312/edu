@@ -41,7 +41,22 @@ const savingSettings = ref(false)
 /** 本轮已经标过的：{ cardId: level }。用来在结束时给个交代。 */
 const done = ref({})
 
-const queue = computed(() => learning.queue)
+/** 后端返回的原始队列（可能含已掌握的卡）。展示层用 queue（已过滤）。 */
+const rawQueue = computed(() => learning.queue)
+
+/** 实际展示的队列：永远剔掉 level 3（已掌握）。
+ *
+ * ★ 实测（2026-10-03）真正会漏进来的入口：
+ *   - 普通队列（`/review/due`）：**不会**。后端按 FIELD(level,1,2,0,3) 排，
+ *     level 3 在最后，新卡多的时候轮不到。
+ *   - **今日自选清单（`pick=1`）：一定会**。清单是用户点名挑的，
+ *     后端照单全收，挑到已掌握的卡就原样推出去（实测 8 张全是 level 3）。
+ *   - 每日目标调很大时普通队列也会碰到（末尾进入视野）。
+ *   与 PathView 的 mustLearn 同口径。
+ *   过滤放在**渲染前**而不是让后端不返回：后端队列还要给 BKT 排序和
+ *   「已完成 x/y」统计用，前端多一层过滤不影响后端口径。 */
+const queue = computed(() => rawQueue.value.filter(c => c.level !== 3))
+
 const cur = computed(() => queue.value[idx.value] || null)
 const finished = computed(() => queue.value.length > 0 && idx.value >= queue.value.length)
 const progress = computed(() =>

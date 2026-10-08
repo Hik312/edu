@@ -16,6 +16,15 @@ from ...deps import current_user
 from ...schemas import PickIn, ProgressIn
 from ..web.cards import _search_pool
 
+#: 复习队列默认给几张。与 web 端的 `DAILY_DEFAULT`（stores/learning.js）=20
+#: 兜底值：**只在档案里从没设过时**用（dailyTarget == 0）。
+#: 与 web 端 `stores/learning.js: DAILY_DEFAULT` 是同一个默认值 ——
+#: 两端各写一份必然漂移，所以这里显式注释对齐关系。
+#: ★ 曾把它当「小程序的每日目标」直接用，于是用户在 web 端把目标设成 50、
+#:   切到小程序首页仍写「今天要学 20 张」—— 同一套档案两个值。
+#:   现在真值一律读档案（见下方 `_plan_limit`），这里只兜「从没设过」。
+QUEUE_DEFAULT = 20
+
 router = APIRouter(prefix='/api/mini', tags=['小程序'])
 
 
@@ -28,6 +37,34 @@ def _brief(c, level=0):
             '_custom': bool(c.get('_custom'))}
 
 
+def _plan_limit(user):
+    """这个登录用户「今天实际要刷几张」。
+
+    ★ 必须读档案，不能用 QUEUE_DEFAULT 写死 ——
+    每日目标是**跟人走**的设置（web 端能改，存后端档案 dailyTarget），
+    在小程序这边写死 20，等于用户在 web 端设的 50 在小程序完全无效，
+    而且两个页面会显示不同的数字。
+    档案里从没设过（dailyTarget == 0）才回落 QUEUE_DEFAULT。
+    """
+    try:
+        t = int((db.profile_of(user.get('id')) or {}).get('dailyTarget') or 0)
+    except Exception:
+        t = 0
+    return t if t > 0 else QUEUE_DEFAULT
+
+
+def _filter_dirs(items, dirs):
+    """按学习方向筛队列。口径与 web 端 /api/review/due?dirs= 逐字一致：
+    筛在**截断之前**（先拿满 limit 再丢，方向卡会被后面的基本卡挤出队列）；
+    传了查不到的方向 id → 当没筛（别返回空队列）。"""
+    if not dirs:
+        return items
+    kws = db.direction_kws([d.strip() for d in dirs.split(',') if d.strip()])
+    if not kws:
+        return items
+    return [x for x in items if db.card_hit(x['card'], kws)]
+
+
 @router.get('/home', summary='首页聚合（统计 + 分类树 + 方向 + 今日清单）')
 def home(user=Depends(current_user)):
     """小程序首页一个请求拿全部：数字、科目分类、学习方向入口、今日自选。
@@ -36,17 +73,25 @@ def home(user=Depends(current_user)):
     chips 要显示「12」，没卡的方向不该让人白点。
     """
     cards = db.all_cards()
-    dirs_out = []
-    for d in db.load_directions():
-        kws = [str(k) for k in (d.get('keywords') or [])]
-        dirs_out.append(dict(d, count=sum(1 for c in cards if db.card_hit(c, kws))))
+    # 单遍统计：每个方向的 count 一次遍历算完（见 db.direction_counts），
+    # 不再每方向重扫全库。口径与 /api/directions 完全一致。
+    counts = db.direction_counts(cards)
+    dirs_out = [dict(d, count=counts.get(d.get('id'), 0))
+                for d in db.load_directions()]
+    st = db.stats(user.get('id'))
+    pick = db.get_today_pick(user.get('id'))
+    # dueToday 是**全库到期数**，而复习队列端点默认只给 20 张（review_queue 的
+    # limit=20）。首页大数字直接摆 400、点进去只有 20，是同一套系统两个口径。
+    # 后端把「今天实际要刷几张」算好给前端，别让两端各算一遍（早晚会算出不同值）。
+    # 挑了自选清单就以清单为准 —— 清单本身就是用户对「今天做多少」的显式表态。
+    st['dueTodayPlan'] = len(pick) if pick else min(st['dueToday'], _plan_limit(user))
     return {'ok': True,
-            'stats': db.stats(),
+            'stats': st,
             'catalog': db.load_catalog(),
             'directions': dirs_out,
             # 首页 CTA 要区分「按到期刷」和「按自选清单刷」，给 count 就够，
             # 清单 id 明细队列端点自己回，首页不需要。
-            'pick': db.get_today_pick(user.get('id'))}
+            'pick': pick}
 
 
 @router.get('/cards', summary='卡包列表（分页 + 搜索 + 方向）')
@@ -73,7 +118,7 @@ def list_cards(page: int = Query(1, ge=1),
         # 逐张浏览：detail 页要「上一张/下一张」，拿全量 id 一次定位，免得
         # 按页翻到边界还得回头补页。标题不带 —— 切卡时本来就逐张 /cards/{id} 拉。
         return {'ok': True, 'total': len(cards), 'ids': [c['id'] for c in cards]}
-    prog = db.get_progress()
+    prog = db.get_progress(user.get('id'))
     total = len(cards)
     start = (page - 1) * pageSize
     page_items = cards[start:start + pageSize]
@@ -88,7 +133,7 @@ def get_card(cid: str, user=Depends(current_user)):
     if not c:
         raise HTTPException(404, '卡片不存在')
     c = dict(c)
-    c['level'] = (db.get_progress().get(cid) or {}).get('level', 0)
+    c['level'] = (db.get_progress(user.get('id')).get(cid) or {}).get('level', 0)
     # 相关卡直接带标题+理由：详情页底部「相关卡片」一屏点走，不再补请求。
     # related 元素是 {id,kind,note}（check.js 校验的契约），兼容纯 id 老数据。
     by_id = {x['id']: x for x in db.all_cards()}
@@ -104,26 +149,45 @@ def get_card(cid: str, user=Depends(current_user)):
 
 
 @router.get('/review/queue', summary='今日复习队列（学习页用）')
-def review_queue(limit: int = Query(20, ge=1, le=100),
+def review_queue(limit: int = Query(0, ge=0, le=100,
+                                    description='0 = 按用户的每日目标（档案里的 dailyTarget），不传就用它'),
+                 domain: Optional[str] = Query(None),
+                 dirs: Optional[str] = Query(
+                     None, description='学习方向 id，逗号分隔。与 web 端 /review/due同口径，'
+                                       '此前小程序**完全没有**这个筛选 → 在 web 设的方向切到小程序就失效'),
                  pick: str = Query('',
                                    description='=1 时只回今日自选清单里的卡（清单空回空队列，不当作退化成普通队列）'),
+                 by: str = Query('level',
+                                 description='level=按自评档位排（默认）| bkt=按 BKT 掌握度低的优先'),
                  user=Depends(current_user)):
     if pick == '1':
         # 口径和 /api/review/due?pick=1 一致：due_list 全量排序后按清单 id 收窄，
         # 字段/顺序与普通队列同一套渲染，前端不用分两套。
         ids = set(db.get_today_pick(user.get('id')))
-        items = [x for x in db.due_list(include_all=True) if x['card']['id'] in ids]
+        items = [x for x in db.due_list(include_all=True, user_id=user.get('id'))
+                 if x['card']['id'] in ids]
     else:
-        items = db.due_list()
-    items = items[:limit]
+        items = _filter_dirs(db.due_list(domain=domain or None,
+                                         user_id=user.get('id')), dirs)
+    # limit 不传（0）就用这个人的每日目标，而不是模块级常量 ——
+    # 否则用户在 web 端设的目标在小程序不生效。
+    lim = limit or _plan_limit(user)
+    # 和 web 端 /api/review/due?by=bkt 同一套：先按 BKT 掌握度重排再截断，
+    # 默认 by=level 时整段跳过、顺序与以前完全一致。
+    if by == 'bkt':
+        items = db.sort_by_mastery(items, user.get('id'))
+    items = items[:lim]
     queue = [{'id': x['card']['id'], 'title': x['card'].get('title'),
               'oneLine': x['card'].get('oneLine'),
               'domain': x['card'].get('domain'),
               'topicPath': x['card'].get('topicPath'),
               'level': x['level'],
               'nextAt': x['progress'].get('nextAt') if x['progress'] else None,
-              'overdue': None if x['overdue'] == 999 else x['overdue']}
+              'overdue': None if x['overdue'] == db.OVERDUE_NEVER else x['overdue']}
              for x in items]
+    if by == 'bkt':
+        for row, x in zip(queue, items):
+            row['p'] = x.get('p')
     return {'ok': True, 'today': db.today_str(), 'total': len(queue),
             'queue': queue}
 

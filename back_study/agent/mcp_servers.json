@@ -1,0 +1,30 @@
+[
+  {
+    "name": "web-search",
+    "enabled": true,
+    "command": ".venv/Scripts/python.exe",
+    "args": ["agent/servers/web_search_mcp.py"],
+    "description": "联网搜索（360 爬虫实现，免 key）。作为 MCP 工具暴露给 ReAct Agent，模型可自己决定搜不搜、搜什么。"
+  },
+  {
+    "name": "code-exec",
+    "enabled": true,
+    "command": ".venv/Scripts/python.exe",
+    "args": ["agent/servers/code_exec_mcp.py"],
+    "description": "本地 Python 代码执行（隔离子进程 + 超时 + 输出截断）。让 Agent 能跑代码验证答案、演示算法，是 CS 学习产品的核心'能动手'能力。"
+  },
+  {
+    "name": "github-resource",
+    "enabled": true,
+    "command": ".venv/Scripts/python.exe",
+    "args": ["agent/servers/github_resource_mcp.py"],
+    "description": "Github 学习资源检索。学生问知识点时，除库内卡片外还能拉外部仓库(学习路线/roadmap)与代码示例，从封闭检索升级成'卡片库+全网'。"
+  },
+  {
+    "name": "cards",
+    "enabled": true,
+    "command": ".venv/Scripts/python.exe",
+    "args": ["agent/servers/cards_mcp.py"],
+    "description": "造卡能力。给定知识点(+资料)产出一张原理卡草稿，复用 cards Agent 的造卡逻辑。属内容生产类动作，默认不进每轮 QA 工具集，可由导入/管理流或另一个 Agent 直接调用。"
+  }
+]
