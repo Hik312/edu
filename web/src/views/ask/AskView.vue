@@ -19,7 +19,7 @@ import { ElMessage } from 'element-plus'
 import { getAgentStatus, getProfile, applyVerify, revertVerify } from '@/api/agent'
 import * as cardsApi from '@/api/cards'
 import { useChatStore } from '@/stores/chat'
-import { answerHtml } from './answerHtml'
+import MarkdownRenderer from '@/components/MarkdownRenderer.vue'
 
 /* 会话状态全在 chat store（模块级）：问完切走页面，请求照样跑完写回，
  * 回来还在。本组件只剩渲染与视图态（滚动、抽屉、引用标题映射）。 */
@@ -90,6 +90,12 @@ function onSuggest(s) {
 
 function titleOf(id) {
   return cardMap[id] || id
+}
+
+/** 已知步骤是否全做完了。用来判断「步骤帧已到齐、但正文还没出字」的那段空窗，
+ *  这时候要补一条不确定态的等待行，否则等待动画会断一下。 */
+function allStepsDone(m) {
+  return !!(m.steps && m.steps.length && m.steps.every(s => s.done))
 }
 
 async function openCard(id) {
@@ -235,22 +241,46 @@ function diffFields(s) {
 
       <div v-for="(m, i) in messages" :key="i" class="row" :class="m.role">
         <div class="bubble">
-          <!-- Agent 步骤条：让用户看到「到哪一步了」。进行中转圈、已完成打勾。
-               校验那一步在 done 之后仍会转，直到校验收尾帧到。 -->
-          <div v-if="m.steps && m.steps.length" class="steps">
-            <div v-for="(s, si) in m.steps" :key="si" class="step" :class="{ act: !s.done, fin: s.done }">
-              <i class="sd" />{{ s.text }}
-            </div>
-          </div>
-          <span v-if="m.streaming && !m.text && !(m.steps && m.steps.length)" class="typing">思考中…</span>
-          <!-- 公式/粗体渲染：v-html + answerHtml（普通文本先转义，见 answerHtml.js） -->
-          <span class="body" v-html="answerHtml(m.text)" />
+<!-- Agent 步骤条 / 等待态。
+     ★ 规则：**一个字的正文都没出来时就显示等待提示；字一出来立刻收场。**
+     - 出字前（本地 8B 要几十秒）：显示「在做什么」，解释为什么还在等。
+     - 出字后：正文自己在滚，等待提示立刻消失。之前它不消失，
+       用户看到「答案在滚、下面还有个圈转」，像卡住了。
+     ★★ **绝不能出现「空气泡」**：发消息到第一个 step 帧到达之间有几十~几百 ms，
+       此时 m.steps 还是空数组，如果只 v-for 遍历它，
+       气泡会渲染出来但里面什么都没有 —— 用户看到一颗空白的胶囊，
+       反而比没有动画更糟（实测截图就是这个）。所以下面必须有一条
+       「还没收到任何步骤」的兜底行。 -->
+<div v-if="m.streaming && !m.text" class="steps">
+  <div v-for="(s, si) in m.steps" :key="si" class="step" :class="{ act: !s.done, fin: s.done }">
+    <i class="sd" />{{ s.text }}
+  </div>
+  <!-- 兜底 A：一个步骤帧都还没到（网络/首帧延迟）→ 先给一句「正在思考」，
+       避免出现空白气泡 -->
+  <div v-if="!m.steps || !m.steps.length" class="step act">
+    <i class="sd" />正在思考…
+  </div>
+  <!-- 兜底 B：已知步骤都做完了、正文还没出字 → 接住这段空窗 -->
+  <div v-else-if="allStepsDone(m)" class="step act">
+    <i class="sd" />正在组织回答…
+  </div>
+</div>
+          <!-- 公式/代码/Markdown 渲染：MarkdownRenderer（KaTeX + marked + hljs） -->
+          <MarkdownRenderer :text="m.text" class="body" />
 
           <div v-if="m.role === 'assistant' && m.sources && m.sources.length" class="srcs">
             <span class="src-label">引用卡片</span>
             <button v-for="id in m.sources" :key="id" class="chip" @click="openCard(id)">
               {{ titleOf(id) }}
             </button>
+          </div>
+
+          <!-- 后台核对（卡片校验）提示。
+               ★ 刻意**不用转圈**，用呼吸点：这是后台增强，不是回答的必经环节，
+               转圈会让人以为「答完了还在加载」（实测反馈过这个观感）。
+               有建议时下面会直接出「是否修正」，没建议就自己淡出。 -->
+          <div v-if="m.bgStep" class="bgstep">
+            <i class="bdot" />{{ m.bgStep }}
           </div>
 
           <!-- react 答完后的卡片校验：拿联网资料核对引用卡，有错就反问是否修正 -->
@@ -310,17 +340,22 @@ function diffFields(s) {
         <div v-if="drawer.loading" class="d-loading">加载中…</div>
         <template v-else-if="drawer.card">
           <h3 class="d-title">{{ drawer.card.title }}</h3>
-          <p class="d-one">{{ drawer.card.oneLine }}</p>
+          <MarkdownRenderer :text="drawer.card.oneLine" class="d-one" />
           <div v-if="drawer.card.analogy" class="d-block">
-            <span class="d-k">类比</span>{{ drawer.card.analogy }}
+            <span class="d-k">类比</span>
+            <MarkdownRenderer :text="drawer.card.analogy" />
           </div>
           <div v-if="drawer.card.mechanism" class="d-block">
             <span class="d-k">原理</span>
-            <div v-for="(s, k) in drawer.card.mechanism" :key="k" class="d-mech">{{ s }}</div>
+            <div v-for="(s, k) in drawer.card.mechanism" :key="k" class="d-mech">
+              <MarkdownRenderer :text="s" />
+            </div>
           </div>
           <div v-if="drawer.card.scene" class="d-block">
             <span class="d-k">场景</span>
-            <div v-for="(s, k) in drawer.card.scene" :key="k" class="d-scene">{{ s }}</div>
+            <div v-for="(s, k) in drawer.card.scene" :key="k" class="d-scene">
+              <MarkdownRenderer :text="s" />
+            </div>
           </div>
         </template>
       </aside>
@@ -495,28 +530,81 @@ function diffFields(s) {
   justify-content: flex-start;
 }
 .bubble {
-  max-width: 78%;
-  padding: 12px 14px;
-  border-radius: 14px;
+  max-width: 82%;
+  padding: 13px 16px;
+  border-radius: 16px;
   font-size: var(--fs-md);
-  line-height: 1.75;
+  line-height: 1.78;
   white-space: pre-wrap;
   word-break: break-word;
   border: 1px solid var(--line);
+  /* 纸面上的气泡要「浮」起来一点：极轻的双层阴影，够看出层次又不脏 */
+  box-shadow:
+    0 1px 2px rgba(58, 47, 33, 0.04),
+    0 3px 10px -6px rgba(58, 47, 33, 0.14);
 }
+/* 用户气泡：靛蓝墨水。用极轻的纵向渐变代替纯色实心块 ——
+   同样的靛蓝，但有了「墨从纸上洇开」的层次，不再是一块死蓝。 */
+/* 用户气泡：**不再用实心深靛蓝**。
+ * 实心深色块压在牛皮纸上像贴上去的色片，跟整页的"纸质"打架；
+ * 而且深底对��比度再高，长句读起来也费劲（而且早期还有深底深字的 bug）。
+ * 改成「淡靛蓝底+ 深靛蓝字 + 靛蓝细边」—— 同一色相族，
+ * 仍然分得清谁说的话，但仍然属于这张纸。 */
 .row.user .bubble {
-  background: var(--ac);
-  color: #fdfaf3;
-  border-color: var(--ac);
-  border-bottom-right-radius: 4px;
+  background: linear-gradient(168deg, color-mix(in srgb, var(--ac) 9%, var(--panel)) 0%,
+    color-mix(in srgb, var(--ac) 14%, var(--panel2)) 100%);
+  color: var(--ac-dim);
+  border-color: color-mix(in srgb, var(--ac) 26%, var(--line));
+  border-bottom-right-radius: 5px;
+  box-shadow:
+    0 1px 2px rgba(58, 47, 33, 0.04),
+    0 3px 10px -7px rgba(31, 75, 107, 0.24);
 }
 .row.assistant .bubble {
-  background: var(--panel);
+  background: linear-gradient(180deg, #fbf7ec 0%, var(--panel) 100%);
   color: var(--tx);
-  border-bottom-left-radius: 4px;
+  border-bottom-left-radius: 5px;
 }
+/* 助手气泡里的引用芯片在浅底上要压得住 */
+.row.assistant .bubble .chip {
+  background: var(--panel2);
+}
+/* ★ 气泡里的 Markdown 正文**必须关掉 pre-wrap**。
+ * 之前 .bubble 上开着 white-space:pre-wrap，而正文由 MarkdownRenderer
+ * 渲染成<p>/<ul>/<li> —— pre-wrap 让 HTML 里的换行/缩进**全部变成真实空白行**：
+ * 一个 <p> 的 margin 之外还叠了三四个空行，长回答里像漏了一半内容。
+ * Markdown 自己有块级元素提供间距，不需要保留源码换行；
+ * pre-wrap 只留给「出错提示」那种纯文本（见 .err / .typing）。 */
 .body {
+  white-space: normal;
+}
+/* 用户提问是**纯文本**（没有 Markdown 结构），他打的换行是有意的
+ * —— 多行提问要按原样显示。所以只给用户气泡恢复 pre-wrap。 */
+.row.user .body {
   white-space: pre-wrap;
+}
+.body :deep(p) {
+  margin: 0 0 8px;
+  /* 段首缩进 2 字符 —— 中文排版的常规做法。模型输出是标准 Markdown，
+   * 所有段落顶格会让长回答像一张清单，读起来"怪"。
+   * 用 text-indent 只缩进**第一行**（第二行顶格才是对的），
+   * 不要用 padding/margin-left，那会把整块都推走。 */
+  text-indent: 2em;
+}
+.body :deep(p:last-child) {
+  margin-bottom: 0;
+}
+/* 但下面这几种情况**不能缩进**，否则会跟它们自己的符号/缩进叠在一起：
+ *  - 列表项里的段落：<li> 已经带项目符号和左缩进，再缩进两字会双重缩进
+ *  - 引用块：缩进本身就是「引别人的话」的语义标记
+ *  - 代码块：是 pre，压根不受 text-indent 影响 */
+.body :deep(li p),
+.body :deep(blockquote p) {
+  text-indent: 0;
+}
+/* 用户提问语义上是一句话、不是段落，缩进只会怪。 */
+.row.user .body :deep(p) {
+  text-indent: 0;
 }
 .typing {
   color: var(--dim);
@@ -555,46 +643,69 @@ function diffFields(s) {
 }
 
 /* 输入条 */
+/* 输入区：做成一个独立的圆角容器（不再是「一条线 + 两个控件」）。
+   聚焦时整圈描边变靛蓝并浮起一点，像一张等着落笔的纸。 */
 .bar {
   flex: none;
   display: flex;
-  gap: 10px;
+  gap: 8px;
   align-items: flex-end;
-  padding: 12px 4px 4px;
-  border-top: 1px solid var(--line2);
+  margin: 12px 4px 4px;
+  padding: 8px 8px 8px 16px;
+  background: var(--panel);
+  border: 1px solid var(--line2);
+  border-radius: 20px;
+  box-shadow:
+    0 1px 2px rgba(58, 47, 33, 0.04),
+    0 6px 18px -10px rgba(58, 47, 33, 0.22);
+  transition:
+    border-color 0.18s,
+    box-shadow 0.18s;
+}
+.bar:focus-within {
+  border-color: var(--ac);
+  box-shadow:
+    0 1px 2px rgba(31, 75, 107, 0.1),
+    0 6px 20px -8px rgba(31, 75, 107, 0.3);
 }
 .ta {
   flex: 1;
   resize: none;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-sm);
-  background: var(--panel);
+  border: 0;
+  background: transparent;
   color: var(--tx);
   font: inherit;
   font-size: var(--fs-md);
-  padding: 10px 12px;
-  line-height: 1.6;
+  padding: 8px 0;
+  line-height: 1.65;
   outline: none;
-}
-.ta:focus {
-  border-color: var(--ac);
 }
 .send {
   flex: none;
-  height: 42px;
+  height: 38px;
   padding: 0 20px;
   border: 0;
-  border-radius: var(--radius-sm);
-  background: var(--ac);
-  color: #fdfaf3;
-  font-size: var(--fs-md);
+  border-radius: 14px;
+  background: linear-gradient(168deg, #2a5a80 0%, var(--ac) 62%);
+  color: #f6f1e6;
+  font-size: var(--fs-sm);
   font-weight: 600;
+  letter-spacing: 1px;
   cursor: pointer;
-  transition: opacity 0.16s;
+  box-shadow: 0 3px 10px -4px rgba(26, 64, 89, 0.5);
+  transition:
+    opacity 0.16s,
+    transform 0.16s,
+    box-shadow 0.16s;
+}
+.send:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 5px 14px -5px rgba(26, 64, 89, 0.6);
 }
 .send:disabled {
-  opacity: 0.5;
+  opacity: 0.45;
   cursor: not-allowed;
+  box-shadow: none;
 }
 
 /* 抽屉 */
@@ -785,6 +896,40 @@ function diffFields(s) {
   border-width: 0 1.5px 1.5px 0;
   transform: rotate(43deg);
 }
+
+/* ===== 后台核对提示（卡片校验）=====
+   ★ 呼吸点不是转圈：这个步骤发生在**答案已经显示之后**，
+   转圈会让用户误以为「还没答完」，实测反馈过这个观感问题。
+   呼吸点（透明度缓慢起伏）传达「在后台进行、但不影响你」。 */
+.bgstep {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--line);
+  font-size: var(--fs-xs);
+  color: var(--dim);
+}
+.bdot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--ac);
+  animation: breathe 1.6s ease-in-out infinite;
+}
+@keyframes breathe {
+  0%,
+  100% {
+    opacity: 0.28;
+    transform: scale(0.82);
+  }
+  50% {
+    opacity: 0.85;
+    transform: scale(1);
+  }
+}
 .step.act {
   color: var(--tx);
 }
@@ -797,5 +942,40 @@ function diffFields(s) {
   to {
     transform: rotate(360deg);
   }
+}
+
+/* ---- 代码块（豆包风格）：圆角 + 浅底 + 语言标签 + 等宽字体 ----
+   回答正文是 v-html 渲染的，拿不到 scoped 的 data-v 属性，所以样式必须 :deep()。
+   横向滚动（white-space:pre）而不是折行 —— 代码折行会让缩进对不上，反而更难读。 */
+.body :deep(.code-block) {
+  margin: 12px 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--panel2);
+  overflow: hidden;
+}
+.body :deep(.code-head) {
+  display: flex;
+  align-items: center;
+  padding: 6px 12px;
+  background: color-mix(in srgb, var(--line) 40%, transparent);
+  border-bottom: 1px solid var(--line);
+}
+.body :deep(.code-lang) {
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  color: var(--dim);
+}
+.body :deep(.code-pre) {
+  margin: 0;
+  padding: 12px 14px;
+  overflow-x: auto;
+}
+.body :deep(.code-pre code) {
+  font-family: var(--font-mono);
+  font-size: var(--fs-sm);
+  line-height: 1.7;
+  color: var(--tx);
+  white-space: pre;
 }
 </style>

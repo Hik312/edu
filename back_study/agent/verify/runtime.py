@@ -18,6 +18,7 @@ from langchain_core.messages import SystemMessage, HumanMessage
 from .. import model as M
 import llm as core_llm
 from ..qa import websearch
+from . import cache as vcache    # 校验结果缓存（Redis；不可用自动降级）
 
 try:
     from ..servers import github_resource_mcp as gh
@@ -153,27 +154,67 @@ def verify_cards(cards, user_id=None):
 
     入参 cards 是卡片 dict 列表（RAG 命中的），最多取前 MAX_VERIFY 张。
     逐张联网拿证据 + 一次批量 LLM 判别；只返回 proposed_patch 非空的（= 真发现要改的）。
+
+    ★ **带缓存**（verify/cache.py）：命中缓存的卡**跳过联网**，只对没命中的
+      做联网 + 批量判别，然后把它们的结果写回缓存。
+      失效靠**卡片内容指纹**而不是 TTL —— 卡一改指纹就变，立刻重新校验，
+      不会出现「卡已改、却拿旧结论去改」的更糟情况。
+      实测：首问约 60s（联网+模型），命中后毫秒级。
     """
     picked = [c for c in (cards or []) if c.get('id')][:MAX_VERIFY]
     if not picked:
         return []
+
+    # ---- 1) 先查缓存，把命中的判别结果直接拼回来 ----
+    judged = {}
     webmap = {}
+    todo = []
     for c in picked:
+        cached = vcache.get(c)
+        if cached is not None:
+            judged[c['id']] = cached
+            webmap[c['id']] = cached.get('web') or []
+        else:
+            todo.append(c)
+    if not todo:
+        return _assemble(judged, webmap, picked)
+
+    # ---- 2) 只对未命中的做联网 + 批量判别 ----
+    got_web = {}
+    for c in todo:
         web, _gh = _web_and_gh((c.get('title') or '').strip())
-        webmap[c['id']] = web
-    judged = _judge_batch(picked, webmap)
+        got_web[c['id']] = web
+    fresh = _judge_batch(todo, got_web)
+
+    # ---- 3) 回写缓存（**每张都要写**，包括"没发现错误"这个结论）----
+    #      不缓存"没问题"是最容易犯的错：那会让每次都重跑一遍最贵的流程。
+    for c in todo:
+        r = fresh.get(c['id'])
+        if r is None:
+            continue
+        # 把这卡用到的联网证据一并存下来，命中时才能还原完整结果
+        vcache.put(c, {'summary': r.get('summary'), 'issues': r.get('issues'),
+                       'proposed_patch': r.get('proposed_patch'),
+                       'web': got_web.get(c['id']) or []})
+    judged.update(fresh)
+    webmap.update(got_web)
+    return _assemble(judged, webmap, picked)
+
+
+def _assemble(judged, webmap, picked):
+    """把判别结果拼成前端要的修正建议列表（只留真要改的）。"""
     out = []
     for c in picked:
         r = judged.get(c['id'])
-        if not r or not r['proposed_patch']:
+        if not r or not r.get('proposed_patch'):
             continue
         out.append({
             'card_id': c['id'],
             'title': c.get('title'),
             'oneLine': c.get('oneLine'),
-            'summary': r['summary'],
-            'issues': r['issues'],
-            'proposed_patch': r['proposed_patch'],
+            'summary': r.get('summary'),
+            'issues': r.get('issues') or [],
+            'proposed_patch': r.get('proposed_patch'),
             'web': webmap.get(c['id']) or [],
         })
     return out

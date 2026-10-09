@@ -157,6 +157,10 @@ def review_queue(limit: int = Query(0, ge=0, le=100,
                                        '此前小程序**完全没有**这个筛选 → 在 web 设的方向切到小程序就失效'),
                  pick: str = Query('',
                                    description='=1 时只回今日自选清单里的卡（清单空回空队列，不当作退化成普通队列）'),
+                 all: str = Query('',alias='all',
+                                  description='=1 时忽略每日目标，把今天全部到期的都给了'
+                                              '（首页那20 张刷完、库里还剩几百张时用；'
+                                              '上限受 limit 约束，最高 100）'),
                  by: str = Query('level',
                                  description='level=按自评档位排（默认）| bkt=按 BKT 掌握度低的优先'),
                  user=Depends(current_user)):
@@ -171,7 +175,11 @@ def review_queue(limit: int = Query(0, ge=0, le=100,
                                          user_id=user.get('id')), dirs)
     # limit 不传（0）就用这个人的每日目标，而不是模块级常量 ——
     # 否则用户在 web 端设的目标在小程序不生效。
-    lim = limit or _plan_limit(user)
+    # all=1 则忽略每日目标，把到期的全给（上限仍受 le=100 约束）。
+    if all == '1':
+        lim = limit or 100
+    else:
+        lim = limit or _plan_limit(user)
     # 和 web 端 /api/review/due?by=bkt 同一套：先按 BKT 掌握度重排再截断，
     # 默认 by=level 时整段跳过、顺序与以前完全一致。
     if by == 'bkt':
@@ -188,8 +196,18 @@ def review_queue(limit: int = Query(0, ge=0, le=100,
     if by == 'bkt':
         for row, x in zip(queue, items):
             row['p'] = x.get('p')
+    # ★ 「今天还有多少张没刷」——小程序原来只回 total=len(queue)（这一页给了几张），
+    # 于是首页摆dueTodayPlan=20、学习页刷完 20 张就显示"今日复习完成"，
+    # 而库里明明还剩 393 张到期 —— 用户在小程序里**没有任何入口能刷到它们**
+    # （刷新队列也没用，那 20 张已经答过）。这是产品死结，不只是体验瑕疵。
+    # 所以额外回dueTotal（全库到期数）：前端据此显示「今天已刷完，还有 N 张，
+    # 继续刷」并给一个all=1 的入口。
+    try:
+        due_total = len(db.due_list(user_id=user.get('id')))
+    except Exception:
+        due_total = len(items)
     return {'ok': True, 'today': db.today_str(), 'total': len(queue),
-            'queue': queue}
+            'dueTotal': due_total, 'queue': queue}
 
 
 @router.get('/review/pick', summary='今日自选复习清单')

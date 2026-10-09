@@ -67,6 +67,12 @@
   .lane > em { font-style: normal; font-size: 12.5px; color: #7d8b96;
                text-align: right; padding-right: 15px; }
   .chain { display: flex; align-items: center; }
+  /* 流程下方的一句「为什么这么设计」—— 这些约束是踩过坑换来的，别当废话删 */
+  .note { margin: 8px 0 0; padding: 8px 12px; border-left: 3px solid #c3ddb0;
+          background: #f7faf3; border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+          font-size: 12px; line-height: 1.7; color: #4d5b46; }
+  .note b { color: #2f3d28; }
+  .note code { background: #eef4e8; padding: 0 4px; border-radius: 3px; }
 
   .n { border: 1px solid; border-radius: 6px; padding: 10px 12px; text-align: center; }
   .n b { display: block; font-size: 12.5px; font-weight: 500; line-height: 1.3; }
@@ -103,11 +109,21 @@
     @page { size: A3 portrait; margin: 0; }
     * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
     body { background: #fff; padding: 0; }
-    .sheet { width: 100%; box-shadow: none; padding: 12mm 15mm 10mm; }
-    .layer { margin-top: 12px; }
-    .dep { height: 22px; }
-    .sec { margin-top: 16px; padding-top: 14px; }
-    .sec h2 { font-size: 17px; }
+    .sheet { width: 100%; box-shadow: none; padding: 8mm 12mm 6mm; }
+    .layer { margin-top: 7px; }
+    .dep { height: 15px; }
+    .sec { margin-top: 9px; padding-top: 8px; }
+    .sec h2 { font-size: 16px; }
+    .sec p { margin: 4px 0 8px; }
+    .note { margin-top: 5px; padding: 5px 9px; font-size: 11px; line-height: 1.55; }
+    .lane { margin-top: 6px; }
+    .lg { margin-top: 8px; gap: 14px; }
+    .n { padding: 7px 9px; }
+    .lane .chain { gap: 5px; }
+    /* 加了「校验自纠」这一条流程后单页放不下，脚注会被挤到第 2 页。
+       打印态整体缩一档（页边距已经压到 8mm，再压就要截内容了），
+       用 transform 不影响屏幕效果。 */
+    .sheet { zoom: 0.94; }
     .lane { margin-top: 9px; }
     .lg { margin-top: 16px; padding-top: 12px; }
     .foot { margin-top: 12px; padding: 10px 14px; }
@@ -120,7 +136,7 @@
 
   <div class="hd" data-page-node-id="95d2puveNx0UFxCu7s1Odw">
     <h1 data-page-node-id="nUkBLFSC1Q4jDOD4JIgV4X">智径 EduPath · 后端架构与主流程</h1>
-    <p data-page-node-id="HkBmPShdrqTRP7mD7U7SaW">多 Agent 自适应学习平台 —— 只画后端（FastAPI + 算法 + Agent + MCP + 存储）　·　2026-10-04</p>
+    <p data-page-node-id="HkBmPShdrqTRP7mD7U7SaW">多 Agent 自适应学习平台 —— 只画后端（FastAPI + 算法 + Agent + MCP + 缓存 + 存储）　·　2026-10-08</p>
   </div>
 
   <!-- ============ 接入层 ============ -->
@@ -171,11 +187,11 @@
     <div class="lname" style="background:#9189DE" data-page-node-id="9ql4pYFfun0UD4fRja8odb"><b data-page-node-id="y9Sjg6JWfIxlZreImxTCRJ">Agent 层</b><span data-page-node-id="EsmDzWAxZZX77UD796iJcB">LangGraph + MCP</span></div>
     <div class="abody" data-page-node-id="Xs9L6ce77Q9acNbjhw2xI7">
       <div class="lbody" data-page-node-id="abRow1">
-        <div class="m c-purple" data-page-node-id="7A5MjVS8IVC3d9AocFXTUS"><b data-page-node-id="98ADhSGFmJWxGxEykDmc57">问答 qa</b><span data-page-node-id="NhMyjspeWYM7Szsld4S30S">retrieve → answer → grade → 回炉</span></div>
-        <div class="m c-purple" data-page-node-id="2cCix3S0W0NqEDMC5UAkkY"><b data-page-node-id="V9uoW7LwzkTpS7IkkFTmLF">混合检索</b><span data-page-node-id="MrNaTRpUMO5pJiviAOGvNf">向量 + 关键词双通道</span></div>
+        <div class="m c-purple" data-page-node-id="7A5MjVS8IVC3d9AocFXTUS"><b data-page-node-id="98ADhSGFmJWxGxEykDmc57">问答 qa</b><span data-page-node-id="NhMyjspeWYM7Szsld4S30S">retrieve → answer → grade → 回炉<br><b style="font-weight:500;color:#2a2352">flow / react 两个模式都流式</b></span></div>
+        <div class="m c-purple" data-page-node-id="2cCix3S0W0NqEDMC5UAkkY"><b data-page-node-id="V9uoW7LwzkTpS7IkkFTmLF">混合检索</b><span data-page-node-id="MrNaTRpUMO5pJiviAOGvNf">向量 + 关键词 · 带缓存</span></div>
         <div class="m c-purple" data-page-node-id="cqnsyvdnvYRv3FpsMtigQt"><b data-page-node-id="6OwM8NXxtY5FfDsZMhBjRD">7 个工具</b><span data-page-node-id="mSEtBmAHoALhVmRxJLSaOP">4 内部 + 3 MCP</span></div>
-        <div class="m c-purple" data-page-node-id="D9VBShEqVGQkYLlt9zOfvw"><b data-page-node-id="9wlFQrnktjUg0ueanpY5qi">联网搜索</b><span data-page-node-id="iADzgVQH4yriEN2VV11eLt">失败返回空不抛异常</span></div>
         <div class="m c-purple" data-page-node-id="P5fzqLzvDkQGZJUhtPofUB"><b data-page-node-id="2nvHE9wSMzTVBWcWkj6fuj">造卡 cards</b><span data-page-node-id="Tj51zdAlsGPFUaODs8o5f1">refine → draft → 查重</span></div>
+        <div class="m c-purple" data-page-node-id="vfyBox"><b data-page-node-id="vfyBoxB">校验自纠 verify</b><span data-page-node-id="vfyBoxS">联网核对引用卡<br>有错才产建议 · 不自动改</span></div>
         <div class="m c-warn" data-page-node-id="Ie6MpRRIKObYdLXkz6qlcw"><b data-page-node-id="vwfhXzFP6mlOUG3ij7faiG">planner</b><span data-page-node-id="gfhuTaPiBotf9Mf27dw66t">未完成骨架</span></div>
       </div>
       <div class="mcpcap" data-page-node-id="mcpCap">MCP server（stdio 子进程 · 见 学习路线 6.1）</div>
@@ -195,11 +211,13 @@
     <div class="lbody" data-page-node-id="uvFwFeIDykPY7W4nWHEDoq">
       <div class="m c-slate" data-page-node-id="QVGX7s0qsj0C3fliw9DOnY"><b data-page-node-id="XTuLJcBrQCaNBvI3AGR615">MySQL</b><span data-page-node-id="qmsEAmiWNFBG4RXmlZYQ7W">业务主数据 · SQL 队列快路径</span></div>
       <div class="m c-slate" data-page-node-id="kBOYiPp9oFCpS2XU5SALVR"><b data-page-node-id="VkQw6KKFeKYE4YG2XiNChp">PostgreSQL</b><span data-page-node-id="IlKBKG2SN8vGIBSGKmJ8Jo">事件流 · 掌握度 · 参数</span></div>
-      <div class="m c-slate" data-page-node-id="UdVrNS5HK9TxxwGCKZWY6i"><b data-page-node-id="feVQF6CFsfvhszqw3WlYqh">Redis</b><span data-page-node-id="waTWRccrYQEvYegPL7nuCF">掌握度缓存</span></div>
+      <div class="m c-slate" data-page-node-id="UdVrNS5HK9TxxwGCKZWY6i"><b data-page-node-id="feVQF6CFsfvhszqw3WlYqh">Redis</b><span data-page-node-id="waTWRccrYQEvYegPL7nuCF">算法层：掌握度 / BKT 参数<br><b style="font-weight:500;color:#3b3630">业务层：检索 · 答案 · 校验</b></span></div>
       <div class="m c-slate" data-page-node-id="Qk2ILTB87zxSbHcvXKECQH"><b data-page-node-id="PkZ1xsas0OV8f8VVOj6YVY">JSON 后端</b><span data-page-node-id="yNwnILarDza0oYZHPrk1iP">装不上时的降级目标</span></div>
       <div class="m c-slate" data-page-node-id="ZxWwahJKOxgjqBUL4STdrF"><b data-page-node-id="3xmkeyO3spHeArCdWbS0Kg">卡片内容源</b><span data-page-node-id="IElACAsKOB6qQrTYK2jGCe"><code data-page-node-id="utzIACWCw8A7GDRRG2NQmY">data/*.js</code> · git 管</span></div>
+      <div class="m c-slate" data-page-node-id="ovrBox"><b data-page-node-id="ovrBoxB">修正覆盖层</b><span data-page-node-id="ovrBoxS"><code data-page-node-id="ovrBoxC">cards.override.json</code><br>改内置卡不动源码 · 可还原</span></div>
     </div>
   </div>
+  <div class="dep" data-page-node-id="cacheDep"><div data-page-node-id="cacheDepI"><i data-page-node-id="cacheDepA"></i><span data-page-node-id="cacheDepS">业务缓存<b>失效靠内容指纹，不靠 TTL</b>：改了卡→指纹变→自动重算。检索只存 id+score，卡片本体每次现取</span></div></div>
 
   <!-- ============ 主流程 ============ -->
   <div class="sec" data-page-node-id="U24RjS0hw43l92vE1rXz5v">
@@ -291,6 +309,22 @@
         <div class="n" style="border-color:#b6c4cf;background:#fff" data-page-node-id="qa2c"><b data-page-node-id="qa2cb">不回炉 → 返回</b><span data-page-node-id="qa2cs">最多一轮</span></div>
       </div>
     </div>
+
+    <div class="lane" data-page-node-id="qaL3">
+      <em data-page-node-id="qaL3e">③ 校验自纠</em>
+      <div class="chain" data-page-node-id="qaL3c">
+        <div class="n c-purple" data-page-node-id="qa3a"><b data-page-node-id="qa3ab">verify_cards()</b><span data-page-node-id="qa3as"><code data-page-node-id="qa3ac">verify/runtime.py</code> 引用到的前 2-3 张</span></div>
+        <div class="ar" data-page-node-id="qa3ar1">→</div>
+        <div class="n c-purple" data-page-node-id="qa3b"><b data-page-node-id="qa3bb">联网取证</b><span data-page-node-id="qa3bs">web_search + github_search</span></div>
+        <div class="ar" data-page-node-id="qa3ar2">→</div>
+        <div class="n c-purple" data-page-node-id="qa3c"><b data-page-node-id="qa3cb">批量 LLM 判别</b><span data-page-node-id="qa3cs">一次调用 · 300s→60s</span></div>
+        <div class="ar" data-page-node-id="qa3ar3">→</div>
+        <div class="n c-warn" data-page-node-id="qa3d"><b data-page-node-id="qa3db">产出建议 · 不落库</b><span data-page-node-id="qa3ds">有错才产 · 自动改库=AI偷改数据</span></div>
+        <div class="ar" data-page-node-id="qa3ar4">⇢</div>
+        <div class="n" style="border-color:#e0b6b6;background:#fdeeee" data-page-node-id="qa3e"><b data-page-node-id="qa3eb">用户确认才改</b><span data-page-node-id="qa3es">verify/apply → 覆盖层落库<br>verify/revert 可还原</span></div>
+      </div>
+    </div>
+    <p class="note" data-page-node-id="qaNote">★ 校验发生在 <b>event: done 之后</b>（答案已出、可继续聊），标 <code data-page-node-id="qaNoteC">kind:'bg'</code> 前端只给一行呼吸点、不进步骤条—— 转圈会让人以为还没答完。结果走 <code data-page-node-id="qaNoteC2">event: verify</code> 帧补发，带缓存则命中秒回。</p>
   </div>
 
   <!-- ============ 图例 ============ -->

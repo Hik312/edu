@@ -1160,6 +1160,19 @@ function cardTitle(cid) {
     height: 100%;
     align-items: stretch;
   }
+  .side-col {
+    min-height: 0;
+    overflow-y: auto;
+  }
+}
+
+/* 宽屏：左侧画布固定，右侧栏独立滚动（滚侧栏不动画布）。原理同 GenerateView：
+   根容器占满 .content，列 stretch 后右侧栏自己 overflow。窄屏单列，整页滚。 */
+@media (min-width: 1181px) {
+  .graph-wrap {
+    height: 100%;
+    align-items: stretch;
+  }
   .canvas-panel {
     min-height: 0;
   }

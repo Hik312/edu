@@ -101,7 +101,8 @@ async def agent_ask(body: AgentAskIn, user=Depends(current_user)):
 
     # 流式走 SSE，由 StreamingResponse 在线程池里驱动同步生成器，不堵事件循环
     if body.stream:
-        return StreamingResponse(_sse(rt, q, hist, prof, body.webSearch, uid),
+        return StreamingResponse(_sse(rt, q, hist, prof, body.webSearch, uid,
+                                           mode=body.mode),
                                  media_type='text/event-stream')
 
     t0 = time.time()
@@ -127,22 +128,26 @@ async def agent_ask(body: AgentAskIn, user=Depends(current_user)):
                        steps=steps, ms=int((time.time() - t0) * 1000))
 
 
-def _sse(rt, question, hist=None, prof=None, web=False, uid=None):
+def _sse(rt, question, hist=None, prof=None, web=False, uid=None, mode='react'):
     """SSE 生成器。
 
     帧协议（前端 api/agent.js 按 event 名分流，**改动必须两边同步**）：
       无 event 名  = 正文增量，data 是一行文本（换行已转义）
-      event: step   = 「当前到哪一步」，data 是 {text} —— 给前端画步骤条用，
-                  不进正文。检索/联网最慢，先发这一步，别让用户干等空白。
+      event: step   = 「当前到哪一步」，data 是 {text} 或 {text, done:true}。
+                  {text} 新增一步（把上一步标记完成）；
+                  {done:true, text:''} 只做收尾 —— **每个新增的 step
+                  必须有一次收尾帧**，否则那个转圈会永远转（这坑踩过：
+                  漏了「组织回答…」的收尾，答案都显示完了还在转）。
       event: sources = 这次引用到的卡片 id，data 是 JSON 数组 —— 必须在 done
                   之前发，因为 react 模式要等生成完才抽得出来 id
       event: verify = 校验引用卡的结果（有错才发），data 是建议列表
-      event: done    = 正文流结束，data 为空
-      event: error   = 出错，data 是错误信息
+      event: done= 正文流结束，data 为空
+      event: error   = 出错，data 是错误信息（出错前也会补一个 step 收尾）
 
     本地模型出字慢，20 秒空白基本等于「坏了」—— 流式是本地模型的必需补偿。
     这里只发文本增量，不做心跳：单次请求几十秒，不需要抗空闲断连。"""
     import json as _json
+    import threading
     box = {'sources': None}
 
     def on_sources(ids):
@@ -151,6 +156,60 @@ def _sse(rt, question, hist=None, prof=None, web=False, uid=None):
     try:
         from agent.qa import tools as qa_tools
         qa_tools.set_current_user(uid)   # 生成器跑在 worker 线程里
+
+        # ---- flow 模式：固定流程，流式但不跑 MCP / 不校验 ----
+        # 以前 flow 走 stream=false（一次性等全文），本地 8B 要 20~40秒，
+        # 用户只能盯着空白猜是不是坏了。现在 answer 节点边生成边发。
+        # 注意：flow 也有 grade 自检，没过检会**重写一轮**，所以用户可能
+        # 看到答案被覆盖重写 —— 这是设计如此，不是 bug。
+        if mode == 'flow':
+            # token sink 是**同步回调**，不能在里面 yield（Python 不允许）。
+            # 所以用「后台线程生成 + 队列转发」：sink 塞队列，外层排空后 yield。
+            # 这也是 SSE 生成器能在阻塞调用上做实时转发的标准写法。
+            queue = []
+            lock = threading.Lock()
+
+            def push_token(piece):
+                with lock:
+                    queue.append(('data', piece))
+
+            def push_step(t):
+                with lock:
+                    queue.append(('event: step', {'text': t}))
+
+            def worker():
+                try:
+                    rt.stream_flow(question, on_token=push_token,
+                                   history=hist, profile=prof,
+                                   web=web, user_id=uid,
+                                   on_step=push_step)
+                except Exception as e:
+                    with lock:
+                        queue.append(('event: error',
+                                      str(e).replace('\n', ' ')))
+
+            th = threading.Thread(target=worker, daemon=True)
+            th.start()
+            while th.is_alive() or queue:
+                with lock:
+                    batch = list(queue)
+                    queue.clear()
+                for t, payload in batch:
+                    if t == 'data':
+                        yield 'data: %s\n\n' % payload.replace('\n', '\\n')
+                    else:
+                        yield '%s\ndata: %s\n\n' % (
+                            t, _json.dumps(payload, ensure_ascii=False))
+                # 模型还没出字时别空转 CPU，等一小会儿再看队列。
+                # 这个 0.12s 也顺带充当心跳节奏：至少每 120ms 醒一次。
+                if th.is_alive():
+                    th.join(0.12)
+            yield 'event: done\ndata: \n\n'
+            yield 'event: step\ndata: %s\n\n' % _json.dumps(
+                {'text': '', 'done': True}, ensure_ascii=False)
+            return
+
+        # ---- react 模式：MCP 工具 + 回答后校验 ----
         # 「到哪一步了」：检索+联网最慢（要跑 web 搜索），先单独发一帧，
         # 否则用户面对空白干等。step 帧不进正文，只是给前端画步骤条。
         yield 'event: step\ndata: %s\n\n' % _json.dumps(
@@ -172,28 +231,46 @@ def _sse(rt, question, hist=None, prof=None, web=False, uid=None):
         #   绝不让校验把「答案已出」这件事卡住几分钟。
         yield 'event: done\ndata: \n\n'
 
+        # ★★ done 之后先把「组织回答…」这一步收尾。
+        # 漏这一帧的前端表现是：**答案已经全文显示了，步骤条还在转圈**，
+        # 而且那个圈永远不消失（后面只有校验步的收尾帧，管不到它）。
+        yield 'event: step\ndata: %s\n\n' % _json.dumps(
+            {'text': '', 'done': True}, ensure_ascii=False)
+
         # done 之后：校验这次引用到的卡，有错的反问用户是否修正（慢，但已不阻塞 UI）
+        # done 之后：校验这次引用到的卡，有错的反问用户是否修正。
+        # ★★ 这里**故意标成 kind='bg'（后台）而不是普通 step**：
+        #   用户看到引用卡片出来就知道答案完了，这时步骤条上还有一个圈
+        #   在转 60 秒，观感就是「明明答完了还在加载」—— 用户实测反馈过。
+        #   校验是**后台增强**、不是回答的必经环节，所以前端只给一行轻量提示。
         started = False
         try:
             from agent.verify import runtime as verify_rt
             if box['sources']:
                 started = True
                 yield 'event: step\ndata: %s\n\n' % _json.dumps(
-                    {'text': '校验引用卡片…'}, ensure_ascii=False)
+                    {'text': '正在后台核对卡片…', 'kind': 'bg'}, ensure_ascii=False)
             cited = [qa_tools.find_card(i) for i in (box['sources'] or [])]
             sugg = verify_rt.verify_cards([c for c in cited if c], user_id=uid)
             if sugg:
                 yield 'event: verify\ndata: %s\n\n' % _json.dumps(sugg,
                                                                   ensure_ascii=False)
+            else:
+                # 没发现要改的：也要明确收尾，否则那条后台提示挂着，
+                # 用户分不清是"核对完了"还是"卡住了"。
+                yield 'event: step\ndata: %s\n\n' % _json.dumps(
+                    {'text': '', 'done': True}, ensure_ascii=False)
         except Exception:
             pass    # 校验是增强，挂了不影响已给出的答案
         finally:
-            # 收尾信号（放 finally）：把「校验引用卡片…」标记完成。即使校验抛异常
-            # 也必须发，否则步骤条上那个转圈会一直转。done:true = 只收尾、不新增。
+            # 收尾信号（放 finally）：即使校验抛异常也必须发，否则停不下来。
             if started:
                 yield 'event: step\ndata: %s\n\n' % _json.dumps(
                     {'text': '', 'done': True}, ensure_ascii=False)
     except Exception as e:
+        # 出错时也把当前步骤收掉：否则错误提示都出来了，步骤条还在转。
+        yield 'event: step\ndata: %s\n\n' % _json.dumps(
+            {'text': '', 'done': True}, ensure_ascii=False)
         yield 'event: error\ndata: %s\n\n' % str(e).replace('\n', ' ')
 
 
@@ -399,23 +476,6 @@ class RevertIn(BaseModel):
 async def agent_verify_revert(body: RevertIn, user=Depends(current_user)):
     """把某张卡的覆盖层修正还原成原始内容（只删覆盖层，不动原始卡）。
     已应用过修正、想反悔时用。"""
-    import db
-    if not body.card_id:
-        raise HTTPException(400, 'card_id 不能为空')
-    try:
-        done = await asyncio.to_thread(db.revert_override, body.card_id)
-    except Exception as e:
-        raise HTTPException(502, '还原失败：%s' % e)
-    return {'ok': True, 'reverted': bool(done)}
-
-
-class RevertIn(BaseModel):
-    card_id: str
-
-
-@router.post('/agent/verify/revert', summary='撤销一张卡的修正覆盖层')
-async def agent_verify_revert(body: RevertIn, user=Depends(current_user)):
-    """把某张卡的覆盖层修正还原成原始内容（只删覆盖层，不动原始卡）。"""
     import db
     if not body.card_id:
         raise HTTPException(400, 'card_id 不能为空')

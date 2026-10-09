@@ -38,8 +38,67 @@ const loading = ref(false)
 const saving = ref(false)
 /** 设置写后端时禁用按钮 —— 连点五下会发出五个 PUT，回来的顺序还没保证。 */
 const savingSettings = ref(false)
-/** 本轮已经标过的：{ cardId: level }。用来在结束时给个交代。 */
-const done = ref({})
+/* ---------- 本轮复习进度：跨刷新/跳转必须保住 ----------
+ * 用户的原话：「刚才复习了几个，一旦刷新页面或跳到别处，就不算了，还要重新计算」
+ * 以及「刷新后还是从 1 开始，不是上次复习到那个地方」。
+ * 已实测确认**后端是好的**：标记过的卡 nextAt 被 SM-2 推到明天，今天不再进队列
+ * （探针：标记 ag-xxx→ nextAt 明天 → 再查 due 队列该卡已消失）。
+ * 丢的是纯前端态：① 本轮已复习几张(done) ② 翻到第几张(idx)。
+ * 而队列按 dailyTarget 补满（到期卡远多于 N 张），刷新后又是满满一屏、从第1 张开始，
+ * 用户以为刚才白复习了。
+ * 这里把 {done, curId} 落到 localStorage：跨刷新+跨跳转都在，跨天自动作废。
+ * ⚠️ 位置**存当前卡的 id、不存 idx 数字** —— 刷新后队列重排（标记过的被移除、
+ * 后面补进新卡），同一个下标会指向另一张卡，必须按 id 重新定位。 */
+const REV_KEY = 'edu.review.done'
+function todayStr() {
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+function loadState() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(REV_KEY) || '{}')
+    if (raw && raw.date === todayStr()) {
+      return {
+        done: raw.done && typeof raw.done === 'object' ? raw.done : {},
+        curId: typeof raw.curId === 'string' ? raw.curId : '',
+        dirSig: typeof raw.dirSig === 'string' ? raw.dirSig : ''
+      }
+    }
+  } catch {
+    /* 坏数据当作没复习过 */
+  }
+  return { done: {}, curId: '', dirSig: '' }
+}
+/** 方向签名：自选清单模式 + 方向筛选（排序后拼接，顺序无关）。
+ *  ★ 进度按方向隔离：切换方向就「从新开始」，方向没变才接着今天的剩余量继续。
+ *    签名同时含 pickActive —— 它决定队列来源（自选清单 vs 方向队列），
+ *    两者之间切也是换了一批卡，同样该从头开始。 */
+function dirSig(dirs, pickActive) {
+  return (pickActive ? 'pick' : 'auto') + '|' + (dirs || []).slice().sort().join(',')
+}
+const _st = loadState()
+/** 本轮已经标过的：{ cardId: level }。用来在结束时给个交代，也用来跨刷新恢复。 */
+const done = ref(_st.done)
+/** 当前正看着的那张卡 id —— 刷新后按它找回位置（见 onMounted）。 */
+const curId = ref(_st.curId)
+/** 这份已恢复的进度属于哪个方向签名。等设置加载完比对，不一致就丢弃（见 onMounted）。 */
+let _pendingDirSig = _st.dirSig
+function saveState() {
+  try {
+    localStorage.setItem(
+      REV_KEY,
+      JSON.stringify({
+        date: todayStr(),
+        done: done.value,
+        curId: curId.value,
+        dirSig: dirSig(learning.pickedDirs, learning.pickActive)
+      })
+    )
+  } catch {
+    /* 配额满了不存，不能把页面搞崩 */
+  }
+}
+watch([done, curId], saveState, { deep: true })
 
 /** 后端返回的原始队列（可能含已掌握的卡）。展示层用 queue（已过滤）。 */
 const rawQueue = computed(() => learning.queue)
@@ -59,8 +118,14 @@ const queue = computed(() => rawQueue.value.filter(c => c.level !== 3))
 
 const cur = computed(() => queue.value[idx.value] || null)
 const finished = computed(() => queue.value.length > 0 && idx.value >= queue.value.length)
+/** 本轮已复习张数（刷新后从 localStorage 恢复）。 */
+const doneCount = computed(() => Object.keys(done.value).length)
+/** 总数 = 已复习 + 待复习。进度条按这个算 ——
+ *  否则刷新后队列按 dailyTarget 补满、idx 又从 0 开始，
+ *  进度条永远 0%，用户以为「重新开始了」。 */
+const totalCount = computed(() => doneCount.value + queue.value.length)
 const progress = computed(() =>
-  queue.value.length ? Math.round((idx.value / queue.value.length) * 100) : 0
+  totalCount.value ? Math.round(((doneCount.value + idx.value) / totalCount.value) * 100) : 0
 )
 
 /** 本轮统计。结束时告诉用户「会 8 / 模糊 5 / 不会 3」——
@@ -83,7 +148,22 @@ onMounted(async () => {
   //    顺手拿来当今日队列就会只显示 8 张。
   await learning.ensureSettings()
   await learning.fetchPick()
+  // 方向比对：必须等设置加载完才知道当前方向（方向是异步取的）。
+  //   签名一致 → 保留已恢复的 done/curId，接着今天这个方向的剩余量继续
+  //   签名不同 → 这份进度属于旧方向，丢弃，从新方向重新开始
+  if (_pendingDirSig && _pendingDirSig !== dirSig(learning.pickedDirs, learning.pickActive)) {
+    done.value = {}
+    curId.value = ''
+  }
+  _pendingDirSig = ''
   await fetchQueue()
+  // 恢复到上次的位置：按 curId 在新队列里重新定位（不能直接用存的 idx，
+  // 队列刷新后重排了）。curId 那张卡要是已经被标记过（移出队列），
+  // findIndex 返回 -1，就从第一条继续 —— 那正是「刚好复习完这张」的自然落点。
+  if (curId.value) {
+    const i = queue.value.findIndex(c => c.id === curId.value)
+    if (i > 0) idx.value = i
+  }
   await loadDetail()
 })
 
@@ -111,8 +191,10 @@ async function loadDetail() {
   }
 }
 
-watch(cur, async () => {
+watch(cur, async c => {
   revealed.value = false
+  // 记住「正在看哪张」：翻卡/标记推进时更新，刷新后据此恢复位置。
+  if (c) curId.value = c.id
   await loadDetail()
 })
 
@@ -144,6 +226,7 @@ async function mark(level) {
 function restart() {
   idx.value = 0
   done.value = {}
+  curId.value = '' // 从头再看，就不该再恢复到上次的卡
   revealed.value = false
 }
 
@@ -246,8 +329,12 @@ onUnmounted(() => window.removeEventListener('keydown', onKey))
       <div class="rv-title">
         <h2>今日队列</h2>
         <span class="rv-sub">
-          <template v-if="finished">本轮结束</template>
-          <template v-else-if="queue.length">{{ idx + 1 }} / {{ queue.length }}</template>
+          <template v-if="finished">本轮结束 · 共复习 {{ doneCount }} 张</template>
+          <template v-else-if="queue.length">
+            <template v-if="doneCount">已复习 {{ doneCount }} 张 · </template>{{ idx + 1 }} /
+            {{ queue.length }}
+          </template>
+          <template v-else-if="doneCount">今天复习完了 · 共 {{ doneCount }} 张</template>
           <template v-else-if="learning.pickActive">清单为空</template>
           <template v-else>今天没有到期的卡</template>
         </span>

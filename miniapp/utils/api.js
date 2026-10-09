@@ -49,8 +49,10 @@ const api = {
 
   // ---- 复习 /api/mini/review ----
   // pick=true 只回今日自选清单里的卡（清单空 → 空队列，不退化成普通队列）
-  queue(limit = 20, pick = false) {
-    const p = pick ? "&pick=1" : "";
+  // all=true  忽略每日目标，把今天全部到期的都给了 —— 首页那20 张刷完、
+  //            库里还剩几百张时用（后端上限 100）
+  queue(limit = 20, pick = false, all = false) {
+    const p = (pick ? "&pick=1" : "") + (all ? "&all=1" : "");
     return app.request(`/api/mini/review/queue?limit=${limit}${p}`);
   },
   // level: 1 不会 / 2 模糊 / 3 会

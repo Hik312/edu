@@ -13,6 +13,7 @@
  */
 import { computed } from 'vue'
 import DiagramView from './DiagramView.vue'
+import MarkdownRenderer from './MarkdownRenderer.vue'
 import { relationOf } from '@/api/cards'
 import { getToken } from '@/api/client'
 
@@ -39,17 +40,17 @@ function imgSrc(im) {
 
 <template>
   <div class="body">
-    <p v-if="card.oneLine" class="one">{{ card.oneLine }}</p>
+    <MarkdownRenderer v-if="card.oneLine" :text="card.oneLine" class="one" />
 
     <!-- 类比放在最前：它是全篇最好懂的一段，先建立直觉再看原理 -->
     <section v-if="card.analogy" class="analogy">
       <span class="mark">打比方</span>
-      <p>{{ card.analogy }}</p>
+      <MarkdownRenderer :text="card.analogy" />
     </section>
 
     <section v-if="card.why" class="sec">
       <h4>为什么重要</h4>
-      <p>{{ card.why }}</p>
+      <MarkdownRenderer :text="card.why" />
     </section>
 
     <section v-if="mechanism.length" class="sec">
@@ -57,7 +58,7 @@ function imgSrc(im) {
       <ol class="steps">
         <li v-for="(m, i) in mechanism" :key="i">
           <span class="idx">{{ String(i + 1).padStart(2, '0') }}</span>
-          <span class="step-txt">{{ m }}</span>
+          <MarkdownRenderer :text="m" />
         </li>
       </ol>
     </section>
@@ -73,7 +74,9 @@ function imgSrc(im) {
       <div class="figs">
         <figure v-for="(im, i) in images" :key="i">
           <img :src="imgSrc(im)" :alt="im.name || '配图'" loading="lazy" />
-          <figcaption v-if="im.caption">{{ im.caption }}</figcaption>
+          <figcaption v-if="im.caption">
+            <MarkdownRenderer :text="im.caption" />
+          </figcaption>
         </figure>
       </div>
     </section>
@@ -81,14 +84,18 @@ function imgSrc(im) {
     <section v-if="interviewQ.length" class="sec">
       <h4>面试怎么答</h4>
       <ul class="qlist">
-        <li v-for="(q, i) in interviewQ" :key="i">{{ q }}</li>
+        <li v-for="(q, i) in interviewQ" :key="i">
+          <MarkdownRenderer :text="q" />
+        </li>
       </ul>
     </section>
 
     <section v-if="scene.length" class="sec">
       <h4>真实场景</h4>
       <ul class="scenes">
-        <li v-for="(s, i) in scene" :key="i">{{ s }}</li>
+        <li v-for="(s, i) in scene" :key="i">
+          <MarkdownRenderer :text="s" />
+        </li>
       </ul>
     </section>
 
@@ -111,7 +118,9 @@ function imgSrc(im) {
           <span class="rel-kind" :class="r.kind">{{ relationOf(r.kind).label }}</span>
           <span class="rel-mid">
             <span class="rel-id mono">{{ r.id }}</span>
-            <span v-if="r.note" class="rel-note">{{ r.note }}</span>
+            <span v-if="r.note" class="rel-note">
+              <MarkdownRenderer :text="r.note" />
+            </span>
           </span>
         </button>
       </div>
@@ -149,11 +158,6 @@ function imgSrc(im) {
   letter-spacing: 1px;
   padding-top: 2px;
 }
-.analogy p {
-  font-size: 14.5px;
-  line-height: 1.85;
-  color: var(--tx);
-}
 
 .sec h4 {
   font-family: var(--font-title);
@@ -164,11 +168,6 @@ function imgSrc(im) {
   margin-bottom: 9px;
   padding-bottom: 6px;
   border-bottom: 1px dashed var(--line);
-}
-.sec p {
-  font-size: 14.5px;
-  line-height: 1.9;
-  color: var(--mu);
 }
 
 .steps {
@@ -189,11 +188,6 @@ function imgSrc(im) {
   color: var(--ac);
   padding-top: 3px;
   letter-spacing: 0.5px;
-}
-.step-txt {
-  font-size: 14.5px;
-  line-height: 1.85;
-  color: var(--tx);
 }
 
 .qlist,
@@ -329,5 +323,22 @@ function imgSrc(im) {
 
 .mono {
   font-family: var(--font-mono);
+}
+
+/* MarkdownRenderer 在 CardBody 内的微调 */
+:deep(.md-container) {
+  font-size: 14.5px;
+  line-height: 1.85;
+  color: var(--tx);
+}
+:deep(.md-codeblk) {
+  margin: 10px 0;
+}
+:deep(.md-codeblk pre) {
+  padding: 12px 14px;
+  font-size: 13px;
+}
+:deep(.md-container :deep(code)) {
+  font-size: 0.9em;
 }
 </style>

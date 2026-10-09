@@ -93,6 +93,21 @@ class Store(object):
     def note_del(self, nid, user_id=None):
         raise NotImplementedError
 
+    # ---------------- 写/读：聊天消息 ----------------
+    def chat_all(self, user_id=None, limit=200):
+        """按时间倒序取最近 limit 条（用于刷新恢复）"""
+        raise NotImplementedError
+
+    def chat_put(self, msg, user_id=None):
+        """写一条消息（新建或更新）。"""
+        raise NotImplementedError
+
+    def chat_del(self, msg_id, user_id=None):
+        raise NotImplementedError
+
+    def chat_clear(self, user_id=None):
+        raise NotImplementedError
+
     # ---------------- 写：文档 ----------------
     def doc_put(self, doc):
         raise NotImplementedError

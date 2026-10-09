@@ -21,6 +21,8 @@ import re
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from .. import config as C
+from . import ans_cache       # 答案缓存（Redis；单轮+无卡命中才用）
+from . import nodes          # 流式 sink（set_token_sink）要经它装/还原
 from . import retrieval
 from . import tools
 from . import websearch
@@ -231,6 +233,70 @@ def ask(question: str, mode: str = 'flow', web: bool = False) -> str:
         config=recursion_config(),
     )
     return st.get('answer') or ''
+
+
+def stream_flow(question: str, on_token, history=None, profile=None,
+                web: bool = False, user_id=None, on_step=None):
+    """flow（固定流程）模式的**流式**版本。
+
+    为什么要单独做一个：flow 的 answer 节点原来是 `invoke()` 一次性返回，
+    本地 8B 生成一段要20~40 秒 —— 用户盯着空白页，只能判断"坏了"。
+    现在answer 节点改成边生成边回调（见 nodes.answer 的 token sink），
+    本函数把 sink 装上、把增量往外吐，最后仍返回完整结果（给 sources）。
+
+    ⚠️ **流式只是"提前看到字"，质检逻辑没变**：grade 拿到的仍是完整答案，
+    没过检照样会重写一轮 —— 所以用户可能看到答案被覆盖重写，这是设计如此。
+
+    ★ **带答案缓存**（qa/ans_cache.py）：单轮问题（没有 history）时，
+    先查一次「同问题+ 同卡片底料+ 同模式 + 同联网开关」的缓存，命中就把
+    答案按 chunk 吐出来（假装流式，用户几百毫秒就看到完整回答）。
+    有 history 一律不查缓存 —— 历史不同答案就不同，命中会答偏。
+    """
+    tools.set_current_user(user_id)
+
+    # ---- 缓存路径：只对「单轮 + 完整问题」生效 ----
+    if not history:
+        hit = ans_cache.get(question, 'flow', web, [])
+        if hit:
+            ans = hit.get('answer') or ''
+            if on_step:
+                on_step('回答（命中缓存）…')
+            # 按块吐出，让前端体验和真流式一致（几十毫秒就铺满）
+            CH = 24
+            for i in range(0, len(ans), CH):
+                on_token(ans[i:i + CH])
+            return {'answer': ans, 'sources': hit.get('sources') or [],
+                    'steps': None, 'cached': True}
+
+    if on_step:
+        on_step('检索卡片库…')
+    old = nodes.set_token_sink(on_token)
+    try:
+        if on_step:
+            on_step('组织回答…')
+        st = qa_app().invoke(
+            {'question': question, 'context': '', 'answer': '', 'sources': [],
+             'tries': 0, 'ok': False,
+             'history': format_history(history), 'profile': format_profile(profile),
+             'web': web},
+            config=recursion_config(),
+        )
+    finally:
+        # 必须还原：线程池会复用线程，不还原会让下一次调用读到上次的 sink。
+        nodes.reset_token_sink(old)
+
+    # ---- 写缓存：只写「检索没命中任何卡」的答案 ----
+    # ★ 有命中卡的答案**故意不缓存**：底料随时会变（改了卡），
+    #   而这里拿不到"用了哪几张卡"（answer 节点不写 state），
+    #   拿不到就意味着无法构造正确的失效指纹 —— 那就宁可不缓存。
+    #   纯参数回答（没查到卡）反而不受卡片变动影响，缓存最安全。
+    sources = st.get('sources') or []
+    answer = clean_answer(st.get('answer'))
+    if not sources:
+        ans_cache.put(question, 'flow', web, [], answer, [])
+    return {'answer': answer,
+            'sources': sources,
+            'steps': None}
 
 
 def ask_full(question: str, mode: str = 'flow', history=None, profile=None,

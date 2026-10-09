@@ -25,20 +25,28 @@ pyflakes>=3.2
 
 # ---- 可选增强，都不是必须 ----
 #
+# 不装任何一项服务照样起（自动回退到 data/store/*.json），只是对应能力没有。
+
 # 1) PDF 导入：让 /api/import/doc 能直接吃 PDF。不装就只能导入 md / txt。
-#    （后端现在只有 FastAPI 一条线，走的是同一个可选依赖）
+#    首选 pypdf；docparse 里还留了 PyPDF2 的兜底 import（老包名兼容），
+#    两个不用都装，pypdf 装上就够。
 pypdf>=4.0
+
+# 2) 存储后端（三选一，按你要连的库装；对应 core/store/ 与 core/algostore/）：
 #
-# 2) MySQL 存储后端：装了它才能把 STORE 设成 mysql。
-#    没装的话服务照样起 —— 会自动回退到 data/store/*.json，
-#    只是 /api/health 里的 store 显示 json、degraded 里写明原因。
-#
-#    为什么用 pymysql 而不是 SQLAlchemy：这是单人用的背卡工具，核心查询
-#    就一个到期队列。上 ORM 换来 10MB 依赖加一层需要调试的抽象，不划算。
-#    纯 Python 驱动 300KB，不装也完全不影响开服务。
+#    MySQL —— 卡片库后端（STORE=mysql）。核心查询就一个到期队列，
+#    不值得为它上 ORM，所以用纯 Python 驱动 pymysql（300KB）。
 pymysql>=1.1
 #
-# 3) AI Agent 层（back_study/agent/）：装了才能跑多步 agent / 工具调用。
+#    PostgreSQL —— 算法库后端（PgAlgoStore，core/algostore/pg.py）。
+#    用 psycopg3（import名是 psycopg，不是 psycopg2）。[binary] 带预编译轮子，
+#    省掉本机装 libpq。
+psycopg[binary]>=3.1
+#
+#    Redis —— 掌握度缓存 / 降级标记（core/cache.py，RedisCache）。
+redis>=4.5
+
+# 3) AI Agent 层（back_study/agent/）：装了才能跑多步 agent / 工具调用 / MCP 外部工具。
 #    不装完全不影响开服务 —— agent 模块把所有 langchain 的 import 都写在
 #    函数内部，缺依赖只在真正调用 AI 时才报错。
 #    这是目前最重的一组（30+ 间接依赖，含 httpx / orjson / langsmith），
@@ -48,3 +56,12 @@ pymysql>=1.1
 langgraph>=1.0
 langchain>=1.0
 langchain-ollama>=0.3
+
+#    MCP（Model Context Protocol）—— agent 通过标准协议接**外部工具**。
+#    mcp.py 是客户端桥接层（起 stdio 子进程 → 把工具包成 langchain 工具），
+#    servers/ 下是 4 个 stdio 服务端：web-search / code-exec / github-resource / cards。
+#
+#    ⚠️ **必须锁 1.30.0，不能写 >=**：2.x 把 FastMCP 改名成 MCPServer、server API
+#    大改，装到 2.3.0 时服务端直接起不来（少了 github_search / run_python 等工具）。
+#    这是实测踩过的坑，不是洁癖。
+mcp==1.30.0

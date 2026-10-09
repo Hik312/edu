@@ -651,6 +651,11 @@ const bktAvg = computed(() => {
         </div>
       </div>
 
+      <!-- 宽度分布：**图表 7 / 滚动榜 5**。
+     试过对调（队列 7、图 5）想让队列标题不被截断，实测反而更糟：
+     科目构成的扇区外标签和图例一起被挤到省略号（"work/ai 1…"、"k mayo…"），
+     而队列那点多出来的宽度只够多显示两三个字。
+     两边都是「标签放不下」，但图表的标签是**外置引线**的，截断更像坏了。 -->
       <div class="panel span-7 rise" :style="{ animationDelay: '180ms' }">
         <header class="panel-head">
           <h3>科目构成</h3>
@@ -835,6 +840,10 @@ const bktAvg = computed(() => {
   font-weight: 700;
   line-height: 1;
   color: var(--ac);
+  /* 等宽数字：四个指标卡并排时，20 / 0 / 0 / 0 的字宽一致才像一张表。
+     比例数字（1 有宽、0 窄）会让右对齐的列看着在抖 —— 这是"廉价感"最常见的来源。 */
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.5px;
 }
 .unit {
   font-size: var(--fs-md);
@@ -944,6 +953,7 @@ const bktAvg = computed(() => {
   gap: 14px;
 }
 .metric {
+  position: relative;
   padding: 16px 18px 14px;
   border-radius: var(--radius);
   border: 1px solid var(--line);
@@ -951,20 +961,30 @@ const bktAvg = computed(() => {
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.62);
   transition:
     border-color 0.18s,
-    transform 0.18s;
+    transform 0.18s,
+    box-shadow 0.18s;
 }
 .metric:hover {
   border-color: var(--line2);
   transform: translateY(-2px);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.62),
+    var(--shadow);
 }
 .m-label {
   font-size: var(--fs-sm);
   color: var(--mu);
+  /* 标签给一点点字距：纯中文标签不能给（会糊），但这个字号下
+     0.2px 的紧排能让四张卡的标签左边缘看起来是一条直线 */
+  letter-spacing: 0.2px;
 }
 .m-value {
   font-size: 32px;
   font-weight: 700;
   line-height: 1.25;
+  /* 同 .num：等宽数字，四卡并排不抖 */
+  font-variant-numeric: tabular-nums;
+  margin-top: 2px;
 }
 .m-bar {
   height: 4px;

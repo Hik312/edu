@@ -9,14 +9,24 @@
 <!-- 队列空：今日清零 -->
 <view wx:elif="{{!cur}}" class="card done">
   <view class="doneIcon">✓</view>
-  <view class="title">{{pickMode ? '今日清单刷完了' : '今日复习完成'}}</view>
+  <view class="title">{{pickMode ? '今日清单刷完了' : (allMode ? '全部到期卡刷完了' : '今日复习完成')}}</view>
   <view class="oneLine">
-    {{pickMode ? '自选 ' + pickCount + ' 张已过完' : '已完成 ' + doneCount + ' 张，明天再来'}}
+    {{pickMode ? '自选 ' + pickCount + ' 张已过完' : '已完成 ' + doneCount + ' 张' + (dueTotal > 0 ? '，库里还有 ' + dueTotal + ' 张到期' : '，明天再来')}}
   </view>
+
+  <!-- ★ 关键的第二个出口：每日目标只有 20 张，而库里到期常有几百张。
+       刷完 20 张后如果只有「刷新队列」，用户永远刷不到剩下的 ——
+       刷新回来的还是那 20 张（已答过）。这个按钮才是真正把那几百张的出口。 -->
+  <button wx:if="{{!pickMode && dueTotal > 0}}" class="btn" bindtap="loadAll" style="margin-top:24rpx">
+    继续刷剩下的 {{dueTotal}} 张
+  </button>
+
   <button wx:if="{{pickMode}}" class="btn ghost" bindtap="clearPick" style="margin-top:24rpx">
     清空清单 · 看自动队列
   </button>
-  <button wx:else class="btn ghost" bindtap="reload" style="margin-top:24rpx">🔄 刷新队列</button>
+  <button wx:else class="btn ghost" bindtap="reload" style="margin-top:16rpx">
+    {{dueTotal > 0 ? '按每日目标刷前 20 张' : '🔄 刷新队列'}}
+  </button>
 </view>
 
 <block wx:else>

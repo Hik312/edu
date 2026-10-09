@@ -344,6 +344,21 @@ const pyFiles = [
   "back_study/agent/cards/runtime.py",
   // 出卡去重（本地 embedding 语义比对，模型缺失时放行，2026-10-01 加）
   "back_study/agent/cards/dedup.py",
+  // 业务层 · 卡片校验自纠（react 答完核对引用卡，2026-10-08 加）
+  "back_study/agent/verify/__init__.py",
+  "back_study/agent/verify/runtime.py",
+  // 业务缓存 · 失效靠内容指纹不靠 TTL（2026-10-08 加）
+  // ⚠️ 这三个是「缓存层」不是「业务层」，但放业务目录里了，
+  //    漏了它们就等于三个缓存从没被编译检查过。
+  "back_study/agent/verify/cache.py",
+  "back_study/agent/qa/retr_cache.py",
+  "back_study/agent/qa/ans_cache.py",
+  // MCP · 客户端桥接 + 4 个 stdio server（2026-10-08 加）
+  "back_study/agent/mcp.py",
+  "back_study/agent/servers/web_search_mcp.py",
+  "back_study/agent/servers/code_exec_mcp.py",
+  "back_study/agent/servers/github_resource_mcp.py",
+  "back_study/agent/servers/cards_mcp.py",
   // 脚本 · 大纲批量造卡（按 catalog 让本地 Ollama 生成卡片，2026-09-29 加）
   "back_study/scripts/gen_cards.py",
   // 脚本 · 文档批量摄取（data/docs 下 md/pdf 走 parse_document→enrich→to_card→草稿，2026-09-29 加）
@@ -587,6 +602,10 @@ async function smoke(py) {
     }
   };
   const TEST_ID = "zz-check-probe";
+  // 用例失败时把**原因**打出来。只负责打印，计数仍由 t() 负责。
+  // ★ 少了这个定义，失败用例会以 ReferenceError: err is not defined 的
+  //   形式报出来 —— 断言为什么没过被彻底吃掉，人只能去猜。
+  const err = (m) => console.log("       ↳ " + m);
   let docsTestId = null;
 
   await t("health 且实现标识正确", async () => {
@@ -809,6 +828,74 @@ async function smoke(py) {
     const r = await call("/api/cards?q=" + encodeURIComponent("事务"));
     return r.body.total > 0;
   });
+  // ★ /graph/rank 曾经只回**前 50 个**（后端 [:50]，前端也 slice(0,50)）。
+  //   后果不是少个字段：图上 87% 的卡侧栏 PageRank 一律显示「—」、
+  //   节点大小退回 degree，同一张图两种尺寸口径。
+  //   用全部卡片 id 打一次、断言一个不少 —— 把「只回一批」的回归锁死。
+  await t("graph/rank 一次回全请求的卡（不再截前 50）", async () => {
+    const ids = cards.map((c) => c.id);
+    const r = await call(
+      "/api/graph/rank?ids=" + encodeURIComponent(ids.join(",")),
+    );
+    const ranks = (r.body && r.body.ranks) || {};
+    const got = Object.keys(ranks).length;
+    if (r.code !== 200) {
+      err("code=" + r.code);
+      return false;
+    }
+    if (got !== ids.length) {
+      err(`请求 ${ids.length} 个 id，只回 ${got} 个排名`);
+      return false;
+    }
+    const first = ranks[ids[0]];
+    return (
+      typeof first.pagerank === "number" &&
+      typeof first.pagerankPct === "number"
+    );
+  });
+  // ★ 路径查询以前只按**一个方向**搜（BFS 顺 prereq 边），而造卡数据里
+  //   target 才是前置 —— 用户按直觉「先点基础、再点进阶」100% 落空，
+  //   报「没有依赖链」，看着像功能坏了；而且返回顺序是「进阶 → 前置」，
+  //   和「学习路径」的读法相反。
+  //   这条锁死两件事：两个方向都必须查到，且两边返回的是**同一条学习顺序**
+  //   （前置卡在前、起点那张进阶卡在最后）。
+  await t("graph/path 双向可查，返回的是学习顺序", async () => {
+    const g = await call("/api/graph");
+    const es = ((g.body && g.body.graph && g.body.graph.edges) || []).filter(
+      (e) => e.kind === "prereq",
+    );
+    if (!es.length) {
+      err("图里一条 prereq 边都没有");
+      return false;
+    }
+    const e = es[0];
+    const q = async (src, dst) => {
+      const r = await call(
+        "/api/graph/path?src=" +
+          encodeURIComponent(src) +
+          "&dst=" +
+          encodeURIComponent(dst),
+      );
+      return (r.body || {}).nodes?.map((n) => n.id) || null;
+    };
+    const fwd = await q(e.source, e.target); // 顺边方向
+    const bwd = await q(e.target, e.source); // 反方向 = 用户直觉的点法
+    if (!fwd || !bwd) {
+      err(`任一方向落空：fwd=${fwd} bwd=${bwd}`);
+      return false;
+    }
+    if (fwd.join("|") !== bwd.join("|")) {
+      err(`两个方向返回的顺序不一致：${fwd.join(">")} vs ${bwd.join(">")}`);
+      return false;
+    }
+    // 学习顺序 = 前置在前；这条边是「target 是 source 的前置」，所以最后
+    // 两站必然是 [target, source]。
+    if (fwd[fwd.length - 1] !== e.source || fwd[fwd.length - 2] !== e.target) {
+      err(`不是学习顺序：${fwd.join(">")}（应以 ${e.target}>${e.source} 收尾）`);
+      return false;
+    }
+    return true;
+  });
   await t("stats 字段完整", async () => {
     const s = (await call("/api/stats")).body.stats;
     return s && typeof s.total === "number" && typeof s.dueToday === "number";
@@ -833,17 +920,27 @@ async function smoke(py) {
     }
     return true;
   });
-  await t("mini home 的 dueTodayPlan = min(到期, 20)，且不超队列上限", async () => {
-    const s = (await call("/api/mini/home")).body.stats;
+  await t("mini home 的 dueTodayPlan：有自选清单按清单，否则 min(到期, 20)", async () => {
+    const h = await call("/api/mini/home");
+    const s = h.body && h.body.stats;
     if (!s || typeof s.dueTodayPlan !== "number") {
       err("缺 dueTodayPlan");
       return false;
     }
-    if (s.dueTodayPlan > 20) {
-      err(`dueTodayPlan=${s.dueTodayPlan} 超过队列默认上限 20`);
+    // 端点有两个分支（mini/learn.py home）：挑了今日自选清单就以清单为准 ——
+    // 清单本身就是用户对「今天做多少」的显式表态；没挑才回落 min(到期, 20)。
+    // 只断言后一半会把「上一轮留下清单」误判成接口坏（check 自己就会留）。
+    const pick = Array.isArray(h.body.pick) ? h.body.pick.length : 0;
+    const want = pick ? pick : Math.min(s.dueToday, 20);
+    if (s.dueTodayPlan !== want) {
+      err(
+        `dueTodayPlan=${s.dueTodayPlan}，应为 ${want}（${
+          pick ? `自选清单 ${pick} 张` : "min(到期, 20)"
+        }）`,
+      );
       return false;
     }
-    return s.dueTodayPlan === Math.min(s.dueToday, 20);
+    return true;
   });
   // ★ 标记进度**必须带 token**：复习事件要记到具体的人头上，端点加了登录要求。
   //   这里不带 token 的话会拿到 401，而 401 和「业务拒绝」长得不一样 ——

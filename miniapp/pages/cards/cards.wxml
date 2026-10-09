@@ -39,7 +39,15 @@
 
 <view wx:if="{{loading && !cards.length}}" class="empty">加载中…</view>
 <view wx:elif="{{error}}" class="empty">{{error}}</view>
-<view wx:elif="{{!cards.length}}" class="empty">没有匹配的卡片</view>
+<!-- 搜不到时要说清「搜的是什么」并给出路：原来只有一句「没有匹配的卡片」，
+     用户不知道搜的是哪个词、也不知道怎么回退，只能干看着。 -->
+<view wx:elif="{{!cards.length}}" class="empty">
+  <view wx:if="{{q}}" style="margin-bottom:8px">没有匹配「{{q}}」的卡片</view>
+  <view wx:else>这个筛选下还没有卡片</view>
+  <button wx:if="{{q}}" class="btn ghost" bindtap="clearSearch" style="margin-top:16rpx">
+    清空搜索
+  </button>
+</view>
 
 <view class="card item" wx:for="{{cards}}" wx:key="id"
       data-id="{{item.id}}" bindtap="openDetail">

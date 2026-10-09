@@ -825,19 +825,28 @@ def build_graph(category=None, subject=None, user_id=None):
         link(c['id'], parent, 'belong')
 
     # --- 语义关联（去重：无向，A-B 与 B-A 视为同一条） ---
-    seen = set()
+    seen = {}                              # 卡对 → 它在 edges 里的下标
     for c in cards:
         for r in (c.get('related') or []):
             tid = r.get('id') if isinstance(r, dict) else r
             if tid not in ids or tid == c['id']:
                 continue                        # 指向已删除的卡就静默跳过
-            key = tuple(sorted([c['id'], tid]))
-            if key in seen:
-                continue
-            seen.add(key)
             note = r.get('note', '') if isinstance(r, dict) else ''
             kind = r.get('kind', 'rel') if isinstance(r, dict) else 'rel'
-            link(c['id'], tid, kind, note=note)
+            key = tuple(sorted([c['id'], tid]))
+            i = seen.get(key)
+            if i is None:
+                seen[key] = len(edges)
+                link(c['id'], tid, kind, note=note)
+                continue
+            # 同一对卡只留一条关系，但 **prereq 必须赢**：学习路径只认 prereq
+            # （见 db.graph_path），而同一对卡上经常同时声明了 compare/extends。
+            # 老写法是「谁先遍历到谁留下」，于是 343 对前置关系里有 109 对
+            # 被另一条 compare 静默吃掉 —— 表面上图正常，路径却凭空断了。
+            if kind == 'prereq' and edges[i]['kind'] != 'prereq':
+                edges[i].update(source=c['id'], target=tid, kind='prereq',
+                                note=note)
+            # 其余（同类重复 / 非 prereq 撞上 prereq）都跳过
 
     return {'nodes': list(nodes.values()), 'edges': edges}
 
@@ -1131,20 +1140,35 @@ def _why_recommended(cid, seedset, sem):
 
 
 def graph_path(src, dst, kinds=('prereq',), max_depth=12):
-    """两张卡之间的最短学习路径（只走 prereq / extends）。
+    """两张卡之间的最短学习路径（只走 prereq）。
 
-    ★ 数据现状要知道：目前 234 条 prereq **全是一跳**（造卡时只标了
-      「A 是 B 的前置」，没形成 A→B→C 的链），所以 most情况下返回的
-      就是 1 跳。接口照样返回 found=false + 空路径，前端显示
-      「两卡之间没有依赖链」—— 别把它当成 bug 去查算法。
+    ★ 两个方向都要试：造卡数据里 `source → target` 的含义是 **target 是
+      source 的前置**（agent/planner 同一约定），BFS 只顺这个方向走。
+      用户按直觉「先点基础卡、再点进阶卡」点出来的正好是反方向 ——
+      只搜一边的话，直觉顺序 100% 报「没有依赖链」，看着像功能坏了。
+      所以反向再搜一次，任一方向命中即算找到。
+
+    ★ 返回的 nodes **一律是学习顺序**（基础在前、进阶在后）：BFS 的原始
+      路径永远是「进阶卡 → 它的前置」，必须整体反转。侧栏逐站列表和
+      「下一步学」的箭头都按这个顺序读，前端不用再翻。
+
+    数据现状：去重后 343 对 prereq（同一对卡上声明两次只算一条），链最长
+    5 跳；多数两张卡之间确实没有依赖链，接口返回 found=false + reason ——
+    那是数据现实，不是算法 bug。
     """
     import algo.graph as G
     nodes, edges = graph_raw()
     r = G.shortest_path(nodes, edges, src, dst, kinds=kinds, max_depth=max_depth)
+    if not r.get('found'):
+        alt = G.shortest_path(nodes, edges, dst, src, kinds=kinds, max_depth=max_depth)
+        if alt.get('found'):
+            r = alt
     label = {n['id']: n for n in nodes}
+    if r.get('found'):
+        r['nodes'] = list(reversed(r['nodes']))          # BFS 序 → 学习序
     r['nodes'] = [{'id': i, 'label': label[i].get('label'),
                    'type': label[i].get('type')} for i in r['nodes'] if i in label]
-    r['reason'] = '' if r['found'] else '两卡之间没有依赖链（当前只沿前置关系找）'
+    r['reason'] = '' if r['found'] else '两卡之间没有前置依赖（已按两个方向找过）'
     return r
 
 
@@ -1879,4 +1903,15 @@ def storage_info():
                          'degraded': cache.degraded()}
     except Exception as e:
         info['cache'] = {'backend': '?', 'degraded': str(e)[:160]}
+    # 业务缓存（答题/校验）：与上面同一个 Redis 实例，只是 key 前缀不同。
+    # 单独报出来是因为**它们可以被关掉**（环境变量），出问题时得看得到。
+    try:
+        from agent.qa import ans_cache
+        from agent.qa import retr_cache
+        from agent.verify import cache as vcache
+        info['cache']['biz'] = {'qa': ans_cache.stats(),
+                                 'retr': retr_cache.stats(),
+                                 'verify': vcache.stats()}
+    except Exception as e:
+        info['cache']['biz'] = {'error': str(e)[:160]}
     return info

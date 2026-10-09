@@ -13,6 +13,7 @@ langgraph 会拿返回值去更新 state，没返回的字段保持原样。
 model.py 和 tools.py，那两个才是延迟导入。
 """
 from typing import TypedDict
+from contextvars import ContextVar
 
 from langchain_core.messages import SystemMessage, HumanMessage
 
@@ -147,9 +148,30 @@ def retrieve(state: QAState) -> dict:
     return {'context': ctx, 'sources': [h.id for h in hits]}
 
 
+# LangGraph 调节点时**只传 state**，没法给节点函数多传一个 on_token 参数。
+# 用 ContextVar 绕过去，和 tools.set_current_user 同一套路（同一线程内可见）。
+# 不设默认值成 NoOp，是为了让「不传 on_token」的旧调用路径行为完全不变。
+_on_token = ContextVar('qa_on_token', default=None)
+
+
+def set_token_sink(fn):
+    """装上流式回调（fn: 每次拿到一段增量文本）。返回旧值便于还原。"""
+    return _on_token.set(fn)
+
+
+def reset_token_sink(old):
+    """还原成上一个回调。**必须 finally 里调**，否则线程池复用时会串味。"""
+    _on_token.reset(old)
+
+
 def answer(state: QAState) -> dict:
     """生成回答。「不许编」这句约束必须写进提示词 —— 否则 8B 模型看到
-    检索结果为空时，会很乐意给你编一段很像真的答案。"""
+    检索结果为空时，会很乐意给你编一段很像真的答案。
+
+    装了 token sink 就**边生成边往外发**（本地 8B 出字很慢，20 秒空白
+    等于「坏了」）；没装就还是一次性 invoke。两条路径行为完全一致。
+    ⚠️ 关键约束：流式只往外发，state['answer'] 仍然等**完整生成后**才写，
+    所以 grade 质检拿到的一定是全文，不会拿半截去判。"""
     blocks = []
     if state.get('profile'):
         blocks.append(state['profile'])
@@ -158,9 +180,26 @@ def answer(state: QAState) -> dict:
     blocks.append('【资料】\n%s' % state['context'])
     blocks.append('【问题】\n%s' % state['question'])
     user = '\n\n'.join(blocks)
-    r = M.chat().invoke([SystemMessage(content=ANSWER_SYS),
-                         HumanMessage(content=user)])
-    return {'answer': (r.content or '').strip(), 'tries': state.get('tries', 0) + 1}
+    msgs = [SystemMessage(content=ANSWER_SYS), HumanMessage(content=user)]
+
+    sink = _on_token.get()
+    if sink is None:
+        r = M.chat().invoke(msgs)
+        return {'answer': (r.content or '').strip(),
+                'tries': state.get('tries', 0) + 1}
+
+    buf = []
+    for piece in M.chat().stream(msgs):
+        piece = getattr(piece, 'content', '') or ''
+        if not piece:
+            continue
+        buf.append(piece)
+        try:
+            sink(piece)
+        except Exception:
+            pass    # 前端断开/回调异常都不该把模型生成打断
+    return {'answer': ''.join(buf).strip(),
+            'tries': state.get('tries', 0) + 1}
 
 
 def grade(state: QAState) -> dict:

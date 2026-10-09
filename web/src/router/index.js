@@ -128,6 +128,18 @@ const routes = [
           note: '基于卡片知识库的问答：知识库问答（带引用）/ Agent（流式）'
         }
       },
+      {
+        path: 'profile',
+        name: 'profile',
+        component: () => import('@/views/profile/ProfileCenterView.vue'),
+        meta: {
+          title: '个人中心',
+          domain: 'profile',
+          icon: 'profile',
+          ready: true,
+          note: '错题本、遗忘曲线、学习时长、复盘报告'
+        }
+      },
 
       // —— 管理：自用后台（用户管理 / 运行状态）——
       {

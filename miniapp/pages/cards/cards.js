@@ -156,11 +156,42 @@ Page({
     });
   },
 
+  // 搜索框输入。
+  // ★ 原实现只 setData(q)，要用户再点「搜索」按钮才发请求 —— 小程序上这很反直觉：
+  //   打完字屏幕上还是**旧的卡片列表**，用户分不清「搜索没生效」还是「没有结果」。
+  //   现在改成防抖即时搜索：停手 350ms 就自动出结果。
+  //   为什么是防抖而不是每字都请求：每键一请求 = 打「布隆过滤器」打 6 次网络，
+  //   而且后一次可能先回来 → 结果闪三次。用 setData 同步 query 保证
+  //   fetch 里读到的this.data.q 一定是最新输入的值。
   onInput(e) {
-    this.setData({ q: e.detail.value });
+    const q = e.detail.value;
+    this.setData({ q });
+    if (this._searchTimer) clearTimeout(this._searchTimer);
+    this._searchTimer = setTimeout(() => {
+      this._searchTimer = null;
+      // 空关键词时不要重置列表 —— 用户可能刚想清空搜索看全部，
+      // 一清空就跳回全库列表反而是干扰（这里只搜，不给「清空即复位」）
+      if (!q.trim()) return;
+      this.fetch(true, true);
+    }, 350);
   },
 
   onSearch() {
+    if (this._searchTimer) {
+      clearTimeout(this._searchTimer);
+      this._searchTimer = null;
+    }
+    this.fetch(true, true);
+  },
+
+  // 空结果页的「清空搜索」：只清关键词，**保留**科目/模块筛选 ——
+  // 用户可能是想在这个模块里找别的词，不是想退出这个模块。
+  clearSearch() {
+    if (this._searchTimer) {
+      clearTimeout(this._searchTimer);
+      this._searchTimer = null;
+    }
+    this.setData({ q: "", cards: [], page: 1 });
     this.fetch(true, true);
   },
 

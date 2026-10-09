@@ -122,6 +122,23 @@ DDL_TABLES = [
       PRIMARY KEY (`k`)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4""",
 
+    """CREATE TABLE IF NOT EXISTS `chat_messages` (
+      `id`          VARCHAR(96)  NOT NULL,
+      `user_id`     VARCHAR(64)  NOT NULL DEFAULT '',
+      `role`        VARCHAR(16)  NOT NULL,
+      `text`        MEDIUMTEXT      NULL,
+      `sources`     JSON            NULL,
+      `steps`       JSON            NULL,
+      `verify`      JSON            NULL,
+      `status`      VARCHAR(16)  NOT NULL DEFAULT 'done',
+      `mode`        VARCHAR(16)  NOT NULL DEFAULT 'flow',
+      `web_search`  TINYINT(1)     NOT NULL DEFAULT 0,
+      `created_at`  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      `updated_at`  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      PRIMARY KEY (`user_id`, `id`),
+      KEY `ix_chat_updated` (`user_id`, `updated_at`)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4""",
+
     # 用户表。目前只有「用户名 + 密码」一种登录方式；
     # openid 列留着是为了将来接微信登录时把 openid 写到同一行即可，不用改表。
     #
@@ -565,6 +582,61 @@ class MySQLStore(Store):
     def note_del(self, nid, user_id=None):
         self._q('DELETE FROM notes WHERE user_id=%s AND id=%s', (_uid(user_id), nid))
 
+    # ---------------- 写/读：聊天消息 ----------------
+    def chat_all(self, user_id=None, limit=200):
+        """按时间倒序取最近 limit 条（用于刷新恢复）"""
+        rows = self._q(
+            'SELECT * FROM chat_messages WHERE user_id=%s '
+            'ORDER BY updated_at DESC LIMIT %s',
+            (_uid(user_id), limit), fetch=True)
+        return [self._chat_of(r) for r in reversed(rows)]
+
+    def chat_put(self, msg, user_id=None):
+        """写一条消息（新建或更新）。msg 必须含 id, role, text, sources, steps, verify, status, mode, web_search"""
+        m = dict(msg)
+        m['user_id'] = _uid(user_id)
+        # sources/steps/verify 可能是列表/None，存 JSON
+        for k in ('sources', 'steps', 'verify'):
+            v = m.get(k)
+            m[k] = json_dumps(v) if v is not None else '[]'
+        m.pop('created_at', None)
+        m.pop('updated_at', None)
+        self._q("""
+            INSERT INTO chat_messages (id, user_id, role, text, sources, steps, verify,
+                                       status, mode, web_search)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+            ON DUPLICATE KEY UPDATE
+              role=VALUES(role), text=VALUES(text), sources=VALUES(sources),
+              steps=VALUES(steps), verify=VALUES(verify),
+              status=VALUES(status), mode=VALUES(mode), web_search=VALUES(web_search),
+              updated_at=VALUES(updated_at)
+        """, (m.get('id'), _uid(user_id), m.get('role'), m.get('text'),
+              m['sources'], m['steps'], m['verify'],
+              m.get('status', 'done'), m.get('mode', 'flow'),
+              1 if m.get('web_search') else 0))
+
+    def chat_del(self, msg_id, user_id=None):
+        self._q('DELETE FROM chat_messages WHERE user_id=%s AND id=%s',
+                (_uid(user_id), msg_id))
+
+    def chat_clear(self, user_id=None):
+        self._q('DELETE FROM chat_messages WHERE user_id=%s', (_uid(user_id),))
+
+    def _chat_of(self, row):
+        return {
+            'id': row['id'],
+            'role': row['role'],
+            'text': row['text'],
+            'sources': json_loads(row['sources'], []),
+            'steps': json_loads(row['steps'], []),
+            'verify': json_loads(row['verify'], []),
+            'status': row['status'],
+            'mode': row['mode'],
+            'web_search': bool(row['web_search']),
+            'created_at': row['created_at'],
+            'updated_at': row['updated_at'],
+        }
+
     # ---------------- 写：文档 ----------------
     def doc_put(self, doc):
         d = dict(doc)
@@ -628,7 +700,9 @@ class MySQLStore(Store):
         否则接口会返回一张「源码里已经不存在」的卡。
         """
         digest = cards_digest(cards)
-        if not force and self.get_meta(KEY_FINGERPRINT) == digest:
+        # 跳过条件用 builtin_stale 而不是只比指纹：指纹是**灌之前算的**，
+        # 行后来被删掉它照样对得上（出过一次：库里少 3 张、状态还报「未过期」）。
+        if not force and not self.builtin_stale(cards):
             return {'seeded': 0, 'removed': 0, 'digest': digest, 'skipped': True}
 
         keep = set()
@@ -655,7 +729,18 @@ class MySQLStore(Store):
                 'skipped': False}
 
     def builtin_stale(self, cards):
-        return self.get_meta(KEY_FINGERPRINT) != cards_digest(cards)
+        """指纹对不上，或**行集合对不上**（少行/多行都算）。
+
+        只比指纹不够：指纹记录的是「上次灌了什么」，灌完之后行被删掉、
+        被手工改过，指纹依然相等 —— 状态会一直报「未过期」，但接口在
+        少给卡。id 集合是真相，多一次轻量查询换掉这个盲区。
+        """
+        if self.get_meta(KEY_FINGERPRINT) != cards_digest(cards):
+            return True
+        want = {c.get('id') for c in cards if c.get('id')}
+        have = {r['id'] for r in
+                self._q("SELECT id FROM cards WHERE origin='builtin'", fetch=True)}
+        return want != have
 
     # ---------------- 用户 ----------------
     @staticmethod

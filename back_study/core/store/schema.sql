@@ -151,6 +151,31 @@ CREATE TABLE IF NOT EXISTS `meta` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='键值杂项';
 
 -- ---------------------------------------------------------------------------
+-- chat_messages：AI 问答会话记录（按用户隔离）。
+--   L1 会话内多轮：存前端发来的历史记录，便于刷新恢复、多端同步。
+--   设计取舍：
+--     * role/text/sources 存 JSON/文本，不拆字段（整条消息整体读写，不单独查询某字段）。
+--     * status 标记生成态：done=已完成 / generating=生成中 / error=出错 → 支持「刷新后显示半截」与「续流」。
+--     * 仅保留最近 200 条/用户，防止无限膨胀（写入时裁剪）。
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS `chat_messages` (
+  `id`          VARCHAR(96)  NOT NULL                     COMMENT '消息 id（msg_时间戳_随机）',
+  `user_id`     VARCHAR(64)  NOT NULL DEFAULT ''          COMMENT '归属用户；''=匿名桶',
+  `role`        VARCHAR(16)  NOT NULL                     COMMENT 'user / assistant',
+  `text`        MEDIUMTEXT      NULL                      COMMENT '消息正文（已渲染为 HTML 的 markdown）',
+  `sources`     JSON            NULL                      COMMENT '引用卡片 id 数组',
+  `steps`       JSON            NULL                      COMMENT 'Agent 步骤条 [{text, done}]',
+  `verify`      JSON            NULL                      COMMENT '校验建议 [{card_id, title, summary, issues[], proposed_patch}]',
+  `status`      VARCHAR(16)  NOT NULL DEFAULT 'done'      COMMENT 'done/generating/error',
+  `mode`        VARCHAR(16)  NOT NULL DEFAULT 'flow'      COMMENT 'flow/react',
+  `web_search`  TINYINT(1)     NOT NULL DEFAULT 0         COMMENT '是否开启联网',
+  `created_at`  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at`  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`user_id`, `id`),
+  KEY `ix_chat_updated` (`user_id`, `updated_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='AI 问答会话（按用户隔离）';
+
+-- ---------------------------------------------------------------------------
 -- users：账号。三端统一到这一张表 —— web 用「用户名 + 密码」，小程序走 openid，
 -- 同一个人的两个入口可以绑到同一行上。
 --

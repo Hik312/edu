@@ -169,11 +169,13 @@ export function cleanAnswer(text) {
  * @param {(err:Error)=>void} [opts.onError]
  */
 export function askStream(question, opts = {}) {
-  const { history = [], profile, webSearch = false, onText, onStep, onSources, onVerify, onDone, onError } = opts
+  const { mode = 'react', history = [], profile, webSearch = false, onText, onStep, onSources, onVerify, onDone, onError } = opts
   const token = getToken()
   const body = JSON.stringify({
     question,
-    mode: 'react',
+    // 不再写死 'react'：flow 也支持 SSE 流式了（后端 answer 节点有 token sink），
+    // 区别只在 flow 不跑 MCP 工具、不做引用卡校验。
+    mode,
     stream: true,
     history,
     profile: profile || undefined,

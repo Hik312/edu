@@ -14,7 +14,9 @@
 目录名还是 `study`，这两处待改（目录名不建议动）。
 
 三份文档：README · docs/技术架构.md · docs/学习路线.md · **docs/开发者文档.md**（新增，最全）
-目录 study/{back_study,web,data,docs}。小程序端 2026-09-26 删，但后端新增 mini/ 路由组（重做小程序后端）。
+目录 study/{back_study,web,data,miniapp,data,docs}。**小程序端存在**（miniapp/ 36 文件，
+后端 mini/ 路由 9 个端点）—— 2026-10-09 核实，此前记忆写「已删」是错的。
+小程序与 web 端**共用同一套卡片库和调度算法**，只是端点聚合、载荷小（3~9KB）。
 
 ## 启动与后端装配
 - 入口 `back_study/run.py` → `uvicorn app.main:app`。`app/main.py` 只收横切：CORS 白名单、请求体上限 16MB(超 413)、Cache-Control no-store、异常→{ok:false,msg}、SPA 回落、启动横幅(卡片数/AI/降级必须可见)。
@@ -51,6 +53,16 @@
 按卡片集合指纹懒构建、变化即重建；文档侧 `search_document:` / 查询侧 `search_query:` **前缀必须不同**。
 实测：首建索引 2.9s → 命中 0.296s；向量能召回关键词漏掉的语义近邻卡。
 `AGENT_RETRIEVER` = vector|keyword|hybrid（hybrid 默认）。
+
+## 小程序端 miniapp/（2026-10-09 核实并优化）
+微信原生（无框架），4 页 + 4 tab：index首页 / learn 复习 / cards 卡包 / detail / mine。
+后端 `app/routers/mini/` 9 个端点（auth 3+ learn 6），**载荷刻意做小**：
+home 3.4KB / cards 7.4KB / queue 7.1KB —— 不是性能瓶颈，别往"瘦身"方向使劲。
+前端已有缓存双读（cachePeek 秒开 + 后台静默刷新）+ 字段补齐兜底，这套别推翻。
+★ **`review/queue` 必须回 `dueTotal`（全库到期数）而不只是 total**：
+库里到期 416 张但每日目标只有 20，只回 total 会让用户答完 20 张就卡死
+（刷新也没用，那 20 张已答）。配`all=1` 忽略每日目标才有"继续刷剩下 N 张"的出口。
+数字必须后端算好后端给前端，别让两端各算一遍。
 
 ## OLLAMA 本地模型
 qwen3:8b（默认对话）、deepseek-r1:7b、qwen2.5vl:7b（识图）、nomic-embed-text（检索）。

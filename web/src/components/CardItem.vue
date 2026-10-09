@@ -25,7 +25,8 @@ defineEmits(['open'])
 // LEVELS 拿，那份颜色是上一版深色的荧光色，跟路径页/图谱对不上）
 const levelText = computed(() => levelLabel(props.card.level ?? 0))
 const levelTint = computed(() => levelColor(props.card.level ?? 0))
-const tags = computed(() => (props.card.tags || []).slice(0, 3))
+/* 只留 2 个：第三个开始边际收益为零，却会把 footer 撑到换行 */
+const tags = computed(() => (props.card.tags || []).slice(0, 2))
 </script>
 
 <template>
@@ -44,15 +45,21 @@ const tags = computed(() => (props.card.tags || []).slice(0, 3))
       </span>
     </header>
 
+    <!-- 领域 / 卡片组：降级成标题下的一行浅色副标题。
+         原来它们和档号、标签一起挤在底部 footer 里，一行塞六七个词，
+         必然换行 → 卡片高度参差，网格看起来全是锯齿。 -->
+    <p v-if="card.domain || card.deck" class="ci-sub">
+      <span v-if="card.domain">{{ card.domain }}</span>
+      <em v-if="card.domain && card.deck">·</em>
+      <span v-if="card.deck" :title="`来自《${card.deck}》`">《{{ card.deck }}》</span>
+    </p>
+
     <p class="ci-one">{{ card.oneLine }}</p>
 
     <footer class="ci-foot">
-      <span class="ci-dno dno">{{ card.id }}</span>
-      <span v-if="card.domain" class="ci-domain">{{ card.domain }}</span>
-      <!-- 卡片组（来自哪份文档的文件夹）：超长截断，鼠标悬停看全名 -->
-      <span v-if="card.deck" class="ci-deck" :title="`来自《${card.deck}》`">
-        《{{ card.deck }}》
-      </span>
+      <!-- 档号：真实的卡 id，必须能和数据对上，所以只淡化成小字、
+           截断显示，完整值挂 title。不编流水号。 -->
+      <span class="ci-dno" :title="card.id">{{ card.id }}</span>
       <span v-for="t in tags" :key="t" class="ci-tag">#{{ t }}</span>
       <span class="ci-arrow">
         <svg viewBox="0 0 24 24"><path d="M5 12h13M13 6l6 6-6 6" /></svg>
@@ -146,35 +153,68 @@ const tags = computed(() => (props.card.tags || []).slice(0, 3))
   overflow: hidden;
 }
 
-.ci-foot {
+/* 领域 / 卡片组：一行浅色副标题，跟标题拉开一点距离。
+   比放进 footer 稳——footer 高度固定（只有档号+2 个标签），换行概率低。 */
+.ci-sub {
   display: flex;
   align-items: center;
-  gap: 8px;
-  margin-top: auto;
-  padding-top: 4px;
-  border-top: 1px dashed var(--line);
+  gap: 5px;
+  margin: -2px 0 0;
   font-size: var(--fs-xs);
-}
-.ci-dno {
   color: var(--dim);
-  opacity: 0.9;
+  min-width: 0;
 }
-.ci-domain {
-  color: var(--dim);
-}
-.ci-deck {
-  color: var(--ac);
-  opacity: 0.75;
-  max-width: 46%;
+.ci-sub span {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.ci-sub em {
+  font-style: normal;
+  opacity: 0.5;
+}
+
+.ci-foot {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: auto;
+  padding-top: 10px;
+  border-top: 1px dashed var(--line);
+  font-size: var(--fs-xs);
+  /* 固定单行高度：档号+2 个标签最多三个 chip，超出就让档号先压缩 */
+  flex-wrap: nowrap;
+  min-width: 0;
+}
+.ci-dno {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--dim);
+  opacity: 0.6;
+  font-family: var(--font-mono);
+  font-size: 10px;
+}
+/* 标签：从「裸彩色文字」改成柔和胶囊 —— 一行挤着一堆彩色词没有层次，
+   做成 chip 才能看出它们是「元信息」而不是正文。 */
 .ci-tag {
+  flex: none;
+  max-width: 42%;
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   color: var(--ac);
-  opacity: 0.85;
+  background: color-mix(in srgb, var(--ac) 8%, var(--panel2));
+  border: 1px solid color-mix(in srgb, var(--ac) 22%, var(--line));
 }
 .ci-arrow {
+  flex: none;
   margin-left: auto;
   color: var(--dim);
   opacity: 0;

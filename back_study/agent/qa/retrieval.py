@@ -17,6 +17,7 @@ import os
 
 from .. import config as C
 import db
+from . import retr_cache      # 检索结果缓存（Redis；库指纹变了自动失效）
 from . import tools
 
 
@@ -234,5 +235,37 @@ def get_retriever():
 
 
 def retrieve(query, k=None):
-    """对外统一入口：返回 [SearchHit]。节点和工具都走这。"""
-    return get_retriever().search(query, k or C.TOP_K)
+    """对外统一入口：返回 [SearchHit]。节点和工具都走这。
+
+    ★ 带检索缓存（retr_cache.py）：实测一次混合检索 **378ms**
+      （几乎全耗在 all_cards() 的 59ms + 打分上），而问答一次要跑 1~2 次。
+      命中时只回 id+score，卡片本体从全库现取 —— 卡片内容刚变就能反映出来，
+      不受缓存影响（缓存的是"哪些卡命中了、排第几"，不是卡的内容）。
+    """
+    k = k or C.TOP_K
+    cached = retr_cache.get(query, k)
+    if cached:
+        # 重建 SearchHit：卡片本体一定现取，缓存里不存它
+        table = {}
+        try:
+            for c in _all_cards():
+                if c and c.get('id'):
+                    table[c['id']] = c
+        except Exception:
+            table = {}
+        out = []
+        for it in cached:
+            card = table.get(it.get('id'))
+            if card is None:
+                continue      # 卡已经不在库里（被删了）→ 丢掉这条命中
+            try:
+                score = float(it.get('score') or 0)
+            except (TypeError, ValueError):
+                score = 0.0
+            out.append(SearchHit(it['id'], card, score))
+        if out:
+            return out
+        # 缓存里的卡全没了（库被大改）→ 落到下面重算，顺便让旧条目自然过期
+    hits = get_retriever().search(query, k)
+    retr_cache.put(query, k, hits)   # 写失败只打日志，不影响检索
+    return hits

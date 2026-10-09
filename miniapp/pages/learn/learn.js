@@ -12,6 +12,7 @@ Page({
     error: "",
     queue: [],
     total: 0,
+    dueTotal: 0, // 今天全库到期数（后端给的，区别于 total=本页条数）
     doneCount: 0,
     cur: null, // 当前卡（队列头）
     detail: null, // 翻面时懒加载的全文
@@ -20,6 +21,11 @@ Page({
     // ---- 今日自选清单 ----
     pickMode: false, // 挑过清单就只推清单（清单空回退普通队列）
     pickCount: 0,
+    // ---- 「继续多刷」----
+    // 每天的每日目标只有 20 张，而库里到期常有几百张。刷完 20 张后如果只显示
+    //「今日复习完成」，用户就永远刷不到剩下的 —— 刷新队列也没用（那 20 张已答）。
+    // 所以要给一个显式出口：allMode=true 时按 all=1 拉全部到期的（上限 100）。
+    allMode: false,
   },
 
   // 详情按 id 缓存：同一张卡二次翻面不再请求
@@ -37,15 +43,44 @@ Page({
     this.setData({
       queue,
       total: s.total || 0,
+      dueTotal: typeof s.dueTotal === "number" ? s.dueTotal : s.total || 0,
       doneCount: s.doneCount || 0,
       cur: queue[0] || null,
       pickMode: !!s.pickMode,
       pickCount: s.pickCount || 0,
+      allMode: !!s.allMode,
       loading: false,
       error: "",
       revealed: false,
       detail: null,
     });
+  },
+
+  // loadAll：用户在「今日复习完成」页点了「继续刷剩下的」。
+  // 它是**显式动作**，所以强制显示 loading（不像后台刷新那样静默）。
+  async loadAll() {
+    if (this.data.submitting) return;
+    this.setData({ loading: true, error: "" });
+    try {
+      const r = await api.queue(100, false, true); // all=1，忽略每日目标
+      const s = {
+        queue: r.queue || [],
+        total: (r.queue || []).length,
+        dueTotal: typeof r.dueTotal === "number" ? r.dueTotal : (r.queue || []).length,
+        doneCount: 0,
+        pickMode: false, // 「继续刷」走自动队列，不跟自选清单混
+        pickCount: 0,
+        allMode: true,
+      };
+      app.cacheSet("queue", s);
+      this.apply(s);
+      if (!s.queue.length) {
+        wx.showToast({ title: "今天的到期卡都刷完了", icon: "none" });
+      }
+    } catch (e) {
+      this.setData({ loading: false });
+      wx.showToast({ title: e.msg || e.message, icon: "none" });
+    }
   },
 
   async reload(showLoading) {
@@ -65,10 +100,14 @@ Page({
       const r = await api.queue(pick.length ? 100 : 20, pick.length > 0);
       const s = {
         queue: r.queue,
-        total: r.queue.length,
+        // total 用**后端给的条数**，别用 queue.length —— 两者今天恰好相等，
+        // 但 all=1 时 queue.length 会被 limit 截断，口径不能混。
+        total: typeof r.total === "number" ? r.total : (r.queue || []).length,
+        dueTotal: typeof r.dueTotal === "number" ? r.dueTotal : null,
         doneCount: 0,
         pickMode: pick.length > 0,
         pickCount: pick.length,
+        allMode: false,
       };
       app.cacheSet("queue", s);
       this.apply(s);
@@ -128,9 +167,13 @@ Page({
       const s = {
         queue: this.data.queue.slice(1),
         total: this.data.total,
+        // 答掉一张，全库到期数就少一张 —— 自己减一，别为此再打一个请求。
+        // （原本没这个字段，所以「刷完了还有多少」永远算不出来。）
+        dueTotal: Math.max(0, (this.data.dueTotal || 0) - 1),
         doneCount: this.data.doneCount + 1,
         pickMode: this.data.pickMode,
         pickCount: this.data.pickCount,
+        allMode: this.data.allMode, // 别答一张就把「继续多刷」模式退回 20 张模式
       };
       app.cacheSet("queue", s); // 缓存同步推进，切回来不会重复看到已答的卡
       this.apply(s);

@@ -228,12 +228,25 @@ def graph_recommend(limit: int = Query(8, ge=1, le=30),
 def graph_path(src: str = Query(..., description='起点卡 id'),
                dst: str = Query(..., description='终点卡 id'),
                user=Depends(current_user)):
-    """只沿 prereq 找依赖链。找不到返回 200 + found=false（不是 404）。
+    """沿 prereq 找依赖链，**两个方向都试**，返回的 nodes 是**学习顺序**
+    （基础在前、进阶在后）。找不到返回 200 + found=false（不是 404）。
 
     404 是「接口/资源不存在」，这里是「这两张卡之间没有依赖关系」——
     是正常答案的一种，客户端不该把它当错误弹窗。
     """
     return db.graph_path(src, dst)
+
+
+#: 单次 rank 查询的 id 上限。
+#:
+#: 为什么是 500 而不是 50：老截断只按 data 文件顺序取前 50 个，图上其余
+#: 卡片**拿不到排名** —— 节点大小退回 degree、侧栏 PageRank 一律显示「—」
+#: （前端按可见卡 id 顺序发，等于前 50 张有排名、后面 300 多张没有）。
+#: 上限只用来挡异常调用，因为 pagerank / betweenness / louvain 都是对**整图**
+#: 算的（见 graph_rank_of），多给几个 id 不多花算力，只多几 KB 响应。
+#: 前端按 150 个一片分片发：全量 414 个 id 逗号串就有 8343 字符，一次塞进
+#: GET 查询串会顶到 8KB 请求头上限（部分代理/浏览器直接 431）。
+MAX_RANK_IDS = 500
 
 
 @router.get('/graph/rank', summary='批量查卡在图里的排名')
@@ -245,6 +258,6 @@ def graph_rank(ids: str = Query(..., description='逗号分隔的卡片 id'),
     通常意味着前端拼错了 id，静默吞掉会让「排名不显示」这个现象
     无法定位。
     """
-    want = [x.strip() for x in (ids or '').split(',') if x.strip()][:50]
+    want = [x.strip() for x in (ids or '').split(',') if x.strip()][:MAX_RANK_IDS]
     ranks, missing = db.graph_rank_of(want)
     return {'ok': True, 'ranks': ranks, 'missing': missing}
