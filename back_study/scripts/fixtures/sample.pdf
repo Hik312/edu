@@ -1,0 +1,73 @@
+%PDF-1.4
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [3 0 R 5 0 R 7 0 R] /Count 3 >>
+endobj
+3 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Contents 4 0 R /Resources << /Font << /F1 << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> >> >> >>
+endobj
+4 0 obj
+<< /Length 270 >>
+stream
+BT /F1 12 Tf 40 760 Td 16 TL
+(Backend Notes) Tj T*
+() Tj T*
+(Routing layer) Tj T*
+(The router groups endpoints by feature and applies the auth dependency.) Tj T*
+() Tj T*
+(Storage layer) Tj T*
+(The store backend keeps card documents and progress rows.) Tj T*
+() Tj T*
+ET
+endstream
+endobj
+5 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Contents 6 0 R /Resources << /Font << /F1 << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> >> >> >>
+endobj
+6 0 obj
+<< /Length 227 >>
+stream
+BT /F1 12 Tf 40 760 Td 16 TL
+(Scheduler) Tj T*
+(Due cards are ordered by review priority, then by overdue days.) Tj T*
+() Tj T*
+(Cache) Tj T*
+(Mastery values are cached in redis with a protocol version field.) Tj T*
+() Tj T*
+ET
+endstream
+endobj
+7 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Contents 8 0 R /Resources << /Font << /F1 << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> >> >> >>
+endobj
+8 0 obj
+<< /Length 232 >>
+stream
+BT /F1 12 Tf 40 760 Td 16 TL
+(Testing) Tj T*
+(Run scripts/check.js before pushing. It covers API smoke tests.) Tj T*
+() Tj T*
+(Deployment) Tj T*
+(The frontend build output is served as static files by the backend.) Tj T*
+() Tj T*
+ET
+endstream
+endobj
+xref
+0 9
+0000000000 65535 f 
+0000000009 00000 n 
+0000000058 00000 n 
+0000000127 00000 n 
+0000000302 00000 n 
+0000000623 00000 n 
+0000000798 00000 n 
+0000001076 00000 n 
+0000001251 00000 n 
+trailer
+<< /Size 9 /Root 1 0 R >>
+startxref
+1534
+%%EOF
