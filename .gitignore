@@ -42,5 +42,9 @@ data/store/jwt-secret.txt
 # 编辑器 / 系统
 .vscode/
 .idea/
+.jbeval/
 Thumbs.db
 desktop.ini
+
+# 个人学习笔记（RAG/Redis 的 .ipynb，非项目代码，用户选择保留磁盘但入库）
+back_study/学习Study/

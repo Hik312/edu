@@ -178,6 +178,8 @@ RE_D2 = re.compile(r'^\d+\.\d+[\s、.:：]+')
 RE_BRACKET = re.compile(r'^【.+】\s*$')
 RE_CN_NUM = re.compile(r'^[一二三四五六七八九十]{1,3}[、.．)）]\s*\S')
 RE_AR_NUM = re.compile(r'^\d{1,2}[、.．)）]\s*\S')
+#: 代码块围栏：``` 或 ~~~（后面可跟语言名）
+FENCE_RE = re.compile(r'^(```|~~~)')
 
 
 def detect_heading(line):
@@ -268,6 +270,31 @@ def _fold_chapters(heads, lines):
     return (live or chs), pre
 
 
+def _fence_mask(lines):
+    """标记哪些行在 ``` / ~~~ 代码块内部（成对出现，奇数行开始、偶数行结束）。
+
+    ★ 为什么必须做：markdown 代码块里全是看着像标题的行 ——
+      Python 的 `# 注释`、JS 的 `// 标题`、shell 的 `#` 注释，块内的
+      `## 小节` 更是标准 markdown 写法。不挡住的话 detect_heading 会把它们
+      全判成章节标题，代码块被拦腰截断 —— 知识库里渲染出来就是一段
+      语法高亮到一半的代码，转卡时也读到了半截代码。
+    """
+    inside = [False] * len(lines)
+    fence = None
+    for i, l in enumerate(lines):
+        s = l.strip()
+        if fence is None:
+            m = FENCE_RE.match(s)
+            if m:
+                fence = m.group(1)
+                inside[i] = True
+        else:
+            inside[i] = True
+            if s.startswith(fence):
+                fence = None
+    return inside
+
+
 def parse_document(text, opts=None):
     """把一整份文档切成章节树。
     返回 {title, chapters:[{level,title,body}], stats:{chapters,chars,headings}}。
@@ -288,8 +315,9 @@ def parse_document(text, opts=None):
         is_list[i] = flags[k]
 
     heads = []                                  # (行号, level, 标题)
+    in_fence = _fence_mask(stripped)
     for i, s in enumerate(stripped):
-        if not s or is_list.get(i):
+        if not s or is_list.get(i) or in_fence[i]:
             continue
         d = detect_heading(s)
         if d:

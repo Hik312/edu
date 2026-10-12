@@ -62,8 +62,12 @@ function codeBlock(lang, code) {
   // 代码整体转义；换行由 .code-pre 的 white-space:pre 还原
   return (
     '<div class="code-block">' +
-    '<div class="code-head"><span class="code-lang">' + label + '</span></div>' +
-    '<pre class="code-pre"><code>' + esc(code.replace(/\n+$/, '')) + '</code></pre>' +
+    '<div class="code-head"><span class="code-lang">' +
+    label +
+    '</span></div>' +
+    '<pre class="code-pre"><code>' +
+    esc(code.replace(/\n+$/, '')) +
+    '</code></pre>' +
     '</div>'
   )
 }

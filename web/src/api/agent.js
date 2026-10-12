@@ -169,7 +169,18 @@ export function cleanAnswer(text) {
  * @param {(err:Error)=>void} [opts.onError]
  */
 export function askStream(question, opts = {}) {
-  const { mode = 'react', history = [], profile, webSearch = false, onText, onStep, onSources, onVerify, onDone, onError } = opts
+  const {
+    mode = 'react',
+    history = [],
+    profile,
+    webSearch = false,
+    onText,
+    onStep,
+    onSources,
+    onVerify,
+    onDone,
+    onError
+  } = opts
   const token = getToken()
   const body = JSON.stringify({
     question,
@@ -204,7 +215,10 @@ export function askStream(question, opts = {}) {
           } catch {
             msg = ''
           }
-          throw new Error(msg || ('HTTP ' + res.status + (rawText ? '：' + rawText.slice(0, 120) : '（响应体为空）')))
+          throw new Error(
+            msg ||
+              'HTTP ' + res.status + (rawText ? '：' + rawText.slice(0, 120) : '（响应体为空）')
+          )
         })
       }
       const reader = res.body.getReader()

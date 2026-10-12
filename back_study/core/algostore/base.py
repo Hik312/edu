@@ -71,6 +71,44 @@ class AlgoStore(object):
     def mastery_clear(self, user_id=None):
         raise NotImplementedError
 
+    # ---------------- 学习时长会话（个人中心埋点）----------------
+    SESSION_KEYS = ('id', 'user_id', 'card_id', 'duration_seconds',
+                    'level', 'ts', 'session_id')
+
+    def sessions_of(self, user_id, card_id=None, limit=500):
+        """某人的学习时长记录，按时间正序。
+
+        `limit` 语义与 events_of 一致：只取最近 limit 条再正序返回；
+        `limit <= 0` / `None` = 不截断。
+        """
+        raise NotImplementedError
+
+    def sessions_append(self, sess):
+        """追加一条学习时长记录，返回写进去的那条（带 id）。"""
+        raise NotImplementedError
+
+    def sessions_count(self, user_id=None):
+        raise NotImplementedError
+
+    # ---------------- 学习时长会话（个人中心埋点）----------------
+    SESSION_KEYS = ('id', 'user_id', 'card_id', 'duration_seconds',
+                    'level', 'ts', 'session_id')
+
+    def sessions_of(self, user_id, card_id=None, limit=500):
+        """某人的学习时长记录，按时间正序。
+
+        `limit` 语义与 events_of 一致：只取最近 limit 条再正序返回；
+        `limit <= 0` / `None` = 不截断。
+        """
+        raise NotImplementedError
+
+    def sessions_append(self, sess):
+        """追加一条学习时长记录，返回写进去的那条（带 id）。"""
+        raise NotImplementedError
+
+    def sessions_count(self, user_id=None):
+        raise NotImplementedError
+
     # ---------------- 模型参数（拟合产出）----------------
     def params_get(self, key, default=None):
         raise NotImplementedError

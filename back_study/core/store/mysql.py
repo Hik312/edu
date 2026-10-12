@@ -97,6 +97,11 @@ DDL_TABLES = [
       `subject`     VARCHAR(48)  NOT NULL DEFAULT '',
       `domain`      VARCHAR(48)  NOT NULL DEFAULT '',
       `chapters`    JSON             NULL,
+      `tags`        JSON             NULL,
+      `raw_file`    VARCHAR(255) NOT NULL DEFAULT '',
+      `is_paper`    TINYINT      NOT NULL DEFAULT 0,
+      `doc_text`    MEDIUMTEXT        NULL,
+      `tree`       JSON             NULL,
       `parse`       JSON             NULL,
       `ai_done`     INT          NOT NULL DEFAULT 0,
       `ai_total`    INT          NOT NULL DEFAULT 0,
@@ -118,7 +123,12 @@ DDL_TABLES = [
 
     """CREATE TABLE IF NOT EXISTS `meta` (
       `k` VARCHAR(48)  NOT NULL,
-      `v` VARCHAR(255) NOT NULL DEFAULT '',
+      -- ★ 2026-10-11 由 VARCHAR(255) 放宽到 TEXT：知识库的文件夹树整个存在
+      --   meta.kb_tree 这一行里，255 字符连三层节点名都放不下。
+      --   改列类型是 DDL 里唯一不能「加列」解决的一类，必须显式 ALTER。
+      --   用 TEXT 而不是 JSON 是因为 meta 是**字符串**键值表，
+      --   塞结构化数据进来只会让两个后端（json/mysql）的读写语义不一致。
+      `v` TEXT            NOT NULL,
       PRIMARY KEY (`k`)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4""",
 
@@ -157,6 +167,30 @@ DDL_TABLES = [
       PRIMARY KEY (`id`),
       UNIQUE KEY `uq_users_name` (`username`),
       UNIQUE KEY `uq_users_openid` (`openid`)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4""",
+    # ★ 与 schema.sql 保持逐字一致。schema.sql 是给人读的、mysql.py 这份是
+    #   给程序跑的 —— 两处不同步时症状极怪：新建的库少一张表，
+    #   而老库（先有 schema.sql 后加的这张）反而一路正常，直到写译文才炸。
+    """CREATE TABLE IF NOT EXISTS `doc_translations` (
+      `doc_id`     VARCHAR(96) NOT NULL,
+      `seg_i`      INT         NOT NULL,
+      `src_hash`   CHAR(16)    NOT NULL DEFAULT '',
+      `zh`         MEDIUMTEXT  NULL,
+      `status`     VARCHAR(12) NOT NULL DEFAULT '',
+      `score`      FLOAT           NULL,
+      `missing`    VARCHAR(160) NOT NULL DEFAULT '',
+      `model`      VARCHAR(96)  NOT NULL DEFAULT '',
+      `updated_at` DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (`doc_id`, `seg_i`),
+      KEY `k_translation_doc` (`doc_id`)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4""",
+    """CREATE TABLE IF NOT EXISTS `doc_glossary` (
+      `doc_id`     VARCHAR(96) NOT NULL,
+      `en`         VARCHAR(80)  NOT NULL,
+      `zh`         VARCHAR(64)  NOT NULL DEFAULT '',
+      `locked`     TINYINT      NOT NULL DEFAULT 0,
+      `updated_at` DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (`doc_id`, `en`)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4""",
 ]
 
@@ -295,12 +329,55 @@ class MySQLStore(Store):
     _ADDED_COLUMNS = (
         ('documents', 'stats', 'JSON NULL'),
         ('documents', 'parse', 'JSON NULL'),
+        # ★ 2026-10-11：论文不显示原件的根因 —— 这几列**从来没建过**。
+        #   raw_file / is_paper 没列 → doc_put 写不进去、_doc_of 读不出来 →
+        #   前端 canShowOriginal 恒为 false，论文被当成抽取文本显示。
+        #   症状是「原件明明在 data/store/files/ 里，页面却给文本版」。
+        #   tags / doc_text 同理：标签和留档原文一起静默丢失。
+        ('documents', 'tags', 'JSON NULL'),
+        ('documents', 'raw_file', "VARCHAR(255) NOT NULL DEFAULT ''"),
+        ('documents', 'is_paper', 'TINYINT NOT NULL DEFAULT 0'),
+        ('documents', 'doc_text', 'MEDIUMTEXT NULL'),
         # 2026-10-03 数据隔离：progress / notes 加user_id。
         # 光加列不够 —— 主键也得从 (card_id) 变成 (user_id, card_id)，
         # 否则 INSERT ... ON DUPLICATE KEY UPDATE 照样按 card_id 冲突，
         # 两个人的进度还是互相覆盖（列加了、主键没改 = 看着对、行为没变）。
         ('progress', 'user_id', "VARCHAR(64) NOT NULL DEFAULT ''"),
         ('notes', 'user_id', "VARCHAR(64) NOT NULL DEFAULT ''"),
+    )
+
+    #: **整张表**缺失的老库要补建的（不是加列，所以不能放进 _ADDED_COLUMNS）。
+    #: 译文表是「多列 + 复合主键 + 索引」，用 ALTER 一列列补会漏掉主键 ——
+    #: 没主键的表在 INSERT ... ON DUPLICATE KEY UPDATE 下退化成纯插入，
+    #: 断点续译每跑一次就多一份重复译文，而表看起来「有数据、也正常」。
+    _ADDED_TABLES = (
+        ('doc_translations', """CREATE TABLE IF NOT EXISTS `doc_translations` (
+             `doc_id` VARCHAR(96) NOT NULL, `seg_i` INT NOT NULL,
+             `src_hash` CHAR(16) NOT NULL DEFAULT '', `zh` MEDIUMTEXT NULL,
+             `status` VARCHAR(12) NOT NULL DEFAULT '', `score` FLOAT NULL,
+             `missing` VARCHAR(160) NOT NULL DEFAULT '',
+             `model` VARCHAR(96) NOT NULL DEFAULT '',
+             `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+             PRIMARY KEY (`doc_id`, `seg_i`), KEY `k_translation_doc` (`doc_id`)
+           ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"""),
+        ('doc_glossary', """CREATE TABLE IF NOT EXISTS `doc_glossary` (
+             `doc_id` VARCHAR(96) NOT NULL, `en` VARCHAR(80) NOT NULL,
+             `zh` VARCHAR(64) NOT NULL DEFAULT '', `locked` TINYINT NOT NULL DEFAULT 0,
+             `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+             PRIMARY KEY (`doc_id`, `en`)
+           ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"""),
+    )
+
+    #: **列类型**要改的（不是加列，是 MODIFY）。
+    #: 格式：表名 → (列名, 目标定义, 用于判断「还没改」的反向条件)
+    #: `_ADDED_COLUMNS` 只解决 ADD COLUMN，而「VARCHAR(255) 改成 TEXT」
+    #: 在 DDL 层面**不是加列能解决的** —— 必须 MODIFY，且判断依据也得换：
+    #: 不能问「这列在不在」（一直在），得问「类型对不对」。
+    _RECOLUMN_TYPES = (
+        # meta.v：知识库的文件夹树整个存在 kb_tree 这一行，255 不够放。
+        # 判「已改」用 CHARACTER_MAXIMUM_LENGTH > 255 —— 比字符串比类型稳，
+        # 换MySQL 版本改了类型名也不会误判。
+        ('meta', 'v', 'TEXT NOT NULL', ('meta', 'v', 'CHARACTER_MAXIMUM_LENGTH', 255)),
     )
 
     #: 主键/索引要改的表。补列之后必须重建主键，否则隔离不生效。
@@ -311,8 +388,22 @@ class MySQLStore(Store):
     )
 
     def _migrate_schema(self, dbname):
-        """幂等补列 + 改主键，返回改了哪些（给启动横幅用）。"""
+        """幂等补表 + 补列 + 改主键，返回改了哪些（给启动横幅用）。"""
         done = []
+        # 先补表：_ADDED_TABLES 里的是 CREATE TABLE IF NOT EXISTS，
+        # 对已存在的表直接跳过，对缺的表建出来。放在补列之前 ——
+        # 顺序反了的话补列阶段会去 ALTER 一张不存在的表，直接报错刷屏。
+        for _name, ddl in self._ADDED_TABLES:
+            row = self._one("""SELECT COUNT(*) AS n FROM information_schema.TABLES
+                               WHERE TABLE_SCHEMA=%s AND TABLE_NAME=%s""",
+                            (dbname, _name))
+            if row and row['n']:
+                continue
+            try:
+                self._q(ddl)
+                done.append(_name)
+            except Exception as e:
+                sys.stderr.write('[store] 建表 %s 失败：%s\n' % (_name, str(e)[:120]))
         for table, col, definition in self._ADDED_COLUMNS:
             row = self._one("""SELECT COUNT(*) AS n FROM information_schema.COLUMNS
                                WHERE TABLE_SCHEMA=%s AND TABLE_NAME=%s
@@ -326,7 +417,35 @@ class MySQLStore(Store):
                 # 补列失败不该拦启动：老库能用就先用，横幅会打出来
                 sys.stderr.write('[store] 补列 %s.%s 失败：%s\n'
                                  % (table, col, str(e)[:120]))
+        done += self._recolumn(dbname)
         done += self._rekey(dbname)
+        return done
+
+    def _recolumn(self, dbname):
+        """改列类型（幂等）。判「改过没」用 information_schema 里的实际类型/长度，
+        不能问「列在不在」—— 那些列一直都在，要判断的是类型变没变。
+
+        ★ 注意判断方向：是「**不等于**旧值才要改」。
+          写成「等于就跳过」的话，每次启动都在做无意义的 ALTER 尝试 ——
+          表现出来是 added 永远空、列永远是旧类型，非常难看出是判断反了。
+          TEXT 的 CHARACTER_MAXIMUM_LENGTH 是 65535，不等于 255，正好能判出来。"""
+        done = []
+        for table, col, definition, (t2, c2, field, old_val) in self._RECOLUMN_TYPES:
+            row = self._one("""SELECT `%s` AS v FROM information_schema.COLUMNS
+                               WHERE TABLE_SCHEMA=%%s AND TABLE_NAME=%%s
+                                 AND COLUMN_NAME=%%s""" % field,
+                            (dbname, table, col))
+            if not row:
+                continue
+            cur = row['v']
+            if cur is not None and str(cur).lower() != str(old_val).lower():
+                continue                     # 已经是目标类型（或更宽），幂等跳过
+            try:
+                self._q('ALTER TABLE `%s` MODIFY COLUMN `%s` %s' % (table, col, definition))
+                done.append('%s.%s' % (table, col))
+            except Exception as e:
+                sys.stderr.write('[store] 改列 %s.%s 失败：%s\n'
+                                 % (table, col, str(e)[:120]))
         return done
 
     def _rekey(self, dbname):
@@ -642,19 +761,26 @@ class MySQLStore(Store):
         d = dict(doc)
         self._q("""
             INSERT INTO documents (id, title, source, category, subject, domain,
-                                   chapters, stats, parse, ai_done, ai_total, ai_model,
+                                   chapters, tags, raw_file, is_paper, doc_text,
+                                   stats, parse, ai_done, ai_total, ai_model,
                                    ai_provider, created_at, updated_at)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
             ON DUPLICATE KEY UPDATE
               title=VALUES(title), source=VALUES(source), category=VALUES(category),
               subject=VALUES(subject), domain=VALUES(domain),
-              chapters=VALUES(chapters), stats=VALUES(stats), parse=VALUES(parse),
-              ai_done=VALUES(ai_done),
+              chapters=VALUES(chapters), tags=VALUES(tags),
+              raw_file=VALUES(raw_file), is_paper=VALUES(is_paper),
+              doc_text=VALUES(doc_text),
+              stats=VALUES(stats), parse=VALUES(parse), ai_done=VALUES(ai_done),
               ai_total=VALUES(ai_total), ai_model=VALUES(ai_model),
               ai_provider=VALUES(ai_provider), updated_at=VALUES(updated_at)
         """, (d.get('id'), (d.get('title') or '')[:255], (d.get('source') or '')[:255],
               d.get('category') or '', d.get('subject') or '', d.get('domain') or '',
               json_dumps(d.get('chapters') or []),
+              json_dumps(d.get('tags') or []),
+              (d.get('rawFile') or '')[:255],
+              1 if d.get('isPaper') else 0,
+              d.get('text') or None,
               # ★ stats 必须存：importer.parse_document 明确产出
               # {chapters, chars, headings}，routers/docs.py 透给前端，
               # 前端文档列表显示「N 章 · M 字」。从前这一列不存在 →
@@ -681,14 +807,71 @@ class MySQLStore(Store):
                                                payload=VALUES(payload)""",
                     (d.get('id'), (d.get('title') or '')[:255], json_dumps(d)))
 
+    # ---------------- 论文译文 / 术语表 ----------------
+    def trans_all(self, did):
+        """读一份文档的全部译文。返回 {seg_i: {...}}。"""
+        rows = self._q('SELECT * FROM doc_translations WHERE doc_id=%s'
+                       ' ORDER BY seg_i', (did,), fetch=True)
+        out = {}
+        for r in rows:
+            out[int(r['seg_i'])] = {
+                'zh': r.get('zh') or '',
+                'srcHash': (r.get('src_hash') or ''),
+                'status': (r.get('status') or ''),
+                # score 可能是 NULL（没校验过）。**必须转 float 或 None** ——
+                # 直接把 Decimal 塞进返回值，前端 JSON 序列化会报 TypeError，
+                # 而报错点在响应编码阶段，看不出是哪一列的问题。
+                'score': (float(r['score']) if r.get('score') is not None else None),
+                'missing': [int(x) for x in (r.get('missing') or '').split(',') if x],
+                'model': (r.get('model') or ''),
+            }
+        return out
+
+    def trans_put(self, did, seg_i, zh, src_hash='', status='', score=None,
+                  missing=None, model=''):
+        self._q("""INSERT INTO doc_translations
+                   (doc_id, seg_i, src_hash, zh, status, score, missing, model,
+                    updated_at)
+                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s, NOW())
+                   ON DUPLICATE KEY UPDATE
+                     src_hash=VALUES(src_hash), zh=VALUES(zh),
+                     status=VALUES(status), score=VALUES(score),
+                     missing=VALUES(missing), model=VALUES(model),
+                     updated_at=NOW()""",
+                (did, int(seg_i), src_hash, zh, status, score,
+                 ','.join(str(x) for x in (missing or [])), model))
+
+    def trans_clear(self, did):
+        self._q('DELETE FROM doc_translations WHERE doc_id=%s', (did,))
+
+    def glossary_all(self, did):
+        rows = self._q('SELECT * FROM doc_glossary WHERE doc_id=%s ORDER BY en',
+                       (did,), fetch=True)
+        return [{'en': r['en'], 'zh': r.get('zh') or '',
+                 'locked': bool(r.get('locked') or 0)} for r in rows]
+
+    def glossary_put(self, did, en, zh, locked=False):
+        self._q("""INSERT INTO doc_glossary (doc_id, en, zh, locked, updated_at)
+                   VALUES (%s,%s,%s,%s, NOW())
+                   ON DUPLICATE KEY UPDATE
+                     zh=VALUES(zh), locked=VALUES(locked), updated_at=NOW()""",
+                (did, en, zh, 1 if locked else 0))
+
+    def glossary_del(self, did, en):
+        self._q('DELETE FROM doc_glossary WHERE doc_id=%s AND en=%s', (did, en))
+
     # ---------------- 内置卡：灌种子 / 查过期 ----------------
     def get_meta(self, k, default=''):
         r = self._one('SELECT v FROM meta WHERE k=%s', (k,))
         return r['v'] if r else default
 
     def set_meta(self, k, v):
+        # ⚠️ 这里原来有 `str(v)[:255]` —— meta.v 放宽到 TEXT 之后这个截断就成了
+        # **静默的数据损坏**：知识库的文件夹树 JSON 一存就被砍到 255 字符，
+        # 读回来是个非法 JSON，报错却指向「前端树乱了」而不是「后端存丢了」。
+        # 写长文本前先想清楚上限在哪，别留一个看不见的 255。
         self._q("""INSERT INTO meta (k, v) VALUES (%s,%s)
-                   ON DUPLICATE KEY UPDATE v=VALUES(v)""", (k, str(v)[:255]))
+                   ON DUPLICATE KEY UPDATE v=VALUES(v)""", (k, str(v)))
 
     def seed_builtin(self, cards, force=False):
         """把 data/*.js 里的内置卡灌进 cards 表。
@@ -882,6 +1065,13 @@ def _doc_of(r):
          'title': r['title'] or '',
          'source': r['source'] or '',
          'chapters': json_loads(r['chapters'], []),
+         # ★ tags / raw_file / is_paper / text 曾经**读不出来** —— 表里没这几列，
+         #   doc_put 写进去也白写。前端 canShowOriginal 判 rawFile，
+         #   于是论文永远显示抽取文本而不是原件。都走 r.get 兜底老库。
+         'tags': json_loads(r.get('tags'), []),
+         'rawFile': r.get('raw_file') or '',
+         'isPaper': bool(r.get('is_paper') or 0),
+         'text': r.get('doc_text') or '',
          # stats 回填。用 r.get 是因为**老库可能还没补上这一列**
          # （补列由 init_schema 的 _migrate_schema 做，但要允许它失败），
          # 缺列时给 None，与 json 后端「没有 stats 就是没有」一致。

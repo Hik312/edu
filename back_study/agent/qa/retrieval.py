@@ -14,9 +14,11 @@
 """
 import json
 import os
+import time
 
 from .. import config as C
 import db
+from . import rerank as rerank_module   # 重排（cross-encoder 精排）
 from . import retr_cache      # 检索结果缓存（Redis；库指纹变了自动失效）
 from . import tools
 
@@ -46,7 +48,12 @@ def _card_text(c):
 # ---------- 卡片集合指纹 + 缓存 ----------
 _FP_CACHE = {'fp': None, 'cards': None}
 _CARD_CACHE = {'fp': None, 'map': None}
-_VEC_CACHE = {'fp': None, 'index': None}
+#: 'at' = 这次尝试的时间戳，用于失败后的冷却判断（见 _get_index）
+_VEC_CACHE = {'fp': None, 'index': None, 'at': 0.0}
+
+#: 重建失败后的冷却时间（秒）。模型没拉/没起时，不要每个请求都去试一次 ——
+#: 一次 7~8 秒，QPS 一上来就是灾难。冷却期内直接返回 None（降级）。
+_VEC_RETRY_COOLDOWN = 300
 
 _EMBED_DIR = os.path.join(db.DATA_DIR, 'store')
 _EMBED_FILE = os.path.join(_EMBED_DIR, 'embeddings.json')
@@ -134,8 +141,13 @@ def _build_index():
 
 def _get_index():
     fp = _fingerprint()
-    if _VEC_CACHE['fp'] == fp and _VEC_CACHE['index'] is not None:
-        return _VEC_CACHE['index']
+    # 命中条件：指纹一致，且「要么有索引、要么失败还在冷却期内」。
+    # 原守卫要求 index is not None，导致失败后每次都重试（一次 7~8 秒）。
+    if _VEC_CACHE['fp'] == fp:
+        if _VEC_CACHE['index'] is not None:
+            return _VEC_CACHE['index']
+        if time.time() - _VEC_CACHE['at'] < _VEC_RETRY_COOLDOWN:
+            return None                     # 冷却中，别再白等一次重建
     index = None
     if os.path.exists(_EMBED_FILE):
         try:
@@ -152,8 +164,16 @@ def _get_index():
                 json.dump(index, open(_EMBED_FILE, 'w', encoding='utf-8'))
             except Exception:
                 pass
+    # ★ 失败也缓存住（下面这行 2026-10-09 加的）。
+    #   原来 `if _VEC_CACHE['index'] is not None` 的守卫让「重建失败 → None」
+    #   变成**每次调用都重试**：一次 527 张的重建要 7~8 秒，
+    #   而检索本身只要 300ms —— 也就是说模型没就绪时，
+    #   每次搜索都在白等 10 秒（实测向量检索 10615ms、混合 4657ms）。
+    #   现在失败结果也记进进程内缓存，让本次进程只试一次；
+    #   下次重启还能再试（重启 = 新进程，_MODEL 缓存自然失效）。
     _VEC_CACHE['fp'] = fp
     _VEC_CACHE['index'] = index
+    _VEC_CACHE['at'] = time.time()
     return index
 
 
@@ -186,42 +206,89 @@ class VectorRetriever:
         return hits[:k]
 
 
+def rrf_fuse(rank_lists, k=None):
+    """RRF（Reciprocal Rank Fusion，倒数排名融合）。
+
+    score(d) = Σ 1 / (k + rank_i(d))
+
+    ★ 为什么用它，而不是「各自 min-max 归一化再加权」（原来的做法）：
+      两路的**分数量纲根本不同** —— 余弦相似度挤在 0.6~0.9，
+      关键词子串分是整数计数 0~20。min-max 归一化虽然把两边都拉到 [0,1]，
+      但**谁的分更分散谁就主导融合结果**：关键词路经常是「唯一命中 = 满分、
+      其余都是 0」，归一化后噪声被放大。
+      实测查「RRF和Rerank」时，「Redis 有哪几种持久化方式」被排到第 1
+      （只因为它字面命中了「Rerank」这个词）。
+      RRF 只看**名次**不看分数，天然免疫量纲差异 —— 这是它被广泛使用的根本原因。
+
+    ★ k=60 是惯例值（Cormack 等人的论文里就是 60）：
+      它控制「头部排名的统治力」。k 越小，第1 名的权重越大、越容易被
+      单路的错误判断带跑；k 越大，各路越民主。60 是在「单路强相关」
+      和「单路误命中」之间实测比较稳的折中。
+
+    rank_lists: [[SearchHit,...], ...]，**已按分数降序**。
+    返回 {id: rrf_score}（不含命中的 id 就不会出现）。
+    """
+    k = k if k is not None else C.RRF_K
+    fused = {}
+    for hits in rank_lists:
+        for rank, h in enumerate(hits):
+            # rank 从 0 开始，名次1 排在第 0 位 —— 公式里用 rank+1
+            fused[h.id] = fused.get(h.id, 0.0) + 1.0 / (k + rank + 1)
+    return fused
+
+
 class HybridRetriever:
+    """两阶段检索：召回（关键词 + 向量，RRF 融合）→ 重排（cross-encoder）。"""
+
     def __init__(self):
         self.kw = KeywordRetriever()
         self.vec = VectorRetriever()
 
-    def search(self, query, k=C.TOP_K):
+    def _recall(self, query, k):
+        """只做召回+RRF 融合，不管重排。拆出来是为了让retrieve() 能复用。"""
         kw = self.kw.search(query, k * 3)
         vec = self.vec.search(query, k * 3)
         if not vec:
-            return kw[:k]                    # 向量退化：纯关键词
+            return kw[:k], 'keyword-only'# 向量不可用：纯关键词
         if not kw:
-            return vec[:k]
-        merged = {}
-        for h in _norm(kw):
-            merged[h.id] = (1 - C.VECTOR_WEIGHT) * h.score
-        for h in _norm(vec):
-            merged[h.id] = merged.get(h.id, 0.0) + C.VECTOR_WEIGHT * h.score
+            return vec[:k], 'vector-only'
         cmap = _card_map()
-        out = [SearchHit(i, cmap.get(i), s) for i, s in merged.items() if cmap.get(i)]
+        fused = rrf_fuse([kw, vec])
+        out = [SearchHit(i, cmap.get(i), s)
+               for i, s in fused.items() if cmap.get(i)]
         out.sort(key=lambda h: -h.score)
-        return out[:k]
+        return out[:k], 'rrf'
+
+    def search(self, query, k=C.TOP_K):
+        hits, how = self._recall(query, k)
+        if not C.RERANK_ENABLED:
+            return hits
+        return apply_rerank(query, hits, k)
 
 
-def _norm(hits):
-    """min-max 归一化到 [0,1]；全相等时给 1.0（避免除零）。"""
-    if not hits:
-        return []
-    mx = max(h.score for h in hits)
-    mn = min(h.score for h in hits)
-    if mx - mn < 1e-9:
-        for h in hits:
-            h.score = 1.0
-        return hits
-    for h in hits:
-        h.score = (h.score - mn) / (mx - mn)
-    return hits
+# ---------- 重排接入 ----------
+def apply_rerank(query, hits, k):
+    """对召回结果做 cross-encoder 精排。**永远返回可用结果**，不会失败。
+
+    ★ 这里不做模型可用性判断的短路，而是无条件调用 rerank.rerank()：
+      它内部自己处理加载失败 / 超时 / 推理异常，一律返回 None。
+      本函数只在拿到 None 时**原样返回召回顺序**。
+      —— 「降级必须看得见」：降级信息通过 return_meta 带出去。
+    """
+    cand = hits[:C.RERANK_CANDIDATES]      # 只精排前 N，N 之外的不动
+    tail = hits[C.RERANK_CANDIDATES:]
+    scores = rerank_module.rerank(query, cand)
+    if scores is None:
+        return hits                       # 降级：保留召回顺序
+    out = [SearchHit(h.id, h.card, scores.get(h.id, h.score)) for h in cand]
+    out.sort(key=lambda h: -h.score)
+    # 候选外的条目保持原相对顺序接在后面 —— 它们本来就没被重排过，
+    # 拿召回分插进精排结果里会污染排序，所以只保留原序。
+    return out + tail
+
+
+# ★ 原 _norm()（min-max 归一化）已随 RRF 一起删掉 —— 留着会让人以为
+#   融合还在用它，而它的量纲问题正是 RRF 要解决的那个坑。
 
 
 # ---------- 工厂 + 便捷入口 ----------
@@ -234,6 +301,26 @@ def get_retriever():
     return HybridRetriever()
 
 
+def last_meta():
+    """最近一次检索的**元信息**（降级必须看得见）。
+
+    为什么不放进 SearchHit：SearchHit 有 __slots__，加字段会影响
+    所有构造点；而「这次检索有没有重排/走的是哪条路」属于**运行状态**，
+    不是命中本身的属性，用模块级 dict 存最省事。
+
+    键：
+      stage    实际走到的阶段：rrf / rerank / keyword-only / vector-only
+      reranked 是否真的重排了（False = 模型没就绪或超时）
+      costMs   本次检索总耗时
+      degrade  降级原因列表（空列表= 没降级）
+    """
+    return dict(_LAST_META)
+
+
+_LAST_META = {'stage': 'none', 'reranked': False, 'costMs': 0,
+              'degrade': []}
+
+
 def retrieve(query, k=None):
     """对外统一入口：返回 [SearchHit]。节点和工具都走这。
 
@@ -243,6 +330,7 @@ def retrieve(query, k=None):
       不受缓存影响（缓存的是"哪些卡命中了、排第几"，不是卡的内容）。
     """
     k = k or C.TOP_K
+    t0 = time.time()
     cached = retr_cache.get(query, k)
     if cached:
         # 重建 SearchHit：卡片本体一定现取，缓存里不存它
@@ -264,8 +352,60 @@ def retrieve(query, k=None):
                 score = 0.0
             out.append(SearchHit(it['id'], card, score))
         if out:
+            # ★ 命中缓存 = 整条检索（含重排）都省了，所以**不标降级**。
+            #   缓存里存的是重排后的 id 顺序和分数，重排结果已在其中。
+            _LAST_META.update(stage='cache', reranked=True,
+                              costMs=round((time.time() - t0) * 1000),
+                              degrade=[])
             return out
         # 缓存里的卡全没了（库被大改）→ 落到下面重算，顺便让旧条目自然过期
-    hits = get_retriever().search(query, k)
+
+    hits, stage = _recall_with_meta(query, k)
+    _LAST_META.update(stage=stage,
+                      reranked=(stage == 'rerank'),
+                      costMs=round((time.time() - t0) * 1000),
+                      degrade=degrade_list())
     retr_cache.put(query, k, hits)   # 写失败只打日志，不影响检索
     return hits
+
+
+def degrade_list():
+    """当前降级原因。空 = 没有降级。"""
+    d = []
+    if not C.RERANK_ENABLED:
+        d.append('重排已关闭(AGENT_RERANK=0)')
+    elif not rerank_module.available():
+        d.append('重排模型未就绪(%s)' % rerank_module.model_path())
+    return d
+
+
+def _recall_with_meta(query, k):
+    """走检索器并记录「走到了哪一步 / 有没有降级」。返回 (hits, stage)。
+
+    单独拆出来是因为 HybridRetriever.search() 只返回 hits，
+    而阶段信息要么进 last_meta()、要么随结果一起返回 ——
+    后者会污染 SearchHit 的接口，前者让 retrieve() 自己掌握更清晰。
+    """
+    r = get_retriever()
+    if not isinstance(r, HybridRetriever):
+        # keyword / vector 模式：没有两阶段，直接算
+        hits = r.search(query, k)
+        return hits, (r.__class__.__name__.replace('Retriever', '').lower()
+                     or 'single')
+
+    hits, stage = r._recall(query, k)
+    degrade = []
+    if not C.RERANK_ENABLED:
+        degrade.append('重排已关闭(AGENT_RERANK=0)')
+        return hits[:k], 'rrf'
+    if not rerank_module.available():
+        degrade.append('重排模型未就绪(%s)' % rerank_module.model_path())
+        return hits[:k], stage
+    scored = rerank_module.rerank(query, hits[:C.RERANK_CANDIDATES])
+    if scored is None:
+        degrade.append('重排失败或超时(保留召回顺序)')
+        return hits[:k], stage
+    cand = hits[:C.RERANK_CANDIDATES]
+    out = [SearchHit(h.id, h.card, scored.get(h.id, h.score)) for h in cand]
+    out.sort(key=lambda h: -h.score)
+    return out[:k], 'rerank'

@@ -65,7 +65,10 @@ export const useChatStore = defineStore('chat', () => {
   const PREFS_KEY = 'edu.chat.prefs'
   function savePrefs() {
     try {
-      localStorage.setItem(PREFS_KEY, JSON.stringify({ mode: mode.value, webSearch: webSearch.value }))
+      localStorage.setItem(
+        PREFS_KEY,
+        JSON.stringify({ mode: mode.value, webSearch: webSearch.value })
+      )
     } catch {
       /* 忽略 */
     }
@@ -109,7 +112,15 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   function pushAssistant() {
-    const m = { role: 'assistant', text: '', sources: [], streaming: true, verify: null, steps: [], bgStep: '' }
+    const m = {
+      role: 'assistant',
+      text: '',
+      sources: [],
+      streaming: true,
+      verify: null,
+      steps: [],
+      bgStep: ''
+    }
     messages.value.push(m)
     return m
   }
@@ -130,65 +141,65 @@ export const useChatStore = defineStore('chat', () => {
     sending.value = true
 
     // ★ 两个模式**都走 SSE 流式**，只有 mode 参数不同。
-// 以前 flow 用 ask() 一次性等全文 —— 本地 8B 要 20~40 秒，
-// 屏幕整段空白，用户只能猜是不是坏了（实测这才是「等待动画显得没用」的根源）。
-// 现在后端 flow 也支持 token sink（agent/qa/runtime.py:stream_flow）。
-const m = pushAssistant()
-askStream(q, {
-  mode: mode.value,
-  history: hist,
-  profile: prof,
-  webSearch: webSearch.value,
-  onText: t => {
-    m.text = t
-  },
-  onStep: s => {
-    // 「到哪一步」进度帧：{text} 新增一步（自动把上一步标记完成），
-    // {done:true} 只收尾 —— 每个新增步骤都必须有一次收尾，否则那个转圈停不下来。
-    // kind:'bg' 的是**后台增强**（卡片校验），不属于回答流程 —— 它不该占步骤条
-    // 让人以为「答完了还在加载」，单独放 bgStep 渲染成一行轻提示。
-    if (s && s.kind === 'bg') {
-      if (s.done) m.bgStep = ''
-      else m.bgStep = s.text
-      return
-    }
-    if (!m.steps) m.steps = []
-    const last = m.steps[m.steps.length - 1]
-    if (s && s.done) {
-      if (last && !last.done) last.done = true
-    } else if (s && s.text) {
-      if (last && !last.done) last.done = true
-      m.steps.push({ text: s.text, done: false })
-    }
-  },
-  onSources: ids => {
-    m.sources = ids || []
-  },
-  onVerify: list => {
-    // react 答完后校验引用卡的结果；有错卡才推过来，前端渲染「是否修正」
-    m.verify = list && list.length ? list : null
-  },
-  onDone: () => {
-    m.streaming = false
-    sending.value = false
-    // 兜底：万一某个版本漏发收尾帧，500ms 后无论如何把进行中的那步标记完成。
-    // （正常路径后端 done 帧后已经补了收尾，这里只是防御）
-    setTimeout(() => {
-      const last = (m.steps || [])[m.steps.length - 1]
-      if (last && !last.done) last.done = true
-    }, 500)
-    saveChat() // 答完立即落盘，别等节流窗口
-  },
-  onError: e => {
-    m.text = '出错了：' + (e.message || e)
-    m.streaming = false
-    sending.value = false
-    m.bgStep = ''
-    const last = (m.steps || [])[m.steps.length - 1]
-    if (last && !last.done) last.done = true
-    saveChat()
-  }
-})
+    // 以前 flow 用 ask() 一次性等全文 —— 本地 8B 要 20~40 秒，
+    // 屏幕整段空白，用户只能猜是不是坏了（实测这才是「等待动画显得没用」的根源）。
+    // 现在后端 flow 也支持 token sink（agent/qa/runtime.py:stream_flow）。
+    const m = pushAssistant()
+    askStream(q, {
+      mode: mode.value,
+      history: hist,
+      profile: prof,
+      webSearch: webSearch.value,
+      onText: t => {
+        m.text = t
+      },
+      onStep: s => {
+        // 「到哪一步」进度帧：{text} 新增一步（自动把上一步标记完成），
+        // {done:true} 只收尾 —— 每个新增步骤都必须有一次收尾，否则那个转圈停不下来。
+        // kind:'bg' 的是**后台增强**（卡片校验），不属于回答流程 —— 它不该占步骤条
+        // 让人以为「答完了还在加载」，单独放 bgStep 渲染成一行轻提示。
+        if (s && s.kind === 'bg') {
+          if (s.done) m.bgStep = ''
+          else m.bgStep = s.text
+          return
+        }
+        if (!m.steps) m.steps = []
+        const last = m.steps[m.steps.length - 1]
+        if (s && s.done) {
+          if (last && !last.done) last.done = true
+        } else if (s && s.text) {
+          if (last && !last.done) last.done = true
+          m.steps.push({ text: s.text, done: false })
+        }
+      },
+      onSources: ids => {
+        m.sources = ids || []
+      },
+      onVerify: list => {
+        // react 答完后校验引用卡的结果；有错卡才推过来，前端渲染「是否修正」
+        m.verify = list && list.length ? list : null
+      },
+      onDone: () => {
+        m.streaming = false
+        sending.value = false
+        // 兜底：万一某个版本漏发收尾帧，500ms 后无论如何把进行中的那步标记完成。
+        // （正常路径后端 done 帧后已经补了收尾，这里只是防御）
+        setTimeout(() => {
+          const last = (m.steps || [])[m.steps.length - 1]
+          if (last && !last.done) last.done = true
+        }, 500)
+        saveChat() // 答完立即落盘，别等节流窗口
+      },
+      onError: e => {
+        m.text = '出错了：' + (e.message || e)
+        m.streaming = false
+        sending.value = false
+        m.bgStep = ''
+        const last = (m.steps || [])[m.steps.length - 1]
+        if (last && !last.done) last.done = true
+        saveChat()
+      }
+    })
   }
 
   function clearChat() {

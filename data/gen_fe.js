@@ -66,7 +66,23 @@ var CARDS_FE = [
       "性能优化",
       "浏览器机制"
     ],
-    "related": []
+    "related": [
+      {
+        "id": "fe-reflow-repaint",
+        "kind": "extends",
+        "note": "渲染流程走到重排重绘那一步就会分叉"
+      },
+      {
+        "id": "fe-vdom-diff",
+        "kind": "compare",
+        "note": "两者都在回答「DOM 什么时候被改」"
+      },
+      {
+        "id": "fe-cors",
+        "kind": "compare",
+        "note": "同属浏览器机制，一个管渲染一个管跨域"
+      }
+    ]
   },
   {
     "id": "fe-event-loop",
@@ -127,7 +143,18 @@ var CARDS_FE = [
       "异步编程",
       "性能优化"
     ],
-    "related": []
+    "related": [
+      {
+        "id": "fe-promise",
+        "kind": "extends",
+        "note": "微任务队列是宏微任务模型的一部分"
+      },
+      {
+        "id": "fe-long-task",
+        "kind": "compare",
+        "note": "都关系到主线程什么时候被占住"
+      }
+    ]
   },
   {
     "id": "fe-closure-scope",
@@ -194,7 +221,18 @@ var CARDS_FE = [
       "内存管理",
       "React"
     ],
-    "related": []
+    "related": [
+      {
+        "id": "fe-closure-scope-chain",
+        "kind": "compare",
+        "note": "同一知识点的两种问法，建议连着看"
+      },
+      {
+        "id": "fe-closure-memory-leak",
+        "kind": "extends",
+        "note": "作用域链的代价是闭包会把外层变量留住"
+      }
+    ]
   },
   {
     "id": "fe-closure-scope-chain",
@@ -260,7 +298,18 @@ var CARDS_FE = [
       "作用域",
       "内存管理"
     ],
-    "related": []
+    "related": [
+      {
+        "id": "fe-closure-scope",
+        "kind": "compare",
+        "note": "同一知识点的两种问法，建议连着看"
+      },
+      {
+        "id": "fe-prototype",
+        "kind": "compare",
+        "note": "作用域链与原型链都是「查找链」，最容易混的一对"
+      }
+    ]
   }
 ];
 

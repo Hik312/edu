@@ -35,7 +35,12 @@ STATIC_DIR = WEB_DIST if os.path.isdir(WEB_DIST) else WEB_PUBLIC
 
 # 请求体上限。PDF 走 base64 会膨胀 ~33%，一份八股文 PDF 动辄好几兆，
 # 几年前的 2MB 上限（以及那句过期的「上限 2MB」提示）早就不够用。
-MAX_BODY = 16 * 1024 * 1024
+#
+# ★ 16MB 是个**算错的**上限：base64 膨胀 4/3，12MB 的原始文件编出来正好
+#   16MB，再加 JSON 外壳就超了 —— 前端写着「最大 12MB」，实际 12MB 传不上去，
+#   卡在边界上，报的还是「请求体过大」这种看不懂的话。论文动辄 20MB+，
+#   所以这里给到 64MB，前端按同一口径走（见 core/docparse.MAX_UPLOAD_BYTES）。
+MAX_BODY = 64 * 1024 * 1024
 
 # 大模型报错的内部代号 → 给人看的话。面板上写「no_model」没人看得懂。
 # 注意：这里的 key 必须与 core/llm.py 里 raise RuntimeError(...) 的字符串一致

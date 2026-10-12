@@ -139,6 +139,11 @@ var CARDS_INTERVIEW_JAVA =
         "id": "java-proxy",
         "kind": "compare",
         "note": "代理模式用于扩展功能，泛型用于类型安全，两者都涉及 Java 的高级特性"
+      },
+      {
+        "id": "java-basicq29",
+        "kind": "compare",
+        "note": "相关：java-basicq29"
       }
     ],
     "diagram": {
@@ -783,6 +788,11 @@ var CARDS_INTERVIEW_JAVA =
         "id": "java-proxy",
         "kind": "compare",
         "note": "代理模式与值传递都涉及运行时对象状态，有交互"
+      },
+      {
+        "id": "java-basicq29",
+        "kind": "compare",
+        "note": "相关：java-basicq29"
       }
     ],
     "diagram": {
@@ -2670,6 +2680,11 @@ var CARDS_INTERVIEW_JAVA =
         "id": "java-java-thread-pool-best-practices",
         "kind": "compare",
         "note": "线程池的性能受内存模型影响，需结合JMM理解数据可见性问题。"
+      },
+      {
+        "id": "java-jvm-memory-model",
+        "kind": "compare",
+        "note": "相关：java-jvm-memory-model"
       }
     ],
     "diagram": {
@@ -4328,6 +4343,16 @@ var CARDS_INTERVIEW_JAVA =
         "id": "java-jvm-parameters-intro",
         "kind": "compare",
         "note": "内存区域划分与参数配置共同决定JVM运行行为"
+      },
+      {
+        "id": "java-jvm-memory-model",
+        "kind": "compare",
+        "note": "相关：java-jvm-memory-model"
+      },
+      {
+        "id": "java-jvm-memory",
+        "kind": "compare",
+        "note": "相关：java-jvm-memory"
       }
     ],
     "diagram": {
@@ -6380,7 +6405,18 @@ var CARDS_INTERVIEW_JAVA =
       "追问2：可变参数在编译后会变成什么？（答：可变参数在编译后会被转换为一个数组，因此在反编译后的 class 文件中可以看到对应的数组类型。）",
       "追问3：可变参数可以出现在方法的哪个位置？（答：可变参数只能作为方法的最后一个参数，前面可以有其他参数。）"
     ],
-    "related": [],
+    "related": [
+      {
+        "id": "java-generics-and-wildcards",
+        "kind": "extends",
+        "note": "可变长参数底层是数组，与泛型擦除配合时容易踩坑"
+      },
+      {
+        "id": "java-why-there-only-value-passing-in-java",
+        "kind": "extends",
+        "note": "参数传递方式决定可变长参数的行为"
+      }
+    ],
     "diagram": {
       "kind": "pipeline",
       "stages": [
@@ -7258,11 +7294,11 @@ var CARDS_INTERVIEW_JAVA =
   },
   {
     "id": "java-mysqlq14",
-    "domain": "Java后端",
+    "domain": "中间件",
     "category": "work",
-    "subject": "java",
+    "subject": "middleware",
     "topicPath": [
-      "Java后端",
+      "中间件",
       "MySQL"
     ],
     "tags": [
@@ -7320,11 +7356,11 @@ var CARDS_INTERVIEW_JAVA =
   },
   {
     "id": "myisam-innodb",
-    "domain": "Java后端",
+    "domain": "中间件",
     "category": "work",
-    "subject": "java",
+    "subject": "middleware",
     "topicPath": [
-      "Java后端",
+      "中间件",
       "MySQL"
     ],
     "tags": [
@@ -7436,11 +7472,11 @@ var CARDS_INTERVIEW_JAVA =
   },
   {
     "id": "java-mysqlq36",
-    "domain": "Java后端",
+    "domain": "中间件",
     "category": "work",
-    "subject": "java",
+    "subject": "middleware",
     "topicPath": [
-      "Java后端",
+      "中间件",
       "MySQL"
     ],
     "tags": [
@@ -7555,11 +7591,11 @@ var CARDS_INTERVIEW_JAVA =
   },
   {
     "id": "java-mysqlq39",
-    "domain": "Java后端",
+    "domain": "中间件",
     "category": "work",
-    "subject": "java",
+    "subject": "middleware",
     "topicPath": [
-      "Java后端",
+      "中间件",
       "MySQL"
     ],
     "tags": [
@@ -7665,11 +7701,11 @@ var CARDS_INTERVIEW_JAVA =
   },
   {
     "id": "java-mysqlq40",
-    "domain": "Java后端",
+    "domain": "中间件",
     "category": "work",
-    "subject": "java",
+    "subject": "middleware",
     "topicPath": [
-      "Java后端",
+      "中间件",
       "MySQL"
     ],
     "tags": [
@@ -7811,11 +7847,11 @@ var CARDS_INTERVIEW_JAVA =
   },
   {
     "id": "java-mysqlq42",
-    "domain": "Java后端",
+    "domain": "中间件",
     "category": "work",
-    "subject": "java",
+    "subject": "middleware",
     "topicPath": [
-      "Java后端",
+      "中间件",
       "MySQL"
     ],
     "tags": [
@@ -7928,11 +7964,11 @@ var CARDS_INTERVIEW_JAVA =
   },
   {
     "id": "java-mysql-sql-executed",
-    "domain": "Java后端",
+    "domain": "中间件",
     "category": "work",
-    "subject": "java",
+    "subject": "middleware",
     "topicPath": [
-      "Java后端",
+      "中间件",
       "MySQL"
     ],
     "tags": [
@@ -8030,11 +8066,11 @@ var CARDS_INTERVIEW_JAVA =
   },
   {
     "id": "java-mysql-mvcc",
-    "domain": "Java后端",
+    "domain": "中间件",
     "category": "work",
-    "subject": "java",
+    "subject": "middleware",
     "topicPath": [
-      "Java后端",
+      "中间件",
       "MySQL"
     ],
     "tags": [
@@ -8127,11 +8163,11 @@ var CARDS_INTERVIEW_JAVA =
   },
   {
     "id": "java-mysql-tx-isolation",
-    "domain": "Java后端",
+    "domain": "中间件",
     "category": "work",
-    "subject": "java",
+    "subject": "middleware",
     "topicPath": [
-      "Java后端",
+      "中间件",
       "MySQL"
     ],
     "tags": [
@@ -8196,11 +8232,11 @@ var CARDS_INTERVIEW_JAVA =
   },
   {
     "id": "java-mysql-index-bplus",
-    "domain": "Java后端",
+    "domain": "中间件",
     "category": "work",
-    "subject": "java",
+    "subject": "middleware",
     "topicPath": [
-      "Java后端",
+      "中间件",
       "MySQL"
     ],
     "tags": [
@@ -8318,11 +8354,11 @@ var CARDS_INTERVIEW_JAVA =
   },
   {
     "id": "java-mysql-index-invalid",
-    "domain": "Java后端",
+    "domain": "中间件",
     "category": "work",
-    "subject": "java",
+    "subject": "middleware",
     "topicPath": [
-      "Java后端",
+      "中间件",
       "MySQL"
     ],
     "tags": [
@@ -8433,11 +8469,11 @@ var CARDS_INTERVIEW_JAVA =
   },
   {
     "id": "java-mysql-explain",
-    "domain": "Java后端",
+    "domain": "中间件",
     "category": "work",
-    "subject": "java",
+    "subject": "middleware",
     "topicPath": [
-      "Java后端",
+      "中间件",
       "MySQL"
     ],
     "tags": [
@@ -8529,11 +8565,11 @@ var CARDS_INTERVIEW_JAVA =
   },
   {
     "id": "java-mysql-logs",
-    "domain": "Java后端",
+    "domain": "中间件",
     "category": "work",
-    "subject": "java",
+    "subject": "middleware",
     "topicPath": [
-      "Java后端",
+      "中间件",
       "MySQL"
     ],
     "tags": [
@@ -8662,11 +8698,11 @@ var CARDS_INTERVIEW_JAVA =
   },
   {
     "id": "java-mysql-perf-spec",
-    "domain": "Java后端",
+    "domain": "中间件",
     "category": "work",
-    "subject": "java",
+    "subject": "middleware",
     "topicPath": [
-      "Java后端",
+      "中间件",
       "MySQL"
     ],
     "tags": [
@@ -8778,11 +8814,11 @@ var CARDS_INTERVIEW_JAVA =
   },
   {
     "id": "java-cap-base",
-    "domain": "Java后端",
+    "domain": "中间件",
     "category": "work",
-    "subject": "java",
+    "subject": "middleware",
     "topicPath": [
-      "Java后端",
+      "中间件",
       "分布式"
     ],
     "tags": [
@@ -8906,11 +8942,11 @@ var CARDS_INTERVIEW_JAVA =
   },
   {
     "id": "java-consistent-hashing",
-    "domain": "Java后端",
+    "domain": "中间件",
     "category": "work",
-    "subject": "java",
+    "subject": "middleware",
     "topicPath": [
-      "Java后端",
+      "中间件",
       "分布式"
     ],
     "tags": [
@@ -9068,11 +9104,11 @@ var CARDS_INTERVIEW_JAVA =
   },
   {
     "id": "java-raft",
-    "domain": "Java后端",
+    "domain": "中间件",
     "category": "work",
-    "subject": "java",
+    "subject": "middleware",
     "topicPath": [
-      "Java后端",
+      "中间件",
       "分布式"
     ],
     "tags": [
@@ -9157,11 +9193,11 @@ var CARDS_INTERVIEW_JAVA =
   },
   {
     "id": "java-distributed-lock2",
-    "domain": "Java后端",
+    "domain": "中间件",
     "category": "work",
-    "subject": "java",
+    "subject": "middleware",
     "topicPath": [
-      "Java后端",
+      "中间件",
       "分布式"
     ],
     "tags": [
@@ -9252,11 +9288,11 @@ var CARDS_INTERVIEW_JAVA =
   },
   {
     "id": "java-distributed-transaction",
-    "domain": "Java后端",
+    "domain": "中间件",
     "category": "work",
-    "subject": "java",
+    "subject": "middleware",
     "topicPath": [
-      "Java后端",
+      "中间件",
       "分布式"
     ],
     "tags": [
@@ -9342,11 +9378,11 @@ var CARDS_INTERVIEW_JAVA =
   },
   {
     "id": "java-distributed-id-design",
-    "domain": "Java后端",
+    "domain": "中间件",
     "category": "work",
-    "subject": "java",
+    "subject": "middleware",
     "topicPath": [
-      "Java后端",
+      "中间件",
       "分布式"
     ],
     "tags": [
@@ -9454,11 +9490,11 @@ var CARDS_INTERVIEW_JAVA =
   },
   {
     "id": "java-api-gateway",
-    "domain": "Java后端",
+    "domain": "中间件",
     "category": "work",
-    "subject": "java",
+    "subject": "middleware",
     "topicPath": [
-      "Java后端",
+      "中间件",
       "分布式"
     ],
     "tags": [
@@ -9604,11 +9640,11 @@ var CARDS_INTERVIEW_JAVA =
   },
   {
     "id": "java-rpc-intro",
-    "domain": "Java后端",
+    "domain": "中间件",
     "category": "work",
-    "subject": "java",
+    "subject": "middleware",
     "topicPath": [
-      "Java后端",
+      "中间件",
       "分布式"
     ],
     "tags": [
@@ -9696,11 +9732,11 @@ var CARDS_INTERVIEW_JAVA =
   },
   {
     "id": "java-zookeeper-intro",
-    "domain": "Java后端",
+    "domain": "中间件",
     "category": "work",
-    "subject": "java",
+    "subject": "middleware",
     "topicPath": [
-      "Java后端",
+      "中间件",
       "分布式"
     ],
     "tags": [
@@ -9756,11 +9792,11 @@ var CARDS_INTERVIEW_JAVA =
   },
   {
     "id": "java-mq-basics",
-    "domain": "Java后端",
+    "domain": "中间件",
     "category": "work",
-    "subject": "java",
+    "subject": "middleware",
     "topicPath": [
-      "Java后端",
+      "中间件",
       "消息队列"
     ],
     "tags": [
@@ -9900,11 +9936,11 @@ var CARDS_INTERVIEW_JAVA =
   },
   {
     "id": "java-kafka",
-    "domain": "Java后端",
+    "domain": "中间件",
     "category": "work",
-    "subject": "java",
+    "subject": "middleware",
     "topicPath": [
-      "Java后端",
+      "中间件",
       "消息队列"
     ],
     "tags": [
@@ -9965,11 +10001,11 @@ var CARDS_INTERVIEW_JAVA =
   },
   {
     "id": "java-rabbitmq",
-    "domain": "Java后端",
+    "domain": "中间件",
     "category": "work",
-    "subject": "java",
+    "subject": "middleware",
     "topicPath": [
-      "Java后端",
+      "中间件",
       "消息队列"
     ],
     "tags": [
@@ -10130,11 +10166,11 @@ var CARDS_INTERVIEW_JAVA =
   },
   {
     "id": "java-rocketmq",
-    "domain": "Java后端",
+    "domain": "中间件",
     "category": "work",
-    "subject": "java",
+    "subject": "middleware",
     "topicPath": [
-      "Java后端",
+      "中间件",
       "消息队列"
     ],
     "tags": [
@@ -10282,11 +10318,11 @@ var CARDS_INTERVIEW_JAVA =
   },
   {
     "id": "java-rate-limit",
-    "domain": "Java后端",
+    "domain": "中间件",
     "category": "work",
-    "subject": "java",
+    "subject": "middleware",
     "topicPath": [
-      "Java后端",
+      "中间件",
       "高可用"
     ],
     "tags": [
@@ -10371,11 +10407,11 @@ var CARDS_INTERVIEW_JAVA =
   },
   {
     "id": "java-idempotency",
-    "domain": "Java后端",
+    "domain": "中间件",
     "category": "work",
-    "subject": "java",
+    "subject": "middleware",
     "topicPath": [
-      "Java后端",
+      "中间件",
       "高可用"
     ],
     "tags": [
@@ -10484,11 +10520,11 @@ var CARDS_INTERVIEW_JAVA =
   },
   {
     "id": "java-timeout-retry",
-    "domain": "Java后端",
+    "domain": "中间件",
     "category": "work",
-    "subject": "java",
+    "subject": "middleware",
     "topicPath": [
-      "Java后端",
+      "中间件",
       "高可用"
     ],
     "tags": [
@@ -10646,11 +10682,11 @@ var CARDS_INTERVIEW_JAVA =
   },
   {
     "id": "java-circuit-breaker",
-    "domain": "Java后端",
+    "domain": "中间件",
     "category": "work",
-    "subject": "java",
+    "subject": "middleware",
     "topicPath": [
-      "Java后端",
+      "中间件",
       "高可用"
     ],
     "tags": [
@@ -10875,6 +10911,11 @@ var CARDS_INTERVIEW_JAVA =
         "id": "java-sql-optimization",
         "kind": "compare",
         "note": "分库分表和SQL优化都提升数据库性能，但前者关注数据分布，后者关注查询效率。"
+      },
+      {
+        "id": "java-cold-hot-separation",
+        "kind": "compare",
+        "note": "相关：java-cold-hot-separation"
       }
     ],
     "diagram": {
@@ -11034,6 +11075,11 @@ var CARDS_INTERVIEW_JAVA =
         "id": "java-rw-split-sharding",
         "kind": "compare",
         "note": "深度分页和分库分表都涉及数据分片，但前者关注查询性能，后者关注数据分布。"
+      },
+      {
+        "id": "java-cold-hot-separation",
+        "kind": "compare",
+        "note": "相关：java-cold-hot-separation"
       }
     ],
     "diagram": {
@@ -11211,7 +11257,18 @@ var CARDS_INTERVIEW_JAVA =
       "冷数据被访问后如何处理？（答：采用不回迁+缓存层方案，缓存未命中时查冷库并写入缓存，同时使用布隆过滤器防止恶意查询穿透。）",
       "冷热分离的多级分层策略有哪些？（答：热数据、温数据、冷数据和归档数据，分别对应不同的存储介质和访问延迟。）"
     ],
-    "related": [],
+    "related": [
+      {
+        "id": "java-rw-split-sharding",
+        "kind": "extends",
+        "note": "都是「按访问量把数据分开」的思路"
+      },
+      {
+        "id": "java-deep-pagination",
+        "kind": "compare",
+        "note": "都出现在大表访问优化的同一场景里"
+      }
+    ],
     "diagram": {
       "kind": "snapshot",
       "panels": [

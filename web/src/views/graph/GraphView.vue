@@ -76,15 +76,7 @@ import {
   graphRecommend as fetchRecommend,
   neighbors as fetchNeighbors
 } from '@/api/system'
-import {
-  CHART_BG,
-  INK,
-  LEVEL_COLOR,
-  LEVEL_LABEL,
-  SEQ,
-  chartBase,
-  levelColor
-} from '@/config/theme'
+import { CHART_BG, INK, LEVEL_COLOR, LEVEL_LABEL, SEQ, chartBase, levelColor } from '@/config/theme'
 
 const router = useRouter()
 
@@ -172,15 +164,21 @@ const prNorm = computed(() => {
 const commColor = computed(() => {
   const map = {}
   const comms = insight.value?.communities || []
-  comms.forEach((c, i) => { map[i] = SEQ[i % SEQ.length] })
+  comms.forEach((c, i) => {
+    map[i] = SEQ[i % SEQ.length]
+  })
 
   // id → 社区序号。建一次，别在每次画节点时 O(社区数×成员数) 地找
   const commOf = {}
-  comms.forEach((c, i) => { for (const m of c.members) commOf[m] = i })
+  comms.forEach((c, i) => {
+    for (const m of c.members) commOf[m] = i
+  })
   // painted 只有「够大」的社区才有颜色（阈值同 commLegend）。
   // 散卡社区的卡按 TYPE 本色画 —— 见 commLegend 的说明。
   const painted = {}
-  comms.forEach((c, i) => { if (c.size >= 6) painted[i] = map[i] })
+  comms.forEach((c, i) => {
+    if (c.size >= 6) painted[i] = map[i]
+  })
 
   // 结构节点（category/subject/topic）继承其子节点的社区众数：
   // 一个 topic 底下全是 Java 卡，它就该是 Java 那支颜色。
@@ -235,10 +233,10 @@ const commLegend = computed(() => {
 function communityName(c) {
   const nodeOf = new Map(raw.value.nodes.map(n => [n.id, n]))
   const members = (c.members || []).map(m => nodeOf.get(m)).filter(Boolean)
-  const root = members.find(n => n.type === 'subject')
-    || members.find(n => n.type === 'category')
+  const root = members.find(n => n.type === 'subject') || members.find(n => n.type === 'category')
   if (root) return root.label
-  const topics = members.filter(n => n.type === 'topic')
+  const topics = members
+    .filter(n => n.type === 'topic')
     .sort((a, b) => (a.depth ?? 9) - (b.depth ?? 9))
   if (topics.length) return topics[0].label
   const cards = members.filter(n => n.type === 'card')
@@ -473,9 +471,7 @@ const view = computed(() => {
   let keep = all.nodes.filter(n => !drop.has(n.type))
 
   if (commFilter.value !== null) {
-    const inComm = new Set(
-      (insight.value?.communities?.[commFilter.value]?.members) || []
-    )
+    const inComm = new Set(insight.value?.communities?.[commFilter.value]?.members || [])
     keep = keep.filter(n => inComm.has(n.id))
   }
 
@@ -536,11 +532,12 @@ const option = computed(() => {
     // 节点大小：卡片走 PageRank（见文件头），结构节点仍按类型固定尺寸。
     // ★ 就算排名没拉到（rankOf 空）也要退回 degree，不能变成 0：
     //   symbolSize 0 = 节点完全不可见，用户会以为图空了。
-    const size = n.type === 'card'
-      ? (pr === undefined
+    const size =
+      n.type === 'card'
+        ? pr === undefined
           ? Math.min(12 + (n.degree || 0) * 1.6, 32)
-          : Math.round(13 + pr * 21))
-      : t.size
+          : Math.round(13 + pr * 21)
+        : t.size
 
     // 颜色优先级：路径高亮 > 掌握度 > 社区 > 类型本色
     // （掌握度优先于社区：用户最想知道的是「哪些还没学会」，
@@ -797,7 +794,7 @@ const recoMeta = computed(() => {
 async function selectNode(id) {
   picked.value = id
   const node = raw.value.nodes.find(n => n.id === id)
-  const untilCards = !!node && node.type !== 'card'
+  const untilCards = Boolean(node) && node.type !== 'card'
   try {
     near.value = (await fetchNeighbors(id, 1, untilCards)) || { nodes: [], edges: [] }
   } catch {
@@ -905,11 +902,7 @@ function cardTitle(cid) {
           {{ pathMode ? '路径模式 · 开' : '查学习路径' }}
         </button>
         <span v-if="pathMode" class="tool-note">
-          {{
-            pathFrom
-              ? '已选起点，再点一个节点'
-              : '点第一个节点作为起点'
-          }}
+          {{ pathFrom ? '已选起点，再点一个节点' : '点第一个节点作为起点' }}
         </span>
         <span v-else-if="pathNote" class="tool-note">{{ pathNote }}</span>
         <span class="spacer" />
@@ -944,9 +937,7 @@ function cardTitle(cid) {
         >
           <span
             class="dot-swatch"
-            :style="c.color
-              ? { background: c.color }
-              : { background: 'var(--dim)', opacity: 0.5 }"
+            :style="c.color ? { background: c.color } : { background: 'var(--dim)', opacity: 0.5 }"
           />
           {{ c.label }}
           <span class="cnt mono">{{ c.size }}</span>
@@ -959,13 +950,8 @@ function cardTitle(cid) {
       <!-- 节点太多时力导向必糊。与其让用户自己猜该点哪个科目，
            不如直接说清「为什么糊」并给一个具体的下一步。 -->
       <p v-if="tooMany.busy" class="crowd">
-        当前 {{ tooMany.n }} 个节点，力导向会把它们压成一团 ——
-        选个科目或社区看细节。
-        <button
-          v-if="tooMany.hint"
-          class="link"
-          @click="pickSub(tooMany.hint.id)"
-        >
+        当前 {{ tooMany.n }} 个节点，力导向会把它们压成一团 —— 选个科目或社区看细节。
+        <button v-if="tooMany.hint" class="link" @click="pickSub(tooMany.hint.id)">
           看「{{ tooMany.hint.name }}」（{{ tooMany.hint.n }} 张卡）
         </button>
       </p>
@@ -1031,9 +1017,7 @@ function cardTitle(cid) {
             <button class="rank-row" @click="locateCard(x.id)">
               <span class="rank-no mono">{{ i + 1 }}</span>
               <span class="rank-label">{{ x.label }}</span>
-              <span class="chip deg" :title="'连接数 ' + x.degree">
-                {{ x.degree }} 连
-              </span>
+              <span class="chip deg" :title="'连接数 ' + x.degree"> {{ x.degree }} 连 </span>
             </button>
           </li>
         </ul>
@@ -1087,9 +1071,7 @@ function cardTitle(cid) {
           <dt>PageRank</dt>
           <dd class="mono">
             {{ pickedRank ? pickedRank.pagerank.toFixed(5) : '—' }}
-            <span v-if="pickedRank" class="dim">
-              （超过全图 {{ pickedRank.pagerankPct }}%）
-            </span>
+            <span v-if="pickedRank" class="dim"> （超过全图 {{ pickedRank.pagerankPct }}%） </span>
           </dd>
           <dt>连接数</dt>
           <dd class="mono">{{ pickedNode.degree ?? 0 }}</dd>
@@ -1106,14 +1088,14 @@ function cardTitle(cid) {
         </dl>
 
         <div v-if="pickedNode.type === 'card'" class="btn-row">
-          <button class="btn btn-primary" @click="openCard(pickedNode.id)">
-            打开这张卡
-          </button>
+          <button class="btn btn-primary" @click="openCard(pickedNode.id)">打开这张卡</button>
           <button
             class="btn"
             :class="{ 'btn-on': pathMode }"
             :title="pathMode ? '已开路径模式，再点一个节点算链' : '以这张卡为起点查路径'"
-            @click="pathMode ? onPathPick(pickedNode.id) : (pathMode = true, pathFrom = pickedNode.id)"
+            @click="
+              pathMode ? onPathPick(pickedNode.id) : ((pathMode = true), (pathFrom = pickedNode.id))
+            "
           >
             查它的学习路径
           </button>

@@ -77,3 +77,33 @@ VECTOR_WEIGHT = _env('AGENT_VECTOR_WEIGHT', 0.7)
 
 # 本地 Ollama 的 embedding 模型名。没拉这个模型时 VectorRetriever 自动退化（返回空）。
 EMBED_MODEL = os.environ.get('AGENT_EMBED_MODEL', 'nomic-embed-text')
+
+# ---- RRF 融合（混合检索用）----
+# ★ 为什么把 min-max 加权换成 RRF（2026-10-09）：
+#   min-max 是「分数线性插值」，但两路的分数量纲根本不同 ——
+#   余弦相似度通常挤在 0.6~0.9 之间，而关键词子串分是整数计数（0~20）。
+#   各自归一化后再加权，等于让「谁的分更分散谁说了算」：
+#   实测查「RRF和Rerank」时，Redis 持久化那张卡被排到第 1（纯粹的关键词命中）。
+#   RRF 只看**名次**不看分数，天然免疫量纲差异，是工业界的事实标准。
+#   公式见 retrieval.py 的 rrf_fuse()。
+RRF_K = float(_env('AGENT_RRF_K', 60))    # 惯例值 60：抑制头部排名的统治力
+
+# ---- 重排（cross-encoder 精排）----
+# 开关：默认开。关掉就退化成纯混合检索，行为与改动前一致。
+# ★ 没有沿用 `_env(...)`：那个函数只处理数字（cast=float），布尔得单独读。
+RERANK_ENABLED = os.environ.get('AGENT_RERANK', '1').strip().lower() not in (
+    '0', 'false', 'no', 'off')
+
+# ★ 候选数取 12，不是越多越好。实测本机 CPU（无 GPU）+ MAX_CHARS=150，
+# 候选数 x batch_size 全组合跑下来（top1 在所有配置下都正确，
+# 说明**候选数只影响时间、不影响精度**）：
+#       8 对 → 1037ms      12 对 → 1718ms
+#      16 对 → 2273ms      20 对 → 2895ms
+#   12 是甜点：多召回 4 条只多花 0.7 秒，但覆盖的候选池大一圈。
+#   要更快的机器上可以把 AGENT_RERANK_CANDIDATES 调大。
+RERANK_CANDIDATES = int(_env('AGENT_RERANK_CANDIDATES', 12))
+
+# 单次重排超时（毫秒）。超了就退回召回顺序 —— 慢一点能接受，界面卡住不行。
+# 按实测 12 对约 1700ms，留 1.5 倍余量取 2500；
+# 机器被别的进程占用时会变慢，超时保护就是为那种情况准备的。
+RERANK_TIMEOUT_MS = int(_env('AGENT_RERANK_TIMEOUT_MS', 2500))

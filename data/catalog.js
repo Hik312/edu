@@ -25,7 +25,9 @@ var CATALOG = [
       { "id": "python", "name": "Python基础", "emoji": "🐍" },
       { "id": "ai", "name": "AI工程", "emoji": "🤖" },
       { "id": "cs", "name": "计算机基础", "emoji": "🌐" },
-      { "id": "fe", "name": "前端", "emoji": "🎨" }
+      { "id": "fe", "name": "前端", "emoji": "🎨" },
+      { "id": "algorithm", "name": "算法", "emoji": "🧮" },
+      { "id": "middleware", "name": "中间件", "emoji": "🧱" }
     ]
   }
 ];

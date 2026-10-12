@@ -113,10 +113,14 @@ CREATE TABLE IF NOT EXISTS `documents` (
   `id`          VARCHAR(96)  NOT NULL,
   `title`       VARCHAR(255) NOT NULL DEFAULT '',
   `source`      VARCHAR(255) NOT NULL DEFAULT '' COMMENT '原始文件名',
-  `category`    VARCHAR(48)  NOT NULL DEFAULT '',
+  `category`    VARCHAR(48)  NOT NULL DEFAULT '' COMMENT '导入时用户选的类型：资料/论文/笔记',
   `subject`     VARCHAR(48)  NOT NULL DEFAULT '',
   `domain`      VARCHAR(48)  NOT NULL DEFAULT '',
   `chapters`    JSON             NULL            COMMENT '章节数组（含正文与 AI 精读结果）',
+  `tags`        JSON             NULL            COMMENT '标签数组（分类器产出，前端树与搜索用）',
+  `raw_file`    VARCHAR(255) NOT NULL DEFAULT '' COMMENT '原始文件相对路径，如 files/doc-x.pdf；空=没留原件',
+  `is_paper`    TINYINT      NOT NULL DEFAULT 0 COMMENT '1=论文：只显示原件，不分章',
+  `doc_text`    MEDIUMTEXT        NULL            COMMENT '留档原文全文（RAG/全文检索用，与原件分离）',
   `stats`       JSON             NULL            COMMENT '分章统计 {chapters,chars,headings}，列表页显示用',
   `parse`       JSON             NULL            COMMENT '内容解析报告 {at,modelOk,msg,chapters[]}，出卡前的剔除确认',
   `ai_done`     INT          NOT NULL DEFAULT 0,
@@ -146,7 +150,9 @@ CREATE TABLE IF NOT EXISTS `drafts` (
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS `meta` (
   `k` VARCHAR(48)  NOT NULL,
-  `v` VARCHAR(255) NOT NULL DEFAULT '',
+  -- 2026-10-11 由 VARCHAR(255) 放宽到 TEXT：知识库的文件夹树整个存在
+  -- meta.kb_tree 这一行，255 字符连三层节点名都放不下。
+  `v` TEXT            NOT NULL,
   PRIMARY KEY (`k`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='键值杂项';
 
@@ -199,3 +205,36 @@ CREATE TABLE IF NOT EXISTS `users` (
   UNIQUE KEY `uq_users_name` (`username`),
   UNIQUE KEY `uq_users_openid` (`openid`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='用户账号';
+
+-- ---------------------------------------------------------------------------
+-- 论文译文（2026-10-11）
+-- ★ 为什么单独建表而不是塞进 documents 或 meta：
+--   documents 是文档本体，一篇论文的译文能到几百 KB，塞进去会让每次
+--     读文档列表都拖着走；meta.v 虽然是 TEXT（64KB），但它存的是
+--     「单例状态」（kb_tree 这类），译文是**每份文档各自的**。
+--   一段一行的结构还有个更实际的好处：**断点续译**。
+--     261 段翻到第 200 段断了，前 200 段已经落库，重跑只补后面的；
+--     存在一个大 JSON 字段里就做不到「写一行算一行」。
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS `doc_translations` (
+  `doc_id`     VARCHAR(96) NOT NULL,
+  `seg_i`      INT         NOT NULL COMMENT '段序号，与 translate.segment() 的输出一致',
+  `src_hash`   CHAR(16)    NOT NULL DEFAULT '' COMMENT '原文指纹：原文变了这条译文就该作废',
+  `zh`         MEDIUMTEXT  NULL,
+  `status`     VARCHAR(12) NOT NULL DEFAULT '' COMMENT 'ok / warn / bad（回译校验结果）',
+  `score`      FLOAT           NULL COMMENT '回译对齐分，NULL=未校验',
+  `missing`    VARCHAR(160) NOT NULL DEFAULT '' COMMENT '缺失的占位符序号，逗号分隔',
+  `model`      VARCHAR(96)  NOT NULL DEFAULT '',
+  `updated_at` DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`doc_id`, `seg_i`),
+  KEY `k_translation_doc` (`doc_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='论文逐段译文（可断点续译）';
+
+CREATE TABLE IF NOT EXISTS `doc_glossary` (
+  `doc_id`     VARCHAR(96) NOT NULL,
+  `en`         VARCHAR(80)  NOT NULL,
+  `zh`         VARCHAR(64)  NOT NULL DEFAULT '',
+  `locked`     TINYINT      NOT NULL DEFAULT 0 COMMENT '1=用户手动锁定的，重抽术语表时不覆盖',
+  `updated_at` DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`doc_id`, `en`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='文档术语表（用户可编辑，锁定的不会被覆盖）';

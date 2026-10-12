@@ -64,6 +64,7 @@ class JsonAlgoStore(AlgoStore):
         'events': os.path.join(STORE_DIR, 'algo_events.json'),
         'mastery': os.path.join(STORE_DIR, 'algo_mastery.json'),
         'params': os.path.join(STORE_DIR, 'algo_params.json'),
+        'sessions': os.path.join(STORE_DIR, 'algo_sessions.json'),
     }
 
     def __init__(self):
@@ -119,6 +120,47 @@ class JsonAlgoStore(AlgoStore):
             rows = self._read('events', [])
             self._write('events', [r for r in rows
                                    if str(r.get('user_id')) != str(user_id)])
+
+    # ---------------- 学习时长会话 ----------------
+    def sessions_append(self, sess):
+        with _lock:
+            rows = self._read('sessions', [])
+            row = dict(sess)
+            row['id'] = int(row.get('id') or 0) or _next_id(rows)
+            rows.append(row)
+            self._write('sessions', rows)
+            return row
+
+    def sessions_of(self, user_id, card_id=None, limit=500):
+        rows = self._read('sessions', [])
+        out = [r for r in rows if str(r.get('user_id')) == str(user_id)]
+        if card_id:
+            out = [r for r in out if r.get('card_id') == card_id]
+        out.sort(key=lambda r: (str(r.get('ts') or ''), r.get('id') or 0))
+        return out[-limit:] if limit and limit > 0 else out
+
+    def sessions_count(self, user_id=None):
+        rows = self._read('sessions', [])
+        if user_id is None:
+            return len(rows)
+        return len([r for r in rows if str(r.get('user_id')) == str(user_id)])
+
+    def sessions_clear(self, user_id=None):
+        """清空会话。
+
+        ★ 不是 base 契约里的方法（base 只声明 append/of/count），
+          但 PG 那边实现了、这边也必须有 ——
+          **两套后端的行为必须一致**，否则换存储时探针/调试脚本会一边跑通
+          一边报 AttributeError，而且这种不一致只在换后端时才暴露，
+          排查起来很费时间（和 check.js 那段存储对照的教训同一类）。
+        """
+        with _lock:
+            rows = self._read('sessions', [])
+            if user_id is None:
+                self._write('sessions', [])
+            else:
+                self._write('sessions', [r for r in rows
+                                          if str(r.get('user_id')) != str(user_id)])
 
     # ---------------- 掌握度 ----------------
     def mastery_get(self, user_id, kc):

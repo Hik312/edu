@@ -43,12 +43,15 @@ const ICON = {
   cards:
     '<rect x="4" y="5.5" width="16" height="13" rx="2.2"/><path d="M4 10.5h16"/><path d="M8 14.4h5"/>',
   docs: '<path d="M6.5 3.5h7l4.5 4.5v12.5h-11.5z"/><path d="M13.5 3.5V8H18"/><path d="M9.5 12.5h5M9.5 16h3.5"/>',
+  knowledge:
+    '<path d="M4 4.5A1.5 1.5 0 0 1 5.5 3H11v18H5.5A1.5 1.5 0 0 1 4 19.5z"/><path d="M20 4.5A1.5 1.5 0 0 0 18.5 3H13v18h5.5A1.5 1.5 0 0 0 20 19.5z"/>',
   graph:
     '<circle cx="6.5" cy="7" r="2.4"/><circle cx="18" cy="6" r="2"/><circle cx="12" cy="18" r="2.6"/><path d="M8.3 8.4 10.7 15.7M16.6 7.4 13.6 15.9M8.9 7 16 6.2"/>',
   notes:
     '<path d="M8 5.5h11M8 10.5h11M8 15.5h7"/><circle cx="4.6" cy="5.5" r="1"/><circle cx="4.6" cy="10.5" r="1"/><circle cx="4.6" cy="15.5" r="1"/>',
   generate: '<path d="M12 3.2 14.5 9.5 20.8 12l-6.3 2.5L12 20.8l-2.5-6.3L3.2 12 9.5 9.5z"/>',
   ask: '<path d="M4 5.5h16v10.5H9.5L5.2 20v-4H4z"/><path d="M8 9.2h8M8 12.4h5.5"/>',
+  profile: '<circle cx="12" cy="8" r="5"/><path d="M12 16v8M4 20c0-4 3.5-6 8-6s8 2 8 6"/>',
   users:
     '<circle cx="9" cy="8" r="3.4"/><path d="M3 20c0-3.3 2.7-5.5 6-5.5s6 2.2 6 5.5"/><path d="M16.2 5.2a3.4 3.4 0 0 1 0 5.9M17.5 14.9c2 .7 3.5 2.6 3.5 5.1"/>',
   server:
@@ -80,7 +83,8 @@ const NAV = [
     group: '内容',
     items: [
       { name: 'cards', label: '卡片' },
-      { name: 'docs', label: '文档与精读' }
+      { name: 'docs', label: '文档与精读' },
+      { name: 'knowledge', label: '知识库' }
     ]
   },
   {
@@ -96,6 +100,10 @@ const NAV = [
       { name: 'graph', label: '知识图谱' },
       { name: 'notes', label: '笔记' }
     ]
+  },
+  {
+    group: '个人',
+    items: [{ name: 'profile', label: '个人中心' }]
   },
   {
     group: '管理',
@@ -151,8 +159,10 @@ const dueBadgeText = computed(() => {
 const dueBadgeTitle = computed(() => {
   if (!dueTotal.value) return '今天没有到期的卡片'
   if (dueBacklog.value) {
-    return `今天要学 ${dueTodayPlan.value} 张（每日目标 ${learning.dailyTarget}）· ` +
+    return (
+      `今天要学 ${dueTodayPlan.value} 张（每日目标 ${learning.dailyTarget}）· ` +
       `另有 ${dueBacklog.value} 张积压，做不完会顺延到明天`
+    )
   }
   return `今天要学 ${dueTodayPlan.value} 张`
 })

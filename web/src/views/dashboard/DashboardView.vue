@@ -29,6 +29,7 @@ import { useRouter } from 'vue-router'
 import EChart from '@/components/EChart.vue'
 import { useAuthStore } from '@/stores/auth'
 import { useLearningStore } from '@/stores/learning'
+import { useCardsStore } from '@/stores/cards'
 import { storage, getAlgo } from '@/api/system'
 import { getLlmStatus } from '@/api/ai'
 import { getMasteryBrief } from '@/api/learning'
@@ -37,9 +38,25 @@ import { CHART_BG, INK, chartBase, colorOf, levelColor, SEQ } from '@/config/the
 const router = useRouter()
 const auth = useAuthStore()
 const learning = useLearningStore()
+const cards = useCardsStore()
 
 /** 纸面主题是唯一主题，所以这些是个常量，不再按页取。 */
 const base = chartBase()
+
+/** subject id → 中文名，**从 catalog 派生**（不硬编码一份）。
+ *
+ * ★ 为什么必须从 catalog 取：科目名是数据（`data/catalog.js` 里能改），
+ *   前端再写一份映射就是「两个真相源」—— 改了 catalog 这份就过期，
+ *   表现是「领域分布显示旧科目名」而没有任何报错。
+ *   这与「domain字段和 subject 各写各的」是同一类错误。
+ */
+const subjectLabel = computed(() => {
+  const map = {}
+  for (const cat of cards.catalog || []) {
+    for (const sub of cat.subjects || []) map[sub.id] = sub.name
+  }
+  return map
+})
 
 const storeInfo = ref(null)
 /* BKT 掌握度汇总。和 /api/stats 的三档计数**不是一回事**：
@@ -60,6 +77,9 @@ const algoInfo = ref(null)
 const llmInfo = ref(null)
 
 onMounted(async () => {
+  // 领域分布要用 subject id → 中文名，名字在 catalog 里。
+  // 不取的话SUBJECT_LABEL 全是空，图上会显示原始 id（algorithm/middleware…）。
+  cards.fetchCatalog()
   learning.fetchDue({ limit: 8 })
   learning.fetchStats()
   // ★ 两个请求各自 try/catch。
@@ -215,7 +235,7 @@ const masteryOption = computed(() => {
           // 那条 0.5% 的标签会被挤到环的正上方、还带着一根几乎看不见的
           // 引线，读的人会先看到它再去找它指哪块。0.5% 的人数为 2 张，
           // 悬停 tooltip 一样能查出来，没必要写在图面上。
-          formatter: (p) => (p.percent < 3 ? '' : `${p.name}\n${p.percent}%`),
+          formatter: p => (p.percent < 3 ? '' : `${p.name}\n${p.percent}%`),
           lineHeight: 18
         },
         // ⚠️ 别给极小的扇区加圆角。
@@ -224,7 +244,7 @@ const masteryOption = computed(() => {
         // 看起来像渲染坏了（2026-10-03 用户就指着这个图问是不是坏了）。
         // 圆角是给「有面积的扇区」做视觉柔化的，对一根线来说它是灾难。
         // 同理，<3% 的扇区描边也收窄到 1px，避免描边占掉的宽度超过它本身。
-        itemStyle: (p) => ({
+        itemStyle: p => ({
           borderColor: CHART_BG.paper,
           borderWidth: p.percent < 3 ? 1 : 2,
           borderRadius: p.percent < 3 ? 0 : 5,
@@ -263,21 +283,40 @@ const masteryOption = computed(() => {
 })
 
 /** 领域分布：横向条。
- * 领域名可以很长（「求职·AI工程」），横向条能给文字留位置；
- * 纵向的话标签会互相挤成斜排或者直接被省略掉。 */
+ *领域名可能较长，横向条能给文字留位置；
+ * 纵向的话标签会互相挤成斜排或者直接被省略掉。
+ *
+ * ★★ 这里用的是 `bySubject` 而不是 `domains`（2026-10-09 改）：
+ *   `domains` 读的是卡片上的 `domain` **旧字段**，它没有 catalog 约束、
+ *   各写各的，实际出现过四种口径分裂：
+ *     ·同名不同写：`Java后端`170 和 `求职·Java`10 是同一个领域两行
+ *     · 迁移不同步：middleware 76 张只改了 subject，domain 还留着
+ *       `Java后端` → 中间件在首页被显示成「Java后端」
+ *     · 粒度不一：有的值是科目、有的��主题（`操作系统`）、还有 `待归类`
+ *   而 `bySubject` 的 key 是有 catalog 约束的 `category/subject`，
+ *   单一数据源不可能再分裂。
+ *   （根因：两个字段都存「分类信息」却各自维护。domain 只能是派生值。）
+ */
 const domainOption = computed(() => {
-  const rows = Object.entries(s.value.domains || {}).sort((a, b) => b[1] - a[1])
+  const rows = Object.entries(s.value.bySubject || {})
+    .map(([k, v]) => {
+      // key 形如 'work/algorithm'，取末段 subject id 再翻成中文名
+      const id = String(k).split('/').pop()
+      return { id, name: subjectLabel.value[id] || id, value: v }
+    })
+    .sort((a, b) => b.value - a.value)
+  if (!rows.length) return null
   return {
     ...base,
     // 右边必须留出数字的位置。原来 right:26 只够放两位数，
     // 「170」这种三位数会被条形压住半个 —— 数值标签压在条上是这页最刺眼的一处。
     grid: { left: 8, right: 46, top: 8, bottom: 4, containLabel: true },
     tooltip: { ...base.tooltip, formatter: '{b}：{c} 张' },
-    xAxis: { type: 'value', show: false, max: Math.max(...rows.map(r => r[1]), 1) },
+    xAxis: { type: 'value', show: false, max: Math.max(...rows.map(r => r.value), 1) },
     yAxis: {
       type: 'category',
       inverse: true,
-      data: rows.map(r => r[0]),
+      data: rows.map(r => r.name),
       axisLine: { show: false },
       axisTick: { show: false },
       axisLabel: { color: CHART_BG.label, fontSize: 13, fontWeight: 500 }
@@ -287,8 +326,8 @@ const domainOption = computed(() => {
         type: 'bar',
         barWidth: 15,
         data: rows.map(r => ({
-          value: r[1],
-          itemStyle: { color: colorOf(r[0], SEQ), borderRadius: [0, 4, 4, 0] }
+          value: r.value,
+          itemStyle: { color: colorOf(r.id, SEQ), borderRadius: [0, 4, 4, 0] }
         })),
         label: {
           show: true,
@@ -473,7 +512,9 @@ const bktAvg = computed(() => {
           <!-- 空库：不显示「0 张卡片」这个大号 0。大号 0 在这里是
                最糟的排版 —— 它把「你还没开始」渲染成了「你什么都没有」，
                而这其实是**这个产品最容易劝退人的第一屏**。改成邀请。 -->
-          <div class="eyebrow">{{ greeting }}，{{ auth.user?.displayName || auth.user?.username }}</div>
+          <div class="eyebrow">
+            {{ greeting }}，{{ auth.user?.displayName || auth.user?.username }}
+          </div>
           <div class="hero-title">还没有卡片</div>
           <div class="hero-sub">
             <span>这个产品的一切都从卡片开始 —— 导入一份文档，或让 AI 生成第一批</span>
@@ -567,23 +608,23 @@ const bktAvg = computed(() => {
     <!-- 以下全部是「有卡之后才成立」的内容。空库时整块撤掉，
          只留上面那三步引导 —— 摆 four 个 0 和五张空图只会让人以为坏了。 -->
     <template v-if="!isEmpty">
-    <!-- ===== 四张指标 ===== -->
-    <section class="metrics">
-      <div
-        v-for="(m, i) in metrics"
-        :key="m.key"
-        class="metric rise"
-        :style="{ animationDelay: i * 55 + 'ms' }"
-      >
-        <div class="m-label">{{ m.label }}</div>
-        <div class="m-value mono" :style="{ color: m.color }">{{ m.value }}</div>
-        <div class="m-bar">
-          <i :style="{ width: Math.min(m.ratio * 100, 100) + '%', background: m.color }" />
+      <!-- ===== 四张指标 ===== -->
+      <section class="metrics">
+        <div
+          v-for="(m, i) in metrics"
+          :key="m.key"
+          class="metric rise"
+          :style="{ animationDelay: i * 55 + 'ms' }"
+        >
+          <div class="m-label">{{ m.label }}</div>
+          <div class="m-value mono" :style="{ color: m.color }">{{ m.value }}</div>
+          <div class="m-bar">
+            <i :style="{ width: Math.min(m.ratio * 100, 100) + '%', background: m.color }" />
+          </div>
         </div>
-      </div>
-    </section>
+      </section>
 
-    <!-- ===== 图表区 =====
+      <!-- ===== 图表区 =====
          栅格分配的依据是**每块图表要放多少字**，不是"看起来匀"。
          · 领域分布 5 列：横向条的左边要放得下「求职·AI工程」这种长领域名，
            给 4 列时标签和条会挤在一起（原来就是这样）；
@@ -591,137 +632,142 @@ const bktAvg = computed(() => {
          · BKT 4 列：三段条 + 一段说明文字，比环形图需要更多的行内空间。
          ⚠️ 每行必须凑满 12（5+3+4 / 7+5 / 12）。之前是 4+4+4 / 4+7 / 5，
          右边永远缺一块，页面看着是"没排完"而不是"排好了"。 -->
-    <section class="grid">
-      <div class="panel span-5 rise" :style="{ animationDelay: '80ms' }">
-        <header class="panel-head">
-          <h3>领域分布</h3>
-          <span class="hint">卡片按知识领域统计</span>
-        </header>
-        <EChart :option="domainOption" height="252px" />
-      </div>
+      <section class="grid">
+        <div class="panel span-5 rise" :style="{ animationDelay: '80ms' }">
+          <header class="panel-head">
+            <h3>领域分布</h3>
+            <span class="hint">卡片按知识领域统计</span>
+          </header>
+          <EChart :option="domainOption" height="252px" />
+        </div>
 
-      <div class="panel span-3 rise" :style="{ animationDelay: '105ms' }">
-        <header class="panel-head">
-          <!-- 原先这里叫「掌握度分布」，但它画的是 users 自评的三档标记，
+        <div class="panel span-3 rise" :style="{ animationDelay: '105ms' }">
+          <header class="panel-head">
+            <!-- 原先这里叫「掌握度分布」，但它画的是 users 自评的三档标记，
              不是掌握度。名字和内容对不上比不写更糟 —— 会让人以为
              系统已经算出了真实的掌握程度。改成「自评档位」，
              真正的掌握度挪到右边那张 BKT 卡（那是真的 p）。 -->
-          <h3>自评档位</h3>
-          <span class="hint">三档标记</span>
-        </header>
-        <EChart :option="masteryOption" height="252px" />
-      </div>
+            <h3>自评档位</h3>
+            <span class="hint">三档标记</span>
+          </header>
+          <EChart :option="masteryOption" height="252px" />
+        </div>
 
-      <div class="panel span-4 rise" :style="{ animationDelay: '130ms' }">
-        <header class="panel-head">
-          <h3>BKT 掌握度</h3>
-          <span class="hint">
-            {{ bktBars.length ? `已练 ${mastery.computed} 张 · 均值 ${bktAvg}` : '尚无数据' }}
-          </span>
-        </header>
-        <!-- 用 CSS 条而不是 ECharts：这里只有三段，引入一个图表实例
+        <div class="panel span-4 rise" :style="{ animationDelay: '130ms' }">
+          <header class="panel-head">
+            <h3>BKT 掌握度</h3>
+            <span class="hint">
+              {{ bktBars.length ? `已练 ${mastery.computed} 张 · 均值 ${bktAvg}` : '尚无数据' }}
+            </span>
+          </header>
+          <!-- 用 CSS 条而不是 ECharts：这里只有三段，引入一个图表实例
              去画三段 div 完全不划算（这一页已经有 4 个 ECharts 实例了）。
              没数据时**不留 252px 的空框**（见 .bkt-empty）：一块纯文字却
              占着跟环形图一样高，是这一页最明显的「像坏了」的地方。 -->
-        <div v-if="bktBars.length" class="bkt">
-          <div class="bkt-bar">
-            <i
-              v-for="b in bktBars"
-              :key="b.key"
-              :style="{ flexGrow: b.value, background: b.color }"
-            />
+          <div v-if="bktBars.length" class="bkt">
+            <div class="bkt-bar">
+              <i
+                v-for="b in bktBars"
+                :key="b.key"
+                :style="{ flexGrow: b.value, background: b.color }"
+              />
+            </div>
+            <div class="bkt-legend">
+              <span v-for="b in bktBars" :key="b.key">
+                <i :style="{ background: b.color }" />{{ b.name }} {{ b.value }}
+              </span>
+            </div>
+            <p class="bkt-note">
+              由复习事件回放出的概率 p 划档，比左边三档自评细 ——
+              能看出「模糊」里有多少其实快忘了。没练过的卡不算在内。
+            </p>
           </div>
-          <div class="bkt-legend">
-            <span v-for="b in bktBars" :key="b.key">
-              <i :style="{ background: b.color }" />{{ b.name }} {{ b.value }}
-            </span>
+          <div v-else class="bkt-empty">
+            <p class="bkt-empty-t">还没有可算的掌握度</p>
+            <p class="bkt-empty-d">
+              BKT 要靠复习事件回放概率 p。去
+              <button class="link" @click="router.push({ name: 'review' })">复习页</button>
+              标几张卡，这里就会出现分布。
+            </p>
           </div>
-          <p class="bkt-note">
-            由复习事件回放出的概率 p 划档，比左边三档自评细 ——
-            能看出「模糊」里有多少其实快忘了。没练过的卡不算在内。
-          </p>
         </div>
-        <div v-else class="bkt-empty">
-          <p class="bkt-empty-t">还没有可算的掌握度</p>
-          <p class="bkt-empty-d">
-            BKT 要靠复习事件回放概率 p。去
-            <button class="link" @click="router.push({ name: 'review' })">复习页</button>
-            标几张卡，这里就会出现分布。
-          </p>
-        </div>
-      </div>
 
-      <!-- 宽度分布：**图表 7 / 滚动榜 5**。
+        <!-- 宽度分布：**图表 7 / 滚动榜 5**。
      试过对调（队列 7、图 5）想让队列标题不被截断，实测反而更糟：
      科目构成的扇区外标签和图例一起被挤到省略号（"work/ai 1…"、"k mayo…"），
      而队列那点多出来的宽度只够多显示两三个字。
      两边都是「标签放不下」，但图表的标签是**外置引线**的，截断更像坏了。 -->
-      <div class="panel span-7 rise" :style="{ animationDelay: '180ms' }">
-        <header class="panel-head">
-          <h3>科目构成</h3>
-          <span class="hint">扇区半径与面积同时编码数量</span>
-        </header>
-        <EChart :option="subjectOption" height="288px" />
-      </div>
-
-      <div class="panel span-5 rise" :style="{ animationDelay: '230ms' }">
-        <header class="panel-head">
-          <h3>今日队列</h3>
-          <span class="hint">共 {{ learning.total }} 张</span>
-        </header>
-        <div class="board">
-          <DvScrollBoard v-if="learning.queue.length" :config="boardOption" />
-          <p v-else class="empty">今天没有到期的卡片 —— 先去「卡片」页挑几张新的吧</p>
+        <div class="panel span-7 rise" :style="{ animationDelay: '180ms' }">
+          <header class="panel-head">
+            <h3>科目构成</h3>
+            <span class="hint">扇区半径与面积同时编码数量</span>
+          </header>
+          <EChart :option="subjectOption" height="288px" />
         </div>
-      </div>
-    </section>
 
-    <!-- ===== 底部状态条 =====
+        <div class="panel span-5 rise" :style="{ animationDelay: '230ms' }">
+          <header class="panel-head">
+            <h3>今日队列</h3>
+            <span class="hint">共 {{ learning.total }} 张</span>
+          </header>
+          <div class="board">
+            <DvScrollBoard v-if="learning.queue.length" :config="boardOption" />
+            <p v-else class="empty">今天没有到期的卡片 —— 先去「卡片」页挑几张新的吧</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===== 底部状态条 =====
          原来「卡片构成」和「系统状态」挤在同一个 span-5 的窄面板里，
          堆叠条只有 64px 高、下面拖着三行小字，右侧空 7 列。
          改成一条**横贯整行**的状态条：左边是构成条，右边三格是运行状态。
          信息量没变，但 12 列的宽度正好够 —— 这行本来就是收尾，
          不该再跟上面的图表抢注意力。 -->
-    <section class="statusbar rise">
-      <div class="sb-compose">
-        <div class="sb-head">
-          <h3>卡片构成</h3>
-          <span class="hint">内置 {{ Math.max((s.total ?? 0) - (s.custom ?? 0), 0) }} · 自建 {{ s.custom ?? 0 }}</span>
+      <section class="statusbar rise">
+        <div class="sb-compose">
+          <div class="sb-head">
+            <h3>卡片构成</h3>
+            <span class="hint"
+              >内置 {{ Math.max((s.total ?? 0) - (s.custom ?? 0), 0) }} · 自建
+              {{ s.custom ?? 0 }}</span
+            >
+          </div>
+          <EChart :option="composeOption" height="44px" />
+          <div class="legend-row">
+            <span><i :style="{ background: INK.accent }" />内置</span>
+            <span><i :style="{ background: INK.known }" />自建</span>
+          </div>
         </div>
-        <EChart :option="composeOption" height="44px" />
-        <div class="legend-row">
-          <span><i :style="{ background: INK.accent }" />内置</span>
-          <span><i :style="{ background: INK.known }" />自建</span>
-        </div>
-      </div>
 
-      <div class="sb-sep" />
+        <div class="sb-sep" />
 
-      <!-- ⚠️ 拿不到时**写「检测中」而不是 `-`**：一个孤零零的横杠
+        <!-- ⚠️ 拿不到时**写「检测中」而不是 `-`**：一个孤零零的横杠
            读起来像「坏了/没有」，而真相是「这个请求还没回来」。
            这三格是 per-request 拉的，页面刚打开的那一瞬间必然是空的。 -->
-      <div class="sb-cell">
-        <span class="dim">存储后端</span>
-        <span class="mono">{{ storeInfo?.store || '检测中' }}</span>
-      </div>
-      <div class="sb-cell">
-        <span class="dim">内置卡 / 库内</span>
-        <span class="mono">
-          {{
-            storeInfo
-              ? (storeInfo?.builtin?.inFile ?? '-') + ' / ' + (storeInfo?.builtin?.inDb ?? '未同步')
-              : '检测中'
-          }}
-        </span>
-      </div>
-      <div class="sb-cell">
-        <span class="dim">AI 精读</span>
-        <span>{{ llmInfo === null ? '检测中' : llmInfo?.ok ? '可用' : '未启用' }}</span>
-      </div>
-      <button class="link sb-more" @click="router.push({ name: 'admin-system' })">
-        运行状态 →
-      </button>
-    </section>
+        <div class="sb-cell">
+          <span class="dim">存储后端</span>
+          <span class="mono">{{ storeInfo?.store || '检测中' }}</span>
+        </div>
+        <div class="sb-cell">
+          <span class="dim">内置卡 / 库内</span>
+          <span class="mono">
+            {{
+              storeInfo
+                ? (storeInfo?.builtin?.inFile ?? '-') +
+                  ' / ' +
+                  (storeInfo?.builtin?.inDb ?? '未同步')
+                : '检测中'
+            }}
+          </span>
+        </div>
+        <div class="sb-cell">
+          <span class="dim">AI 精读</span>
+          <span>{{ llmInfo === null ? '检测中' : llmInfo?.ok ? '可用' : '未启用' }}</span>
+        </div>
+        <button class="link sb-more" @click="router.push({ name: 'admin-system' })">
+          运行状态 →
+        </button>
+      </section>
     </template>
   </div>
 </template>

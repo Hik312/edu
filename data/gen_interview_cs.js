@@ -1670,7 +1670,18 @@ var CARDS_INTERVIEW_CS =
       "追问2：JWT 和 Session 有什么不同？（答：JWT 是无状态认证，Session 是有状态认证，JWT 由客户端保存，Session 由服务器保存。）",
       "追问3：为什么 Cookie 需要设置 HttpOnly 和 Secure？（答：HttpOnly 防止 XSS 攻击窃取 Cookie，Secure 确保 Cookie 仅通过 HTTPS 传输。）"
     ],
-    "related": [],
+    "related": [
+      {
+        "id": "fe-storage-cookie",
+        "kind": "extends",
+        "note": "HTTP 无状态，所以要靠 Cookie/Token 记状态"
+      },
+      {
+        "id": "cs-http-vs-https",
+        "kind": "extends",
+        "note": "Cookie 的 Secure 属性依赖 HTTPS"
+      }
+    ],
     "diagram": {
       "kind": "pipeline",
       "stages": [
@@ -1843,7 +1854,18 @@ var CARDS_INTERVIEW_CS =
       "WebSocket 的数据传输是如何进行的？（答：数据以帧的形式进行传送，发送端将消息切割成多个帧发送，接收端将帧重新组装成完整的消息。）",
       "如果客户端或服务器需要断开 WebSocket 连接，应该如何操作？（答：可以主动发送一个关闭帧，另一方收到后也会回复一个关闭帧，然后双方关闭 TCP 连接。）"
     ],
-    "related": [],
+    "related": [
+      {
+        "id": "sse-websocket",
+        "kind": "compare",
+        "note": "两个都解决「服务端主动推」，选型常被问"
+      },
+      {
+        "id": "cs-netq20",
+        "kind": "extends",
+        "note": "与轮询/长轮询的对比是同一考题"
+      }
+    ],
     "diagram": null
   },
   {
@@ -1905,6 +1927,11 @@ var CARDS_INTERVIEW_CS =
         "id": "cs-tcp-timewait",
         "kind": "compare",
         "note": "WebSocket 与 TCP 状态监控是不同层面的网络通信技术"
+      },
+      {
+        "id": "cs-netq19",
+        "kind": "compare",
+        "note": "相关：cs-netq19"
       }
     ],
     "diagram": {
@@ -2022,6 +2049,11 @@ var CARDS_INTERVIEW_CS =
         "id": "cs-http-vs-https",
         "kind": "compare",
         "note": "SSE 和 WebSocket 都是 HTTP 的变种，对比能理解 HTTPS 的协议差异"
+      },
+      {
+        "id": "cs-netq19",
+        "kind": "compare",
+        "note": "相关：cs-netq19"
       }
     ],
     "diagram": {

@@ -31,6 +31,65 @@ import ReviewSetup from '@/views/review/ReviewSetup.vue'
 const learning = useLearningStore()
 const cards = useCardsStore()
 
+// ---- 学习时长埋点 ----
+// 记录每张卡的进入时间，离开时算出 duration 写入 localStorage 队列。
+// 个人中心挂载时批量上报后端 /profile/review-sessions/batch。
+const TRACK_KEY = 'edu.review.track'
+let _trackCardId = ''
+let _trackStart = 0
+let _trackSession = ''
+
+function genSessionId() {
+  return Date.now().toString(36) + Math.random().toString(36).slice(2, 7)
+}
+
+function readTrackQueue() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(TRACK_KEY) || '[]')
+    return Array.isArray(raw) ? raw : []
+  } catch {
+    return []
+  }
+}
+
+function writeTrackQueue(items) {
+  try {
+    if (!items.length) localStorage.removeItem(TRACK_KEY)
+    else localStorage.setItem(TRACK_KEY, JSON.stringify(items.slice(-200)))
+  } catch {
+    /* 配额满就丢 */
+  }
+}
+
+/** 记录进入一张卡。 */
+function trackEnter(cardId) {
+  _trackCardId = cardId
+  _trackStart = Date.now()
+  if (!_trackSession) _trackSession = genSessionId()
+}
+
+/** 记录离开当前卡：把时长写入队列。
+ *  不足 1 秒不记（误触翻页不算复习）。 */
+function trackLeave() {
+  if (!_trackCardId || !_trackStart) return
+  const durationSec = Math.round((Date.now() - _trackStart) / 1000)
+  if (durationSec < 1) {
+    _trackCardId = ''
+    _trackStart = 0
+    return
+  }
+  const items = readTrackQueue()
+  items.push({
+    cardId: _trackCardId,
+    durationSeconds: durationSec,
+    ts: Date.now(),
+    sessionId: _trackSession
+  })
+  writeTrackQueue(items)
+  _trackCardId = ''
+  _trackStart = 0
+}
+
 const idx = ref(0)
 const revealed = ref(false)
 const detail = ref(null)
@@ -192,9 +251,13 @@ async function loadDetail() {
 }
 
 watch(cur, async c => {
+  // 换卡时结束上一张卡的停留记录；切到空队列时不新开记录。
+  trackLeave()
   revealed.value = false
-  // 记住「正在看哪张」：翻卡/标记推进时更新，刷新后据此恢复位置。
-  if (c) curId.value = c.id
+  if (c) {
+    curId.value = c.id
+    trackEnter(c.id)
+  }
   await loadDetail()
 })
 
@@ -214,6 +277,7 @@ async function mark(level) {
   // 同一张卡会重复出现两次。属于「统计和实际操作不一致」的静默错误。
   const cid = cur.value.id
   saving.value = true
+  trackLeave()
   try {
     await learning.mark(cid, level)
     done.value[cid] = level
@@ -224,6 +288,8 @@ async function mark(level) {
 }
 
 function restart() {
+  trackLeave()
+  _trackSession = genSessionId()
   idx.value = 0
   done.value = {}
   curId.value = '' // 从头再看，就不该再恢复到上次的卡
@@ -319,7 +385,10 @@ function onKey(e) {
 }
 
 onMounted(() => window.addEventListener('keydown', onKey))
-onUnmounted(() => window.removeEventListener('keydown', onKey))
+onUnmounted(() => {
+  trackLeave()
+  window.removeEventListener('keydown', onKey)
+})
 </script>
 
 <template>

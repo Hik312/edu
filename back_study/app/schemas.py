@@ -88,10 +88,40 @@ class DocImportIn(Loose):
     category: Optional[str] = None
     subject: Optional[str] = None
     domain: Optional[str] = None
+    #: 导入时用户手动选的类型：'资料' / '论文' / '笔记' / 'auto'（不传=auto）
+    #: auto 才是老的 _looks_like_paper 自动判断 —— 手动选**优先于**它，
+    #: 因为自动判据只认文件名/版面词，中文论文和自定义命名的都会漏判。
+    docType: Optional[str] = Field(None, description='资料/论文/笔记；不给=自动判断')
 
 
 class DocRenameIn(BaseModel):
     title: str = Field(..., min_length=1, max_length=60, description='新的卡片组名（即文档标题）')
+
+
+# ---------- 文件夹树（PyCharm 式自建目录） ----------
+# ★ parentId 用 '' 表示根，不用 null：
+#   前端拖拽落点天然是「字符串 id 或空串」，null 会多出一个 None 分支，
+#   而 None 在 JS 里既不等 '' 也不等 undefined，最容易出「拖到根上没反应」。
+
+class FolderIn(Loose):
+    name: Optional[str] = Field(None, description='文件夹名')
+    parentId: Optional[str] = Field(None, description="父文件夹 id，'' = 顶层")
+
+
+class FolderPatchIn(Loose):
+    name: Optional[str] = None
+    collapsed: Optional[bool] = Field(None, description='折叠状态，持久化到库里')
+
+
+class MoveFolderIn(Loose):
+    id: str = Field(..., description='要移动的文件夹 id')
+    parentId: str = Field('', description="新父文件夹 id，'' = 移到顶层")
+
+
+class DocPlaceIn(Loose):
+    docId: Optional[str] = Field(None, description='文档 id（/docs/{did}/move 时用路径参数）')
+    folderIds: List[str] = Field(default_factory=list,
+                                 description='目标文件夹 id 列表；空 = 从所有文件夹移出')
 
 
 class DraftPatch(Loose):
@@ -107,6 +137,60 @@ class DraftPatch(Loose):
 
 class PublishIn(BaseModel):
     id: str = Field(..., description='草稿 id')
+
+
+class TranslateIn(BaseModel):
+    """论文翻译的控制参数。
+
+    ★ 用一个「模式字符串」而不是几个布尔字段（force/onlyOne/limit）：
+      布尔组合有 2^n 种，其中大半无意义（force 且 onlyOne？）
+      而字符串模式的合法取值一目了然，且加新模式不用改 schema。
+    """
+    mode: str = Field('run', description=(
+        'run=只翻没翻好的（续跑）· redo=全翻 · redo:N=从第N段起'
+        '· limit:N=只处理 N 段（试跑用）'))
+    verify: bool = Field(
+        True, description='每段做回译校验（慢一倍，能发现幻觉）；'
+                          '调提示词时可关掉快速试跑')
+    model: Optional[str] = Field(None, description='指定模型，默认服务端挑的')
+
+
+class GlossaryIn(BaseModel):
+    """手动加/改术语。locked 默认 True —— 见 docs.py 的 put_glossary。"""
+    en: str = Field(..., description='英文术语')
+    zh: str = Field('', description='中文译法')
+    locked: Optional[bool] = Field(
+        None, description='锁定后重抽术语表不会覆盖。None=锁定（手动录入的默认）')
+
+
+class DocAskIn(BaseModel):
+    """知识库右下角「问这份文档」。
+
+    ★ 不要 docId：文档 id 已经在路径参数 /docs/{did}/ask 里了，
+       body 里再带一份是两份真值来源 —— 两者不一致时只能选一个，
+       而选错的那个症状是「问了 A 文档、答的是 B 文档内容」，
+       极难察觉。所以这里一律以路径为准。"""
+    question: str = Field(..., description='要问什么')
+    history: List[Dict[str, Any]] = Field(
+        default_factory=list, description='本次会话历史[{question,answer}]，最多取最近 6 轮')
+    model: Optional[str] = Field(None, description='指定模型，默认取服务端挑好的那个')
+
+
+class QaFeedbackIn(BaseModel):
+    """文档问答的反馈（自进化 RAG 的纠错入口）。
+
+    ★ question 必须是被反馈的那条**问题原文** —— 后端靠它（精确匹配优先、
+       bigram 重合度兜底）在 Q&A 记忆里定位那一条历史，给它打 feedback 标记。
+       被踩（good=False）的历史以后不再被 similar_qa 复用，记忆就「忘掉」了错答。"""
+    question: str = Field(..., description='被反馈的那条问题原文')
+    good: bool = Field(..., description='true=👍 认可，false=👎 不认可')
+    correction: Optional[str] = Field(None, description='👎 时的修正说明（可选）')
+
+
+class FigureCaptionIn(BaseModel):
+    """视觉模型给论文图片写中文图注。"""
+    name: str = Field(..., description='图片名（与正文中 ![](media:name) 的 name 对应）')
+    context: Optional[str] = Field('', description='图片所在段落的少量上下文，帮模型定位')
 
 
 # ---------- AI 精读 ----------

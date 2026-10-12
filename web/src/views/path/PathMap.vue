@@ -131,7 +131,7 @@ async function loadPlan() {
     const r = customOn.value
       ? await getPlan({ subjects: picked.value.join(',') })
       : await getPlan({ role: mapRole.value })
-    if (seq !== planSeq) return          // 已有更新的请求，丢弃这份旧结果
+    if (seq !== planSeq) return // 已有更新的请求，丢弃这份旧结果
     plan.value = r.plan || null
   } catch (e) {
     if (seq !== planSeq) return

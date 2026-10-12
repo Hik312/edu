@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
 """算法库 · PostgreSQL 实现。
 
-**⚠ 本机尚未验证（2026-09-29）**：venv 里没装 psycopg，且 PG 要密码才能连
-（免密试连失败）。代码按 psycopg 3 的 API 写，等拿到密码 + 装了驱动之后
-必须真跑一遍 `ALGO_STORE=pg` 再算数。默认配置是 json，不会走到这里。
+**✅ 本机已验证（2026-10-09）**：psycopg 3.3.6 + PG 16.15 真连通过，
+`events_* / mastery_* / params_* / sessions_*` 全部实跑验证过（含建表幂等、
+limit 边界、清空）。下面那句「未验证」是 2026-09-29 写的，已过时。
 
 **为什么算法数据要放 PG 而不是继续用 MySQL**：
 
@@ -14,7 +14,7 @@
 - **后期 pgvector**：RAG 的向量直接放同一个库，省掉再维护一个向量库。
   这是 PG 真正的价值，不是一个"又一个数据库"。
 
-三张表见 `DDL`。建表是幂等的（CREATE TABLE IF NOT EXISTS），缺表自动建，
+四张表见 `DDL`。建表是幂等的（CREATE TABLE IF NOT EXISTS），缺表自动建，
 所以第一次连上不用手动跑脚本。
 """
 
@@ -48,6 +48,28 @@ DDL = (
          value       JSONB        NOT NULL,
          updated_at  TIMESTAMPTZ  NOT NULL DEFAULT now()
        )""",
+    # ★ 学习时长会话（个人中心埋点，2026-10-09 加）。
+    #   之前只有 jsonfile 后端实现了 sessions_*，PG 这边缺 → 前端「学习时长」
+    #   恒为 0 且看不出原因。补上之后 PG 配置也能正常统计。
+    #   字段与 base.SESSION_KEYS 对齐：
+    #     id / user_id / card_id / duration_seconds / level / ts / session_id
+    #   `ts` 用 VARCHAR(24) 而不是 TIMESTAMPTZ —— 前端上报的是
+    #   'YYYY-MM-DD' 或 'YYYY-MM-DDTHH:MM:SS' 两种形态，前者没有时分秒，
+    #   强转 TIMESTAMPTZ 要么报错要么被猜成当天 00:00，反而制造歧义。
+    #   而且报表只按**天**聚合（见 core/report.py 的 _day()），不需要时间精度。
+    """CREATE TABLE IF NOT EXISTS review_sessions (
+         id               BIGSERIAL PRIMARY KEY,
+         user_id          VARCHAR(64)  NOT NULL,
+         card_id          VARCHAR(96),
+         duration_seconds INT          NOT NULL,
+         level            SMALLINT,
+         ts               VARCHAR(24)  NOT NULL,
+         session_id       VARCHAR(96),
+         created_at       TIMESTAMPTZ  NOT NULL DEFAULT now()
+       )""",
+    # 索引与 review_events 同思路：查询恒定带 user_id，再按时间取尾部窗口。
+    """CREATE INDEX IF NOT EXISTS ix_sessions_user_ts
+         ON review_sessions (user_id, ts, id)""",
 )
 
 
@@ -159,6 +181,67 @@ class PgAlgoStore(AlgoStore):
             self._q('TRUNCATE review_events')
         else:
             self._q('DELETE FROM review_events WHERE user_id=%s', (str(user_id),))
+
+    # ---------------- 学习时长会话 ----------------
+    # ★ 之前这三个方法是空的（只有 jsonfile 实现了），PG 配置下
+    #   「学习时长」恒显示 0h，且看不出是功能坏了还是用户没学。
+    #   2026-10-09 补齐。实现要点与 events_of 一致（见那里的注释）。
+
+    _SESSION_KEYS = ('id', 'user_id', 'card_id', 'duration_seconds',
+                     'level', 'ts', 'session_id')
+
+    def sessions_append(self, sess):
+        row = self._q("""
+            INSERT INTO review_sessions
+              (user_id, card_id, duration_seconds, level, ts, session_id)
+            VALUES (%s,%s,%s,%s,%s,%s)
+            RETURNING id, user_id, card_id, duration_seconds, level, ts, session_id
+        """, (str(sess.get('user_id')), sess.get('card_id'),
+              int(sess.get('duration_seconds') or 0),
+              int(sess.get('level') or 0), sess.get('ts'),
+              sess.get('session_id') or ''), fetch=True)[0]
+        return dict(zip(self._SESSION_KEYS, row))
+
+    def sessions_of(self, user_id, card_id=None, limit=500):
+        sql = ('SELECT id, user_id, card_id, duration_seconds, level, ts, session_id'
+               ' FROM review_sessions WHERE user_id=%s')
+        args = [str(user_id)]
+        if card_id:
+            sql += ' AND card_id=%s'
+            args.append(card_id)
+        # ★ 与 events_of 完全同契约：「取**最近** limit 条再按正序返回」。
+        # 直接 ORDER BY ts ASC LIMIT n 拿到的是**最旧**的 n 条 ——
+        # 与 jsonfile 的 out[-limit:] 相反，会让「最近学了什么」变成「最早学的」。
+        if limit and limit > 0:
+            sql += ' ORDER BY ts DESC, id DESC LIMIT %s'
+            args.append(int(limit))
+        else:
+            sql += ' ORDER BY ts DESC, id DESC LIMIT ALL'
+        rows = self._q(sql, args, fetch=True)
+        rows = list(reversed(rows))          # 翻回时间正序
+        out = []
+        for r in rows:
+            sess = dict(zip(self._SESSION_KEYS, r))
+            # ts 是 VARCHAR，本来就是字符串；但防御性归一化一下，
+            # 万一将来有人把列改成 TIMESTAMPTZ，这里不会突然 500。
+            if sess.get('ts') is not None and not isinstance(sess['ts'], str):
+                sess['ts'] = str(sess['ts'])[:24]
+            out.append(sess)
+        return out
+
+    def sessions_count(self, user_id=None):
+        if user_id is None:
+            return self._q('SELECT count(*) FROM review_sessions',
+                           fetch=True)[0][0]
+        return self._q('SELECT count(*) FROM review_sessions WHERE user_id=%s',
+                       (str(user_id),), fetch=True)[0][0]
+
+    def sessions_clear(self, user_id=None):
+        """清空会话。不是契约必需（base 里没声明），但探针/调试用得上。"""
+        if user_id is None:
+            self._q('TRUNCATE review_sessions')
+        else:
+            self._q('DELETE FROM review_sessions WHERE user_id=%s', (str(user_id),))
 
     # ---------------- 掌握度 ----------------
     def mastery_get(self, user_id, kc):

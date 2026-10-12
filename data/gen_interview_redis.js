@@ -3,11 +3,11 @@ var CARDS_INTERVIEW_REDIS =
 [
   {
     "id": "java-redis-vs-memcached",
-    "domain": "Java后端",
+    "domain": "中间件",
     "category": "work",
-    "subject": "java",
+    "subject": "middleware",
     "topicPath": [
-      "Java后端",
+      "中间件",
       "Redis 入门"
     ],
     "tags": [
@@ -103,11 +103,11 @@ var CARDS_INTERVIEW_REDIS =
   },
   {
     "id": "java-what-is-redis",
-    "domain": "Java后端",
+    "domain": "中间件",
     "category": "work",
-    "subject": "java",
+    "subject": "middleware",
     "topicPath": [
-      "Java后端",
+      "中间件",
       "Redis 入门"
     ],
     "tags": [
@@ -210,11 +210,11 @@ var CARDS_INTERVIEW_REDIS =
   },
   {
     "id": "java-why-redis-cache-for-mysql",
-    "domain": "Java后端",
+    "domain": "中间件",
     "category": "work",
-    "subject": "java",
+    "subject": "middleware",
     "topicPath": [
-      "Java后端",
+      "中间件",
       "Redis 入门"
     ],
     "tags": [
@@ -317,11 +317,11 @@ var CARDS_INTERVIEW_REDIS =
   },
   {
     "id": "java-redis-data-types-scenarios",
-    "domain": "Java后端",
+    "domain": "中间件",
     "category": "work",
-    "subject": "java",
+    "subject": "middleware",
     "topicPath": [
-      "Java后端",
+      "中间件",
       "Redis 数据结构"
     ],
     "tags": [
@@ -423,11 +423,11 @@ var CARDS_INTERVIEW_REDIS =
   },
   {
     "id": "java-redis-data-types-internals",
-    "domain": "Java后端",
+    "domain": "中间件",
     "category": "work",
-    "subject": "java",
+    "subject": "middleware",
     "topicPath": [
-      "Java后端",
+      "中间件",
       "Redis 数据结构"
     ],
     "tags": [
@@ -484,11 +484,11 @@ var CARDS_INTERVIEW_REDIS =
   },
   {
     "id": "java-is-redis-single-thread",
-    "domain": "Java后端",
+    "domain": "中间件",
     "category": "work",
-    "subject": "java",
+    "subject": "middleware",
     "topicPath": [
-      "Java后端",
+      "中间件",
       "Redis 线程模型"
     ],
     "tags": [
@@ -620,11 +620,11 @@ var CARDS_INTERVIEW_REDIS =
   },
   {
     "id": "java-redis-single-thread-model",
-    "domain": "Java后端",
+    "domain": "中间件",
     "category": "work",
-    "subject": "java",
+    "subject": "middleware",
     "topicPath": [
-      "Java后端",
+      "中间件",
       "Redis 线程模型"
     ],
     "tags": [
@@ -703,11 +703,11 @@ var CARDS_INTERVIEW_REDIS =
   },
   {
     "id": "java-redis-single-thread-fast",
-    "domain": "Java后端",
+    "domain": "中间件",
     "category": "work",
-    "subject": "java",
+    "subject": "middleware",
     "topicPath": [
-      "Java后端",
+      "中间件",
       "Redis 线程模型"
     ],
     "tags": [
@@ -784,11 +784,11 @@ var CARDS_INTERVIEW_REDIS =
   },
   {
     "id": "java-redis-multithread-after-6",
-    "domain": "Java后端",
+    "domain": "中间件",
     "category": "work",
-    "subject": "java",
+    "subject": "middleware",
     "topicPath": [
-      "Java后端",
+      "中间件",
       "Redis 线程模型"
     ],
     "tags": [
@@ -885,11 +885,11 @@ var CARDS_INTERVIEW_REDIS =
   },
   {
     "id": "java-redis-aof-internals",
-    "domain": "Java后端",
+    "domain": "中间件",
     "category": "work",
-    "subject": "java",
+    "subject": "middleware",
     "topicPath": [
-      "Java后端",
+      "中间件",
       "Redis 持久化"
     ],
     "tags": [
@@ -979,11 +979,11 @@ var CARDS_INTERVIEW_REDIS =
   },
   {
     "id": "java-redis-rdb-internals",
-    "domain": "Java后端",
+    "domain": "中间件",
     "category": "work",
-    "subject": "java",
+    "subject": "middleware",
     "topicPath": [
-      "Java后端",
+      "中间件",
       "Redis 持久化"
     ],
     "tags": [
@@ -1069,11 +1069,11 @@ var CARDS_INTERVIEW_REDIS =
   },
   {
     "id": "java-redis-hybrid-persistence",
-    "domain": "Java后端",
+    "domain": "中间件",
     "category": "work",
-    "subject": "java",
+    "subject": "middleware",
     "topicPath": [
-      "Java后端",
+      "中间件",
       "Redis 持久化"
     ],
     "tags": [
@@ -1152,11 +1152,11 @@ var CARDS_INTERVIEW_REDIS =
   },
   {
     "id": "java-redis-high-availability",
-    "domain": "Java后端",
+    "domain": "中间件",
     "category": "work",
-    "subject": "java",
+    "subject": "middleware",
     "topicPath": [
-      "Java后端",
+      "中间件",
       "Redis 高可用"
     ],
     "tags": [
@@ -1241,11 +1241,11 @@ var CARDS_INTERVIEW_REDIS =
   },
   {
     "id": "java-redis-cluster-split-brain",
-    "domain": "Java后端",
+    "domain": "中间件",
     "category": "work",
-    "subject": "java",
+    "subject": "middleware",
     "topicPath": [
-      "Java后端",
+      "中间件",
       "Redis 高可用"
     ],
     "tags": [
@@ -1330,11 +1330,11 @@ var CARDS_INTERVIEW_REDIS =
   },
   {
     "id": "java-redis-expire-delete-strategy",
-    "domain": "Java后端",
+    "domain": "中间件",
     "category": "work",
-    "subject": "java",
+    "subject": "middleware",
     "topicPath": [
-      "Java后端",
+      "中间件",
       "Redis 过期与淘汰"
     ],
     "tags": [
@@ -1415,11 +1415,11 @@ var CARDS_INTERVIEW_REDIS =
   },
   {
     "id": "java-redis-expire-keys-persistence",
-    "domain": "Java后端",
+    "domain": "中间件",
     "category": "work",
-    "subject": "java",
+    "subject": "middleware",
     "topicPath": [
-      "Java后端",
+      "中间件",
       "Redis 过期与淘汰"
     ],
     "tags": [
@@ -1519,11 +1519,11 @@ var CARDS_INTERVIEW_REDIS =
   },
   {
     "id": "java-redis-eviction-strategies",
-    "domain": "Java后端",
+    "domain": "中间件",
     "category": "work",
-    "subject": "java",
+    "subject": "middleware",
     "topicPath": [
-      "Java后端",
+      "中间件",
       "Redis 过期与淘汰"
     ],
     "tags": [
@@ -1632,11 +1632,11 @@ var CARDS_INTERVIEW_REDIS =
   },
   {
     "id": "java-redis-lru-vs-lfu",
-    "domain": "Java后端",
+    "domain": "中间件",
     "category": "work",
-    "subject": "java",
+    "subject": "middleware",
     "topicPath": [
-      "Java后端",
+      "中间件",
       "Redis 过期与淘汰"
     ],
     "tags": [
@@ -1738,11 +1738,11 @@ var CARDS_INTERVIEW_REDIS =
   },
   {
     "id": "java-redis-cache-three-problems",
-    "domain": "Java后端",
+    "domain": "中间件",
     "category": "work",
-    "subject": "java",
+    "subject": "middleware",
     "topicPath": [
-      "Java后端",
+      "中间件",
       "Redis 缓存设计"
     ],
     "tags": [
@@ -1844,11 +1844,11 @@ var CARDS_INTERVIEW_REDIS =
   },
   {
     "id": "java-redis-cache-update-strategies",
-    "domain": "Java后端",
+    "domain": "中间件",
     "category": "work",
-    "subject": "java",
+    "subject": "middleware",
     "topicPath": [
-      "Java后端",
+      "中间件",
       "Redis 缓存设计"
     ],
     "tags": [
@@ -1899,11 +1899,11 @@ var CARDS_INTERVIEW_REDIS =
   },
   {
     "id": "java-redis-big-key",
-    "domain": "Java后端",
+    "domain": "中间件",
     "category": "work",
-    "subject": "java",
+    "subject": "middleware",
     "topicPath": [
-      "Java后端",
+      "中间件",
       "Redis 实战"
     ],
     "tags": [
@@ -1991,11 +1991,11 @@ var CARDS_INTERVIEW_REDIS =
   },
   {
     "id": "java-redis-transaction-rollback",
-    "domain": "Java后端",
+    "domain": "中间件",
     "category": "work",
-    "subject": "java",
+    "subject": "middleware",
     "topicPath": [
-      "Java后端",
+      "中间件",
       "Redis 实战"
     ],
     "tags": [
@@ -2077,11 +2077,11 @@ var CARDS_INTERVIEW_REDIS =
   },
   {
     "id": "java-redis-distributed-lock",
-    "domain": "Java后端",
+    "domain": "中间件",
     "category": "work",
-    "subject": "java",
+    "subject": "middleware",
     "topicPath": [
-      "Java后端",
+      "中间件",
       "Redis 实战"
     ],
     "tags": [
@@ -2167,11 +2167,11 @@ var CARDS_INTERVIEW_REDIS =
   },
   {
     "id": "java-redis-skiplist",
-    "domain": "Java后端",
+    "domain": "中间件",
     "category": "work",
-    "subject": "java",
+    "subject": "middleware",
     "topicPath": [
-      "Java后端",
+      "中间件",
       "Redis 数据结构"
     ],
     "tags": [
@@ -2247,11 +2247,11 @@ var CARDS_INTERVIEW_REDIS =
   },
   {
     "id": "java-redis-stream-mq",
-    "domain": "Java后端",
+    "domain": "中间件",
     "category": "work",
-    "subject": "java",
+    "subject": "middleware",
     "topicPath": [
-      "Java后端",
+      "中间件",
       "Redis 实战"
     ],
     "tags": [
@@ -2333,11 +2333,11 @@ var CARDS_INTERVIEW_REDIS =
   },
   {
     "id": "java-redis-memory-fragmentation",
-    "domain": "Java后端",
+    "domain": "中间件",
     "category": "work",
-    "subject": "java",
+    "subject": "middleware",
     "topicPath": [
-      "Java后端",
+      "中间件",
       "Redis 运维"
     ],
     "tags": [
@@ -2413,11 +2413,11 @@ var CARDS_INTERVIEW_REDIS =
   },
   {
     "id": "java-redis-blocking-problems",
-    "domain": "Java后端",
+    "domain": "中间件",
     "category": "work",
-    "subject": "java",
+    "subject": "middleware",
     "topicPath": [
-      "Java后端",
+      "中间件",
       "Redis 实战"
     ],
     "tags": [
@@ -2479,11 +2479,11 @@ var CARDS_INTERVIEW_REDIS =
   },
   {
     "id": "java-redis-persistence",
-    "domain": "Java后端",
+    "domain": "中间件",
     "category": "work",
-    "subject": "java",
+    "subject": "middleware",
     "topicPath": [
-      "Java后端",
+      "中间件",
       "Redis 持久化"
     ],
     "tags": [
@@ -2544,11 +2544,11 @@ var CARDS_INTERVIEW_REDIS =
   },
   {
     "id": "java-redis-delayed-task",
-    "domain": "Java后端",
+    "domain": "中间件",
     "category": "work",
-    "subject": "java",
+    "subject": "middleware",
     "topicPath": [
-      "Java后端",
+      "中间件",
       "Redis 实战"
     ],
     "tags": [
@@ -2633,11 +2633,11 @@ var CARDS_INTERVIEW_REDIS =
   },
   {
     "id": "java-redis-cache-db-consistency",
-    "domain": "Java后端",
+    "domain": "中间件",
     "category": "work",
-    "subject": "java",
+    "subject": "middleware",
     "topicPath": [
-      "Java后端",
+      "中间件",
       "Redis 缓存设计"
     ],
     "tags": [
@@ -2719,11 +2719,11 @@ var CARDS_INTERVIEW_REDIS =
   },
   {
     "id": "java-redis-sentinel",
-    "domain": "Java后端",
+    "domain": "中间件",
     "category": "work",
-    "subject": "java",
+    "subject": "middleware",
     "topicPath": [
-      "Java后端",
+      "中间件",
       "Redis 高可用"
     ],
     "tags": [
@@ -2814,11 +2814,11 @@ var CARDS_INTERVIEW_REDIS =
   },
   {
     "id": "java-redis-master-slave-replication",
-    "domain": "Java后端",
+    "domain": "中间件",
     "category": "work",
-    "subject": "java",
+    "subject": "middleware",
     "topicPath": [
-      "Java后端",
+      "中间件",
       "Redis 高可用"
     ],
     "tags": [
@@ -2914,11 +2914,11 @@ var CARDS_INTERVIEW_REDIS =
   },
   {
     "id": "java-redis-cluster",
-    "domain": "Java后端",
+    "domain": "中间件",
     "category": "work",
-    "subject": "java",
+    "subject": "middleware",
     "topicPath": [
-      "Java后端",
+      "中间件",
       "Redis 高可用"
     ],
     "tags": [
@@ -3008,11 +3008,11 @@ var CARDS_INTERVIEW_REDIS =
   },
   {
     "id": "java-redisq03",
-    "domain": "Java后端",
+    "domain": "中间件",
     "category": "work",
-    "subject": "java",
+    "subject": "middleware",
     "topicPath": [
-      "Java后端",
+      "中间件",
       "Redis 面试"
     ],
     "tags": [
@@ -3064,11 +3064,11 @@ var CARDS_INTERVIEW_REDIS =
   },
   {
     "id": "java-redisq05",
-    "domain": "Java后端",
+    "domain": "中间件",
     "category": "work",
-    "subject": "java",
+    "subject": "middleware",
     "topicPath": [
-      "Java后端",
+      "中间件",
       "Redis 面试"
     ],
     "tags": [
@@ -3182,11 +3182,11 @@ var CARDS_INTERVIEW_REDIS =
   },
   {
     "id": "redismodule",
-    "domain": "Java后端",
+    "domain": "中间件",
     "category": "work",
-    "subject": "java",
+    "subject": "middleware",
     "topicPath": [
-      "Java后端",
+      "中间件",
       "Redis 面试"
     ],
     "tags": [
@@ -3341,11 +3341,11 @@ var CARDS_INTERVIEW_REDIS =
   },
   {
     "id": "java-redisq09",
-    "domain": "Java后端",
+    "domain": "中间件",
     "category": "work",
-    "subject": "java",
+    "subject": "middleware",
     "topicPath": [
-      "Java后端",
+      "中间件",
       "Redis 面试"
     ],
     "tags": [
@@ -3406,11 +3406,11 @@ var CARDS_INTERVIEW_REDIS =
   },
   {
     "id": "string-hash",
-    "domain": "Java后端",
+    "domain": "中间件",
     "category": "work",
-    "subject": "java",
+    "subject": "middleware",
     "topicPath": [
-      "Java后端",
+      "中间件",
       "Redis 面试"
     ],
     "tags": [
@@ -3514,11 +3514,11 @@ var CARDS_INTERVIEW_REDIS =
   },
   {
     "id": "java-redisq16",
-    "domain": "Java后端",
+    "domain": "中间件",
     "category": "work",
-    "subject": "java",
+    "subject": "middleware",
     "topicPath": [
-      "Java后端",
+      "中间件",
       "Redis 面试"
     ],
     "tags": [
@@ -3583,11 +3583,11 @@ var CARDS_INTERVIEW_REDIS =
   },
   {
     "id": "java-redisq22",
-    "domain": "Java后端",
+    "domain": "中间件",
     "category": "work",
-    "subject": "java",
+    "subject": "middleware",
     "topicPath": [
-      "Java后端",
+      "中间件",
       "Redis 面试"
     ],
     "tags": [
@@ -3662,11 +3662,11 @@ var CARDS_INTERVIEW_REDIS =
   },
   {
     "id": "hyperloglog",
-    "domain": "Java后端",
+    "domain": "中间件",
     "category": "work",
-    "subject": "java",
+    "subject": "middleware",
     "topicPath": [
-      "Java后端",
+      "中间件",
       "Redis 面试"
     ],
     "tags": [
@@ -3755,11 +3755,11 @@ var CARDS_INTERVIEW_REDIS =
   },
   {
     "id": "java-redisq25",
-    "domain": "Java后端",
+    "domain": "中间件",
     "category": "work",
-    "subject": "java",
+    "subject": "middleware",
     "topicPath": [
-      "Java后端",
+      "中间件",
       "Redis 面试"
     ],
     "tags": [
@@ -3838,11 +3838,11 @@ var CARDS_INTERVIEW_REDIS =
   },
   {
     "id": "java-redisq27",
-    "domain": "Java后端",
+    "domain": "中间件",
     "category": "work",
-    "subject": "java",
+    "subject": "middleware",
     "topicPath": [
-      "Java后端",
+      "中间件",
       "Redis 面试"
     ],
     "tags": [
@@ -3932,11 +3932,11 @@ var CARDS_INTERVIEW_REDIS =
   },
   {
     "id": "java-redisq29",
-    "domain": "Java后端",
+    "domain": "中间件",
     "category": "work",
-    "subject": "java",
+    "subject": "middleware",
     "topicPath": [
-      "Java后端",
+      "中间件",
       "Redis 面试"
     ],
     "tags": [
@@ -4050,11 +4050,11 @@ var CARDS_INTERVIEW_REDIS =
   },
   {
     "id": "java-redisq30",
-    "domain": "Java后端",
+    "domain": "中间件",
     "category": "work",
-    "subject": "java",
+    "subject": "middleware",
     "topicPath": [
-      "Java后端",
+      "中间件",
       "Redis 面试"
     ],
     "tags": [

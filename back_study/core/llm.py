@@ -261,13 +261,20 @@ def _drop_think(raw):
 
 def _call(messages, model, timeout, temperature=0.15, max_tokens=900):
     p = provider()
+    # ★ model 为空时**必须**在此挑一个，不能直接把 None 发给 Ollama。
+    #   Ollama 对缺 model 的请求返回 HTTP 400 {"error":"model is required"}，
+    #   而这个报错信息完全看不出是「调用方忘了传模型」——
+    #   表现为所有 _call 的新调用方（比如 core/translate.py）直接崩，
+    #   而老的调用方（enrich/fill）都显式传了模型，所以一直没人发现。
+    #   云端分支本来就有 `or CLOUD_MODEL`，本地分支缺了同一个兜底。
+    name = model or pick_model()
     if p == 'cloud':
-        payload = {'model': model or CLOUD_MODEL, 'messages': messages,
+        payload = {'model': name, 'messages': messages,
                    'temperature': temperature, 'max_tokens': max_tokens}
         j = _post(CLOUD_BASE + '/v1/chat/completions', payload,
                   {'Authorization': 'Bearer ' + CLOUD_KEY}, timeout)
         return _drop_think(j['choices'][0]['message']['content'])
-    payload = {'model': model, 'messages': messages, 'stream': False,
+    payload = {'model': name, 'messages': messages, 'stream': False,
                'options': {'temperature': temperature, 'num_predict': max_tokens,
                            'num_ctx': NUM_CTX}}
     # 关掉思考链：deepseek-r1 这类模型不关掉会把 token 全烧在思考上，
@@ -279,6 +286,67 @@ def _call(messages, model, timeout, temperature=0.15, max_tokens=900):
         payload.pop('think', None)
         j = _post(OLLAMA + '/api/chat', payload, None, timeout)
     return _drop_think(j.get('message', {}).get('content') or '')
+
+
+# ---------- 流式对话（文档问答用） ----------
+#★ 为什么单独写一个流式版本，而不是把 _call 改成带 on_token：
+#   _call 的所有调用方（enrich/fill/to_card…）都要**一次性拿到完整 JSON**，
+#   流式对它们毫无意义。而文档问答是「回答一段话给人看」，本地 8B 出字要
+#   几十秒 —— 不流式的话用户盯着转圈几十秒，体验和坏了没区别。
+#   两条通道混在一个函数里会互相牵制，所以分开。
+def stream_chat(messages, on_token, model=None, timeout=300,
+                temperature=0.25, max_tokens=900):
+    """把回答一段一段吐给on_token。返回完整文本。
+
+    ★ 云端通道不支持流式（我们的云端接口走非流式 JSON），这里照样吐一次整体 ——
+      前端的 SSE 协议因此对两条通道完全一致，不用在页面里写if(provider)。
+    """
+    p = provider()
+    if p == 'cloud':
+        text = _call(messages, model or CLOUD_MODEL, timeout,
+                     temperature=temperature, max_tokens=max_tokens)
+        if text:
+            on_token(text)
+        return text
+
+    # ★ r1 系推理模型必须**缓冲后再发**（见下面 think 标签那段说明），
+    #   其余模型逐块转发，才是真的流式。
+    name = model or pick_model()
+    buffered = ('r1' in name.lower())
+    payload = {'model': name, 'messages': messages, 'stream': True,
+               'options': {'temperature': temperature, 'num_predict': max_tokens,
+                           'num_ctx': NUM_CTX},
+               'think': False}
+    data = json.dumps(payload).encode('utf-8')
+    req = urllib.request.Request(
+        OLLAMA + '/api/chat', data=data, headers={'Content-Type': 'application/json'})
+    buf, done = [], False
+    with urllib.request.urlopen(req, timeout=timeout) as r:
+        for raw in r:
+            line = raw.decode('utf-8', 'replace').strip()
+            if not line:
+                continue
+            try:
+                j = json.loads(line)
+            except json.JSONDecodeError:
+                continue          # 流里混进非 JSON 行（心跳/半截包），跳过
+            if 'error' in j:
+                raise RuntimeError(str(j['error']))
+            piece = (j.get('message') or {}).get('content') or ''
+            if piece:
+                if buffered:
+                    buf.append(piece)
+                else:
+                    on_token(piece)
+            if j.get('done'):
+                done = True
+                break
+    if not done:
+        raise RuntimeError('模型连接提前断开，没答完')
+    text = _drop_think(''.join(buf)) if buffered else ''
+    if text:
+        on_token(text)
+    return text
 
 
 def _norm(o):

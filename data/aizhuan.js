@@ -2,7 +2,7 @@
 var CARDS_AI = [
   {
     "id": "ai-agent",
-    "domain": "求职·AI工程",
+    "domain": "AI工程",
     "topicPath": [
       "AI工程",
       "核心概念",
@@ -129,7 +129,7 @@ var CARDS_AI = [
   },
   {
     "id": "ai-rag",
-    "domain": "求职·AI工程",
+    "domain": "AI工程",
     "topicPath": [
       "AI工程",
       "核心概念",
@@ -236,7 +236,7 @@ var CARDS_AI = [
   },
   {
     "id": "ai-embedding",
-    "domain": "求职·AI工程",
+    "domain": "AI工程",
     "topicPath": [
       "AI工程",
       "核心概念",
@@ -327,7 +327,7 @@ var CARDS_AI = [
   },
   {
     "id": "ai-vectordb",
-    "domain": "求职·AI工程",
+    "domain": "AI工程",
     "topicPath": [
       "AI工程",
       "核心概念",
@@ -438,7 +438,7 @@ var CARDS_AI = [
   },
   {
     "id": "ai-toolcall",
-    "domain": "求职·AI工程",
+    "domain": "AI工程",
     "topicPath": [
       "AI工程",
       "核心概念",
@@ -576,7 +576,7 @@ var CARDS_AI = [
   },
   {
     "id": "ai-langgraph",
-    "domain": "求职·AI工程",
+    "domain": "AI工程",
     "topicPath": [
       "AI工程",
       "框架",
@@ -698,7 +698,7 @@ var CARDS_AI = [
   },
   {
     "id": "ai-prompt",
-    "domain": "求职·AI工程",
+    "domain": "AI工程",
     "topicPath": [
       "AI工程",
       "核心概念",
@@ -800,7 +800,7 @@ var CARDS_AI = [
   },
   {
     "id": "ai-memory",
-    "domain": "求职·AI工程",
+    "domain": "AI工程",
     "topicPath": [
       "AI工程",
       "进阶",
@@ -925,7 +925,7 @@ var CARDS_AI = [
   },
   {
     "id": "ai-multiagent",
-    "domain": "求职·AI工程",
+    "domain": "AI工程",
     "topicPath": [
       "AI工程",
       "进阶",
@@ -1062,7 +1062,7 @@ var CARDS_AI = [
   },
   {
     "id": "ai-eval",
-    "domain": "求职·AI工程",
+    "domain": "AI工程",
     "topicPath": [
       "AI工程",
       "评估",

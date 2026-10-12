@@ -1333,6 +1333,40 @@ def get_doc(did):
     return None
 
 
+# ---------------- 论文译文 / 术语表 ----------------
+# ★ 这一层是**薄转发**，不写业务逻辑。理由：
+#   译文读写是纯存取，但「要不要复用已有译文」这种判断会随功能演进，
+#   放在db.py 里能保证 web 路由和将来的脚本/小程序端**用同一套规则**。
+#   路由层直接调 backend() 就等于把这个判断复制两份 ——
+#   而两份判断不一致时症状是「web 端显示已译、小程序端显示未译」，
+#   极难定位。
+
+def trans_all(did):
+    return backend().trans_all(did)
+
+
+def trans_put(did, seg_i, zh, src_hash='', status='', score=None,
+              missing=None, model=''):
+    backend().trans_put(did, seg_i, zh, src_hash=src_hash, status=status,
+                        score=score, missing=missing, model=model)
+
+
+def trans_clear(did):
+    backend().trans_clear(did)
+
+
+def glossary_all(did):
+    return backend().glossary_all(did)
+
+
+def glossary_put(did, en, zh, locked=False):
+    backend().glossary_put(did, en, zh, locked=locked)
+
+
+def glossary_del(did, en):
+    backend().glossary_del(did, en)
+
+
 def set_doc_ai(did, items, meta=None):
     """把 LLM 精读结果写回章节。items: [{'index': 章节下标, 'ai': {...}}]
 

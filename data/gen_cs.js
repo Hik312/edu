@@ -127,6 +127,11 @@ var CARDS_CS = [
         "id": "http-1-1-http-2-0",
         "kind": "compare",
         "note": "HTTP/1.1 的性能限制是 HTTPS 协议优化的重要背景"
+      },
+      {
+        "id": "cs-netq13",
+        "kind": "compare",
+        "note": "相关：cs-netq13"
       }
     ]
   },

@@ -95,7 +95,7 @@ function titleOf(id) {
 /** 已知步骤是否全做完了。用来判断「步骤帧已到齐、但正文还没出字」的那段空窗，
  *  这时候要补一条不确定态的等待行，否则等待动画会断一下。 */
 function allStepsDone(m) {
-  return !!(m.steps && m.steps.length && m.steps.every(s => s.done))
+  return Boolean(m.steps && m.steps.length && m.steps.every(s => s.done))
 }
 
 async function openCard(id) {
@@ -132,8 +132,8 @@ const FIELD_LABEL = {
 
 // 修正中 / 已处理的卡片 id：按钮置灰防重复点
 const fixBusy = ref('')
-const fixedIds = ref([])      // 已点过「修正」的卡
-const ignoredIds = ref([])    // 已点过「忽略」的卡
+const fixedIds = ref([]) // 已点过「修正」的卡
+const ignoredIds = ref([]) // 已点过「忽略」的卡
 
 function isFixed(id) {
   return fixedIds.value.includes(id)
@@ -241,7 +241,7 @@ function diffFields(s) {
 
       <div v-for="(m, i) in messages" :key="i" class="row" :class="m.role">
         <div class="bubble">
-<!-- Agent 步骤条 / 等待态。
+          <!-- Agent 步骤条 / 等待态。
      ★ 规则：**一个字的正文都没出来时就显示等待提示；字一出来立刻收场。**
      - 出字前（本地 8B 要几十秒）：显示「在做什么」，解释为什么还在等。
      - 出字后：正文自己在滚，等待提示立刻消失。之前它不消失，
@@ -251,20 +251,21 @@ function diffFields(s) {
        气泡会渲染出来但里面什么都没有 —— 用户看到一颗空白的胶囊，
        反而比没有动画更糟（实测截图就是这个）。所以下面必须有一条
        「还没收到任何步骤」的兜底行。 -->
-<div v-if="m.streaming && !m.text" class="steps">
-  <div v-for="(s, si) in m.steps" :key="si" class="step" :class="{ act: !s.done, fin: s.done }">
-    <i class="sd" />{{ s.text }}
-  </div>
-  <!-- 兜底 A：一个步骤帧都还没到（网络/首帧延迟）→ 先给一句「正在思考」，
+          <div v-if="m.streaming && !m.text" class="steps">
+            <div
+              v-for="(s, si) in m.steps"
+              :key="si"
+              class="step"
+              :class="{ act: !s.done, fin: s.done }"
+            >
+              <i class="sd" />{{ s.text }}
+            </div>
+            <!-- 兜底 A：一个步骤帧都还没到（网络/首帧延迟）→ 先给一句「正在思考」，
        避免出现空白气泡 -->
-  <div v-if="!m.steps || !m.steps.length" class="step act">
-    <i class="sd" />正在思考…
-  </div>
-  <!-- 兜底 B：已知步骤都做完了、正文还没出字 → 接住这段空窗 -->
-  <div v-else-if="allStepsDone(m)" class="step act">
-    <i class="sd" />正在组织回答…
-  </div>
-</div>
+            <div v-if="!m.steps || !m.steps.length" class="step act"><i class="sd" />正在思考…</div>
+            <!-- 兜底 B：已知步骤都做完了、正文还没出字 → 接住这段空窗 -->
+            <div v-else-if="allStepsDone(m)" class="step act"><i class="sd" />正在组织回答…</div>
+          </div>
           <!-- 公式/代码/Markdown 渲染：MarkdownRenderer（KaTeX + marked + hljs） -->
           <MarkdownRenderer :text="m.text" class="body" />
 
@@ -279,9 +280,7 @@ function diffFields(s) {
                ★ 刻意**不用转圈**，用呼吸点：这是后台增强，不是回答的必经环节，
                转圈会让人以为「答完了还在加载」（实测反馈过这个观感）。
                有建议时下面会直接出「是否修正」，没建议就自己淡出。 -->
-          <div v-if="m.bgStep" class="bgstep">
-            <i class="bdot" />{{ m.bgStep }}
-          </div>
+          <div v-if="m.bgStep" class="bgstep"><i class="bdot" />{{ m.bgStep }}</div>
 
           <!-- react 答完后的卡片校验：拿联网资料核对引用卡，有错就反问是否修正 -->
           <div v-if="m.role === 'assistant' && m.verify && m.verify.length" class="vcheck">
@@ -301,13 +300,23 @@ function diffFields(s) {
               <div class="vcard-act">
                 <template v-if="isFixed(s.card_id)">
                   <span class="vcard-done">已修正 ✓</span>
-                  <button class="ghost" :disabled="fixBusy === s.card_id" @click="revertSuggestion(m, s)">还原</button>
+                  <button
+                    class="ghost"
+                    :disabled="fixBusy === s.card_id"
+                    @click="revertSuggestion(m, s)"
+                  >
+                    还原
+                  </button>
                 </template>
                 <template v-else-if="isIgnored(s.card_id)">
                   <span class="vcard-done">已忽略，卡片保持原样</span>
                 </template>
                 <template v-else>
-                  <button class="send vbtn" :disabled="fixBusy === s.card_id" @click="applySuggestion(m, s)">
+                  <button
+                    class="send vbtn"
+                    :disabled="fixBusy === s.card_id"
+                    @click="applySuggestion(m, s)"
+                  >
                     {{ fixBusy === s.card_id ? '修正中…' : '确认修正' }}
                   </button>
                   <button class="ghost" @click="ignoreSuggestion(m, s)">忽略</button>
@@ -551,8 +560,11 @@ function diffFields(s) {
  * 改成「淡靛蓝底+ 深靛蓝字 + 靛蓝细边」—— 同一色相族，
  * 仍然分得清谁说的话，但仍然属于这张纸。 */
 .row.user .bubble {
-  background: linear-gradient(168deg, color-mix(in srgb, var(--ac) 9%, var(--panel)) 0%,
-    color-mix(in srgb, var(--ac) 14%, var(--panel2)) 100%);
+  background: linear-gradient(
+    168deg,
+    color-mix(in srgb, var(--ac) 9%, var(--panel)) 0%,
+    color-mix(in srgb, var(--ac) 14%, var(--panel2)) 100%
+  );
   color: var(--ac-dim);
   border-color: color-mix(in srgb, var(--ac) 26%, var(--line));
   border-bottom-right-radius: 5px;

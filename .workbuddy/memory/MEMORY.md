@@ -1,93 +1,56 @@
-# 原理卡片学习平台 — 架构约定（精简版，2026-10-02 对齐）
+# 智径 EduPath · 多 Agent 自适应学习平台 — 架构约定（精简版）
 
-## ★ 项目全名：智径 EduPath · 多 Agent 自适应学习平台（2026-10-03 用户两次纠正）
-**全名 = 智径 EduPath · 多 Agent 自适应学习平台**。
-权威出处三处一致，别再猜：
-- `app/config.py:60-61` → `API_DESC = "自适应学习平台的后端接口…"`
-- `web/src/views/login/LoginView.vue:104` → 「多 Agent 自适应学习平台 ·
-  把「我该学什么」交给它，你只管看懂」← **这句 slogan 就是最好的项目描述**
-- `docs/学习路线.md:223` → 「EduPath 的定位是自适应学习平台。
-  没有 BKT，"自适应"就只是"按你的手感排个序"」
+## ★ 项目全名（2026-10-03 用户两次纠正，别再猜）
+全名 = **智径 EduPath · 多 Agent 自适应学习平台**（"原理卡片"只是其中一个内容品类，不是项目名）。
+权威出处：`app/config.py:60-61` API_DESC / `web/.../LoginView.vue:104` slogan / `docs/学习路线.md:223`。
+目录 `study/` 不建议改名；`README.md:1` 标题仍是旧名待改。
+文档三件套：README · docs/技术架构.md · docs/学习路线.md · docs/开发者文档.md（最全）。
+结构 `study/{back_study,web,data,miniapp,docs}`。miniapp 端存在（36 文件 + 后端 9 端点），与 web 共用卡片库/调度算法。
 
-「原理卡片」只是其中一个**内容品类**（卡片库），不是项目名。
-⚠️ 改名只改了一半：`README.md:1` 标题仍是「原理卡片 · 学习平台」、
-目录名还是 `study`，这两处待改（目录名不建议动）。
+## 启动与装配
+- 入口 `back_study/run.py` → `uvicorn app.main:app`。`app/main.py` 只收横切：CORS 白名单、16MB 上限、no-store、异常→{ok:false,msg}、SPA 回落、启动横幅(卡片数/AI/降级必须可见)。
+- 路由：`app/routers/web/`（agent ai auth cards docs imports learning notes system 共 9）+ `app/routers/mini/`（auth learn）。导出 `ALL`。
 
-三份文档：README · docs/技术架构.md · docs/学习路线.md · **docs/开发者文档.md**（新增，最全）
-目录 study/{back_study,web,data,miniapp,data,docs}。**小程序端存在**（miniapp/ 36 文件，
-后端 mini/ 路由 9 个端点）—— 2026-10-09 核实，此前记忆写「已删」是错的。
-小程序与 web 端**共用同一套卡片库和调度算法**，只是端点聚合、载荷小（3~9KB）。
+## Agent 子系统
+- `agent/cards/`：文档→卡片 Agent。LLM 定切分(structure/refine/chapter) + `dedup.py` 去重。id=`ag-`+md5(docId:idx)。
+- `agent/qa/`：问答 Agent，工具调用 + 联网（360 搜索免 key）。`rerank.py` 用 bge-reranker-v2-m3（CPU 无 GPU，`rerank()` 与 `rerank_texts()` 两版）。`retrieval.py` 混合检索。
 
-## 启动与后端装配
-- 入口 `back_study/run.py` → `uvicorn app.main:app`。`app/main.py` 只收横切：CORS 白名单、请求体上限 16MB(超 413)、Cache-Control no-store、异常→{ok:false,msg}、SPA 回落、启动横幅(卡片数/AI/降级必须可见)。
-- 路由拆两组：`app/routers/web/`（agent ai auth cards docs imports learning notes system 共 9）+ `app/routers/mini/`（auth learn）。`app/routers/__init__.py` 导出 ALL。
+## 关键数据
+- 卡片库 527 = 内置 525(`data/*.js`，漏 `module.exports` 静默跳过) + 自定义 2(`ag-*`)。科目：ai139/java104/middleware82/cs61/python60/algorithm29/fe27/其他。图 819 节点/2713 边，语义孤岛已清零。
+- 算法 `algo/`：`fsrs`(默认)/`sm2`/`bkt`(不排期，答"掌握没")/`hlr`。`eval.py` 三算法排期对比（BKT 跳过），AUC≈0.51 随机是局限。**开发者文档 §5/§6 写"默认 SM-2"已错**。
+- 向量：`nomic-embed-text` 已装；索引 `data/store/embeddings.json`；`search_document:`/`search_query:` 前缀须不同。
+- OLLAMA：qwen3:8b(默认) / deepseek-r1:7b / qwen2.5vl:7b(识图) / nomic-embed-text(检索)。
+- 存储：MySQL study_cards(json 降级) / PG study_algo + Redis(掌握度缓存,protocol=2)。
 
-## 两个 Agent 子系统
-- `agent/cards/`：文档→卡片生成 Agent。graph 只流转、runtime 落盘、router 定 HTTP。LLM 定切分点(structure/refine/chapter) + `dedup.py` 去重（解决"近重标题"）。id=`ag-`+md5(docId:idx)。
-- `agent/qa/`：问答 Agent，已升级为**工具调用 + 联网**。`tools.py` 4 个工具(search_cards 等，docstring 给模型看)、`websearch.py` 360 搜索(免key、失败返回[]不抛)。`retrieval.py` 混合检索仍可用。
+## 数据隔离（P0-1 完成）
+`progress` PK `(user_id,card_id)`、`notes` PK `(user_id,id)`。db 个人数据函数一律收 `user_id`。QA 走 `tools.set_current_user()`(ContextVar) + `runtime.ask_full(...,user_id)`。回归 `_verify_isolation.py`(14 项)。
+⚠️ documents 与 kb_tree **没有** user_id 隔离（新账号见全部），与 progress/notes 不一致。
 
-## 数据隔离（2026-10-03 已做，P0-1 完成）
-`progress` PK `(user_id,card_id)`、`notes` PK `(user_id,id)`；jsonfile 两文件多一层 uid，老格式自动升级到匿名桶 `''`。db 层所有个人数据函数一律收 `user_id`。QA 工具走 `tools.set_current_user()`（ContextVar，因签名给模型看不能加参数）+ `runtime.ask_full(..., user_id)`。
-**两条坑**：①光加列不改主键=没隔离（ON DUPLICATE KEY 只看主键，写路径静默覆盖）；②LEFT JOIN 的 user_id 必须写 `ON` 里，放 WHERE 会把未标记的卡滤掉。回归跑 `back_study/_verify_isolation.py`（14 项，自动清场）。
+## 知识库 documents（2026-10-11 修）
+`app/routers/web/docs.py` + `KnowledgeView.vue` + `web/src/api/knowledge.js`。论文显示原件/改名/导入选类型已落地。
+- `documents` 表原 4 字段 `raw_file/is_paper/tags/doc_text` 从没建过 → 写过即丢不报错 → `canShowOriginal` 恒 false。已在 schema.sql + mysql.py 的 DDL_TABLES + _ADDED_COLUMNS 三处同步。
+- `docparse.raw_path(did, ext)` 的 ext 须容忍前导点 `'.pdf'`。
+- 论文也留 `text`（之前留空=排除 RAG，白导入）。原件走 iframe、抽取文本供检索/RAG。
+- `docType` 手动选优先于 `_looks_like_paper` 自动判据。
 
-## 卡片库（2026-10-03 实测：416 张）
-分布：java 180 / ai 139 / cs 50 / python 18 / major 6 / math 6 / politics 6 / english 5 / fe 4 / 导入 2。
-来源：gen_interview_agent/java/cs/redis 面试卡、gen_python + gen_latest_ai/java/python、gen_* 8 科目、springboot/aizhuan。
+## 知识库树 + PDF 阅读器
+- 后端 `core/kbtree.py`(存 `meta.kb_tree` 单例) + 7 树端点；每次写回传整棵 tree，前端只覆盖。
+- `PdfViewer.vue`(pdf.js 4.10.38)：`GlobalWorkerOptions.workerSrc` 必填；无头降级用 `await import('pdf.worker.min.mjs')` 走 fake worker；`renderAll` 必须串行化(否则两调用交错整篇空白且控制台干净)；ResizeObserver 首次 observe 必回调；缩放做整页/适宽开关别替用户选默认；vite build 清空 dist 后 token/引导页要重生成。
 
-## 规模与图（2026-10-03 实测，别再写旧数）
-- 87 个 py / 18388 行；前端 50 文件 / 13883 行
-- 图 **567 节点 / 2114 边**（416 card + 138 topic + 10 subject + 3 category），234 条先修边
-- 卡片字段：id/title/oneLine/mechanism/why/analogy/scene/diagram/keywords/tags/topicPath(是**list**)/related/interviewQ/subject/category/domain/_src
+## 文档问答 / 翻译（2026-10-12 重构中）
+- `core/docqa.py`：切块按句边界+120 字重叠；跨语言检索(术语表 zh→en + LLM 译英文词)解决中文问英文论文；`rerank_texts` 两阶段重排；自进化记忆落盘 `data/store/qa_log/<docId>.json`(similar_qa 注入 / 👎 feedback_qa 标记)。
+- 翻译 `core/translate.py`：`_PROTECT_RULES` 正则占位保护数字/公式/引用/图片 token `![](media:..)`；`SYS_TRANS` 反垄断模板；`transjob.py` 低温度。
+- 前端 `BilingualView.vue` 解析 `![](media:..)` 渲染图片+"原文图片·未译"徽标；`knowledge.js` 加 feedbackQa/captionFigure；QA 面板加 👍/👎。
 
-## 算法层 back_study/algo/（纯标准库，不 import core）
-- 契约 `base.py`，注册表 `__init__.py`（`get()/names()/register()`，传**实例**）
-- 4 个：`sm2`(默认) / `fsrs`(FSRS-4.5) / `bkt`(不排期！答"掌握没") / `hlr`
-- `graph.py`：pagerank / personalized_pagerank / betweenness / louvain / shortest_path / kcore + analyze/topn/coverage
-- `eval.py`：**BKT 在 compare() 里被显式跳过**（不让它排期），所以是**三算法**排期对比
-  种子实测 seed=7：FSRS 效率 0.0186 最优 / HLR 留存 66.52% 最高 / SM-2 留存 56.36%
-  ⚠️ 三者 AUC 都在 0.51≈随机 —— 引用时必须主动说这是局限
-  `demo.py` 是对拍台 CLI，`--algo/--retention/--days/--seq`
-
-## 向量检索（2026-10-03 已跑通，不再是降级状态）
-`nomic-embed-text:latest` 已装。索引 `data/store/embeddings.json` 416 条 / 4.1MB，
-按卡片集合指纹懒构建、变化即重建；文档侧 `search_document:` / 查询侧 `search_query:` **前缀必须不同**。
-实测：首建索引 2.9s → 命中 0.296s；向量能召回关键词漏掉的语义近邻卡。
-`AGENT_RETRIEVER` = vector|keyword|hybrid（hybrid 默认）。
-
-## 小程序端 miniapp/（2026-10-09 核实并优化）
-微信原生（无框架），4 页 + 4 tab：index首页 / learn 复习 / cards 卡包 / detail / mine。
-后端 `app/routers/mini/` 9 个端点（auth 3+ learn 6），**载荷刻意做小**：
-home 3.4KB / cards 7.4KB / queue 7.1KB —— 不是性能瓶颈，别往"瘦身"方向使劲。
-前端已有缓存双读（cachePeek 秒开 + 后台静默刷新）+ 字段补齐兜底，这套别推翻。
-★ **`review/queue` 必须回 `dueTotal`（全库到期数）而不只是 total**：
-库里到期 416 张但每日目标只有 20，只回 total 会让用户答完 20 张就卡死
-（刷新也没用，那 20 张已答）。配`all=1` 忽略每日目标才有"继续刷剩下 N 张"的出口。
-数字必须后端算好后端给前端，别让两端各算一遍。
-
-## OLLAMA 本地模型
-qwen3:8b（默认对话）、deepseek-r1:7b、qwen2.5vl:7b（识图）、nomic-embed-text（检索）。
-
-
-## 岗位/方向功能（实现用户"选岗位推知识点"）
-- `data/directions.js`(DIRECTIONS)：学习方向，keywords 子串匹配卡片(topicPath/title/keywords)。
-- `data/roles.js`(ROLES)：目标岗位(如 agent-dev=Java+Python Agent 开发)，skills={subject,weight,keywords} 对账"库里有没有这块卡"。
-- 导出必须是对象非数组（否则被 check.js 当卡片校验）。
-
-## 存储/算法/缓存（不变）
-MySQL study_cards(json 降级，降级必须横幅可见)；PG study_algo + Redis(掌握度缓存，protocol=2)；算法 SM-2/FSRS/BKT。
-
-## 鉴权/安全（不变）
-jwt algorithms=['HS256']；**鉴权看"响应有没有个人数据"不是读写**；CORS 白名单非*；/api/llm/enrich 限 200 章。
-
-## 发号/降级/沙箱（不变，踩过的坑）
-id upsert 静默覆盖 → 草稿带指纹、publish 撞车报错；降级三处(store/algo/cache)都要横幅；DSH 沙箱写路径受限、stdio 管道 EPERM、Chrome 崩、git schannel 用 openssl。
+## 通用陷阱（永久记住）
+1. **写路径写了库里没有的字段 = 静默失败**：INSERT 该列直接丢弃不报错，`_doc_of` 读不出。判定法：`SHOW COLUMNS` 逐字比对；新字段三处同步(schema.sql + mysql.py DDL_TABLES + _ADDED_COLUMNS)；写读成对加后打真 HTTP 看返回体。
+2. **校验通过 ≠ 测到了**：`check.js` 靠 `require()`+Array.isArray，漏 `module.exports` 的文件后端读得到、check 静默跳过，核对 `cards loaded: N` 与后端卡片数。
+3. **改 subject 等字段前先查消费方**（stats.domains / roles.js 技能词），对账是按科目过滤后匹配，关键词须是卡里真写法。
+4. **端点参数名须与前端一致**（如 `alias='cardId'`），否则返 200 但静默退化。
+5. 重排/向量超时降级必须保留召回顺序并打日志，不可抛异常中断主链路。
 
 ## 待补 P0
-- ⚠️ **git 提交历史损坏**（2026-10-03，`unable to read tree`，160 对象缺失）。
-  代码/工作区 100% 完好，但 `git status/add/log` 部分不可用、无法回滚。
-  完整备份 `D:\09-Backup\study-git-20261003\`（5297 文件），恢复方案待用户拍板。
-- 无单测/CI（`_verify_isolation.py` + `scripts/check.js` 是仅有的自动化）
-- 181 节点力导向图仍很糊 —— 物理极限非 bug，等拍板社区聚合视图
-- AI 工程 6 张卡语义孤立（需补 `related`，算法救不了）
-- check.js 每次跑会建 `zz_*` 探针账号（隔离后不污染他人数据，但会留垃圾账号）
+无单测/CI（建议 pyflakes+check.js+smoke_profile 进 pre-push）。`ProfileCenterView.vue` 1172 行超 700 上限 + Options API。
 
+## 新增脚本（back_study/scripts/，用 .venv 跑）
+migrate_middleware / fix_domain / fix_related_islands / fix_frame_kind / dbseed.py --sync / backfill_doc_fields / test_kbtree.py / probe_kbtree.py / probe_docqa.py。正则取宽松 `(\\[.*\\])\\s*;`。

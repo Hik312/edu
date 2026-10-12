@@ -222,6 +222,98 @@ class JsonFileStore(Store):
             self._write('documents',
                         [d for d in self.docs_all() if d.get('id') != did])
 
+    # ---------------- 论文译文 / 术语表 ----------------
+    # ★ json 版存在两个 json 文件里（translations / glossary），键是 docId。
+    #   MySQL 版是一段一行，json 版只能整篇读写 —— 这是两个后端的真实差异，
+    #   所以「断点续译省下的时间」在 json 后端拿不到。但**接口契约必须一样**，
+    #   否则换存储时翻译功能直接 AttributeError（kbtree 就这么炸过一次）。
+    def trans_all(self, did):
+        store = self._read('translations', {})
+        if not isinstance(store, dict):
+            return {}
+        segs = store.get(did)
+        return {int(k): v for k, v in segs.items()} if isinstance(segs, dict) else {}
+
+    def trans_put(self, did, seg_i, zh, src_hash='', status='', score=None,
+                  missing=None, model=''):
+        with _lock:
+            store = self._read('translations', {})
+            if not isinstance(store, dict):
+                store = {}
+            segs = store.get(did)
+            if not isinstance(segs, dict):
+                segs = {}
+            segs[str(int(seg_i))] = {
+                'zh': zh, 'srcHash': src_hash, 'status': status, 'score': score,
+                'missing': list(missing or []), 'model': model}
+            store[did] = segs
+            self._write('translations', store)
+
+    def trans_clear(self, did):
+        with _lock:
+            store = self._read('translations', {})
+            if isinstance(store, dict) and did in store:
+                store.pop(did, None)
+                self._write('translations', store)
+
+    def glossary_all(self, did):
+        store = self._read('glossary', {})
+        if not isinstance(store, dict):
+            return []
+        rows = store.get(did)
+        if not isinstance(rows, list):
+            return []
+        # 按 en 升序 —— MySQL 版是 ORDER BY en。两边顺序必须一致，
+        # 否则同一个术语表在两种存储下显示顺序不同，会被当成 bug 报上来。
+        return sorted(rows, key=lambda x: (x.get('en') or ''))
+
+    def glossary_put(self, did, en, zh, locked=False):
+        with _lock:
+            store = self._read('glossary', {})
+            if not isinstance(store, dict):
+                store = {}
+            rows = store.get(did)
+            if not isinstance(rows, list):
+                rows = []
+            hit = next((r for r in rows if r.get('en') == en), None)
+            if hit is None:
+                rows.append({'en': en, 'zh': zh, 'locked': bool(locked)})
+            else:
+                hit['zh'] = zh
+                hit['locked'] = bool(locked)
+            store[did] = rows
+            self._write('glossary', store)
+
+    def glossary_del(self, did, en):
+        with _lock:
+            store = self._read('glossary', {})
+            if not isinstance(store, dict):
+                return
+            rows = store.get(did)
+            if not isinstance(rows, list):
+                return
+            store[did] = [r for r in rows if r.get('en') != en]
+            self._write('glossary', store)
+
+    # ---------------- 键值杂项 ----------------
+    def get_meta(self, k, default=''):
+        """读 meta。json 后端原先**没有**这两个方法，于是 kbtree 走 json
+        存储时会 AttributeError —— 降级路径一换存储就崩。
+        两个后端的方法集必须一样，这是本项目对存储层的硬要求。"""
+        v = self._read('meta', {})
+        if isinstance(v, dict):
+            return v.get(k, default)
+        return default
+
+    def set_meta(self, k, v):
+        with _lock:
+            cur = self._read('meta', {})
+            if not isinstance(cur, dict):
+                cur = {}
+            cur[k] = v
+            self._write('meta', cur)
+
+
     # ---------------- 写：草稿 ----------------
     def draft_replace(self, lst):
         with _lock:

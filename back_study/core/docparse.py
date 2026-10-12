@@ -48,6 +48,13 @@ MIME = {'.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
         '.svg': 'image/svg+xml', '.emf': 'image/x-emf', '.wmf': 'image/x-wmf',
         '.tif': 'image/tiff', '.tiff': 'image/tiff'}
 
+#: 单个上传文件的原始字节上限（40MB）。前端按同一个数校验。
+#:
+#: ★ 为什么不写 60MB：上传走 base64，膨胀 4/3，40MB → 约 53MB 请求体，
+#:   再加 JSON 外壳仍低于 app/config.py 的 MAX_BODY(64MB)。两个数必须配套改 ——
+#:   前端放宽而服务端没放宽，表现是「大文件传一半被拒」，比一开始就拒绝更难查。
+MAX_UPLOAD_BYTES = 40 * 1024 * 1024
+
 
 def mime_of(name):
     return MIME.get(os.path.splitext(name)[1].lower(), 'application/octet-stream')
@@ -235,12 +242,43 @@ def extract_docx(data):
 # ---------------------------------------------------------------------------
 # PDF：pypdf 抽文字 + 逐页抽图
 # ---------------------------------------------------------------------------
+def _collapse_blank_runs(text, keep=2):
+    """把连续 3 行以上的空行压到 keep 行。
+
+    layout 模式为了还原版面会灌大量空行（一页正文能多出几十行空白），
+    直接拿去分章会把章节撑得稀碎、目录全是空条目。
+    """
+    out = []
+    run = 0
+    for line in (text or '').split('\n'):
+        if line.strip():
+            run = 0
+            out.append(line)
+            continue
+        run += 1
+        if run <= keep:
+            out.append('')
+    return '\n'.join(out).rstrip()
+
+
 def extract_pdf(data):
     """PDF → 正文（图片占位跟在所属页的文字后） + 图片清单。
 
     依赖可选的 pypdf：没装抛 no_pypdf（上层给 pip install 的路）。
     `page.images` 是 pypdf 3.9+ 的接口，旧版没有就只出文字 —— 图片是增强，
-    不为它把整条导入链断掉。"""
+    不为它把整条导入链断掉。
+
+    ★ 为什么优先 layout 模式：默认模式只按 PDF 内部流的顺序吐字，
+      空格和换行全丢，实测一份 TypeScript 讲义抽出来是
+      「装饰器是⼀个应⽤在类声明上的函数」这种**每行都断开**的碎片，
+      标题、项目符号、代码块的连续性全没了。
+      layout 模式按坐标还原版面，标题层级和列表结构能保住，
+      实测同一份文件可读性差别是数量级的。
+
+      layout 模式是 pypdf 3.9+ 的 `extraction_mode='layout'`，
+      老版本 / 某些加密 PDF 会抛异常 —— 捕住退回默认模式，
+      宁可碎片也别整份抽不出来。
+    """
     import io
     try:
         from pypdf import PdfReader
@@ -254,10 +292,17 @@ def extract_pdf(data):
     media = []
     pages = []
     for pg in reader.pages:
+        txt = ''
         try:
-            txt = pg.extract_text() or ''
+            txt = pg.extract_text(extraction_mode='layout') or ''
         except Exception:
-            txt = ''
+            try:
+                txt = pg.extract_text() or ''
+            except Exception:
+                txt = ''
+        # layout 模式会灌一堆空行进去（保留版面就是这么个代价），
+        # 三连以上压成两行：段落之间要留呼吸，但十几行空白会把章节撑散
+        txt = _collapse_blank_runs(txt)
         toks = []
         try:
             for im in pg.images:                   # pypdf>=3.9；旧版没这个属性
@@ -387,3 +432,84 @@ def _check_owner(owner):
 
 def to_b64(blob):
     return base64.b64encode(blob).decode('ascii')
+
+
+# ---------------------------------------------------------------------------
+# 原始文件落盘 / 读取（知识库在线预览源文档用）
+# ---------------------------------------------------------------------------
+RAW_DIR = os.path.join(STORE_DIR, 'files')
+
+RAW_EXT = {
+    '.pdf': 'application/pdf',
+    '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    '.md': 'text/markdown',
+    '.txt': 'text/plain',
+}
+
+
+def save_raw(doc_id, data, ext=''):
+    """把上传的原始文件字节存进 data/store/files/<docId><ext>。
+
+    ext 只允许字母数字（.pdf/.md/...），docId 走 SAFE_NAME —— 两者都不放行
+    路径分隔符，read_raw 的路径拼接是安全的。返回相对 store 的路径
+    （如 files/doc-xxx.pdf），供前端拼预览 URL；存不下返回空串。"""
+    if not doc_id or not data:
+        return ''
+    ext = (ext or '').lower()
+    if not ext or not re.match(r'^[a-z0-9.]+$', ext) or '..' in ext:
+        return ''
+    if not SAFE_NAME.match(doc_id):
+        return ''
+    d = os.path.join(RAW_DIR, doc_id)
+    os.makedirs(d, exist_ok=True)
+    path = os.path.join(d, doc_id + ext)
+    try:
+        with open(path, 'wb') as f:
+            f.write(data)
+    except Exception:
+        return ''
+    return 'files/%s%s' % (doc_id, ext)
+
+
+def raw_path(doc_id, ext=''):
+    """原始文件绝对路径；不存在返回 None。ext 缺省时按 RAW_EXT 的顺序挨个试。
+
+    ★ 兜底顺序别漏 .docx：早期文档的 rawFile 字段为空（那会儿还没这个功能），
+      只认 pdf/md/txt 的话，Word 资料明明文件就在那儿却报 404。
+
+    ★ ext 必须容忍**前导点**（2026-10-11 修）：调用方拿到的后缀一律来自
+      `os.path.splitext(rawFile)[1]`，那就是 '.pdf'。而下面这条正则要求
+      首字符是字母数字，于是 '.pdf' 被判非法 → 直接 return None →
+      「原件明明在磁盘上，预览永远 404」。
+      这是个**静默失败**：不报错、不打日志，只是原件永远显示不出来，
+      和「raw_file 列不存在」叠在一起时极难定位 —— 补了列还是 404。
+      所以这里先剥掉前导点再校验，两种写法（'.pdf' / 'pdf'）都能用。
+    """
+    if not doc_id or not SAFE_NAME.match(doc_id):
+        return None
+    ext = (ext or '').lstrip('.').lower()
+    if ext and not re.match(r'^[a-z0-9]+(\.[a-z0-9]+)*$', ext):
+        return None
+    ext = '.' + ext if ext else ''
+    d = os.path.join(RAW_DIR, doc_id)
+    cands = [doc_id + ext] if ext else [doc_id + e for e in RAW_EXT]
+    for name in cands:
+        p = os.path.join(d, name)
+        if os.path.isfile(p):
+            return os.path.realpath(p)
+    return None
+
+
+def delete_raw(doc_id):
+    """文档删除时连原始文件一起清。"""
+    if not doc_id or not SAFE_NAME.match(doc_id):
+        return
+    import shutil
+    d = os.path.join(RAW_DIR, doc_id)
+    if os.path.isdir(d):
+        shutil.rmtree(d, ignore_errors=True)
+
+
+def raw_mime(path):
+    ext = os.path.splitext(path or '')[1].lower()
+    return RAW_EXT.get(ext, 'application/octet-stream')

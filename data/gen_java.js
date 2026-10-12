@@ -72,7 +72,23 @@ var CARDS_JAVA = [
       "JVM",
       "内存模型"
     ],
-    "related": []
+    "related": [
+      {
+        "id": "java-jmm",
+        "kind": "extends",
+        "note": "JMM 是内存模型的规范，这张讲的是它的结构"
+      },
+      {
+        "id": "java-memory-area",
+        "kind": "prereq",
+        "note": "先分清运行时数据区，才谈并发可见性"
+      },
+      {
+        "id": "java-jvm-memory",
+        "kind": "compare",
+        "note": "相关：java-jvm-memory"
+      }
+    ]
   },
   {
     "id": "java-garbage-collection-algorithm",
@@ -284,7 +300,18 @@ var CARDS_JAVA = [
       "JVM",
       "内存模型"
     ],
-    "related": []
+    "related": [
+      {
+        "id": "java-memory-area",
+        "kind": "extends",
+        "note": "同一块知识的详版"
+      },
+      {
+        "id": "java-jvm-memory-model",
+        "kind": "compare",
+        "note": "「内存区域」与「内存模型」是两个概念，最常被混"
+      }
+    ]
   },
   {
     "id": "java-gc-algorithm",

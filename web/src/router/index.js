@@ -84,6 +84,18 @@ const routes = [
           note: '文档导入 → 自动分章 → 逐章 AI 精读'
         }
       },
+      {
+        path: 'knowledge',
+        name: 'knowledge',
+        component: () => import('@/views/knowledge/KnowledgeView.vue'),
+        meta: {
+          title: '知识库',
+          domain: 'content',
+          icon: 'knowledge',
+          ready: true,
+          note: '自己建文件夹 + 原文阅读'
+        }
+      },
 
       // —— 工具 ——
       {

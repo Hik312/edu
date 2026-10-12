@@ -39,16 +39,56 @@ blocks.forEach((b, i) => {
 // 否则新增的 AI 工程等科目的卡不会进校验，related 指向也会被误判为「卡不存在」。
 const DATA_DIR = DATA;
 const cards = [];
+// 非卡片数据文件：catalog/roles/directions 只做 require 探测，不能当卡片。
+const NON_CARD_FILES = ["catalog.js", "roles.js", "directions.js"];
+// 加载阶段的「导出格式错」单独计数，不能借用下面卡片字段校验的 bad
+// （let 有暂时性死区，在声明之前访问会抛 ReferenceError —— 踩过一次）。
+let exportBad = 0;
 fs.readdirSync(DATA_DIR).forEach(function (f) {
-  if (!f.endsWith(".js") || f === "catalog.js") return;
+  if (!f.endsWith(".js")) return;
+  // ★ catalog/roles/directions 必须**在 require 之前**就跳过。
+  //   catalog.js 导出的数组是分类领域 id（['kaoyan','work']），
+  //   不是卡片 —— 混进 cards 后每张都「字段全缺 + 没有 related」，
+  //   一下子造出几十个假问题，还会让 API 用例拿脏 cards 去断言。
+  if (NON_CARD_FILES.indexOf(f) >= 0) return;
+  let mod;
   try {
-    const mod = require(path.join(DATA_DIR, f));
-    if (Array.isArray(mod)) cards.push.apply(cards, mod);
+    mod = require(path.join(DATA_DIR, f));
   } catch (e) {
     console.log("LOAD FAIL " + f + ": " + e.message);
+    return;
+  }
+  if (Array.isArray(mod)) {
+    cards.push.apply(cards, mod);
+    return;
+  }
+  // ★ 声明了 `var CARDS_X = [...]` 却没导出数组的文件，**必须报错而不是静默跳过**。
+  //   后端 load_source_cards 是直接读文件里的 JSON 字面量（不 require），
+  //   所以这种文件在 Python 侧完全正常、前端和校验却看不到它的卡——
+  //   症状是「后端说有 527 张、check.js 只加载了 525 张」，
+  //   而卡片字段校验、related 悬空检查**全都跳过了这批卡**，看起来全绿实则没测。
+  //   卡片文件必须以 `module.exports = CARDS_X;` 结尾（见各 gen_*.js）。
+  if (
+    /\bvar\s+CARDS_[A-Za-z0-9_]+\s*=/.test(
+      fs.readFileSync(path.join(DATA_DIR, f), "utf8"),
+    )
+  ) {
+    console.log(
+      "EXPORT FAIL " +
+        f +
+        ": 声明了 CARDS_* 但 module.exports 不是数组 —— 该文件的卡不会进入校验",
+    );
+    exportBad += 1;
   }
 });
 console.log("cards loaded: " + cards.length + " (from data/*.js)");
+if (exportBad > 0) {
+  console.log(
+    "有 " +
+      exportBad +
+      " 个卡片文件导出格式不对（EXPORT FAIL），这批卡没进校验 —— 先修这个",
+  );
+}
 
 let bad = 0;
 cards.forEach((c) => {
@@ -224,7 +264,20 @@ console.log(
     " 张有）",
 );
 const noRel = cards.filter((c) => !(c.related || []).length).map((c) => c.id);
-if (noRel.length) console.log("WARN 没有关联的卡片: " + noRel.join(", "));
+if (noRel.length) {
+  // ★ 语义孤岛升为 FAIL（原来只是 WARN，实际一直没人管，攒到 12 张）。
+  //   理由：belong 边来自 topicPath，任何卡都有，所以「图上能看到这张卡」
+  //   并不代表能点出它的相关内容。related 为空 = Pagerank 只剩度数的贡献，
+  //   personalized_pagerank 对它永远推不出来 —— 是功能缺失，不是美观问题。
+  bad += noRel.length;
+  console.log(
+    "FAIL 没有关联的卡片（语义孤岛，图谱里点不出相关内容）: " +
+      noRel.join(", "),
+  );
+}
+// 导出格式错的文件也要让整体结论变红：那些卡根本没进校验，
+// 「看起来全绿」反而是最危险的（字段/related 悬空检查全都跳过了它们）。
+bad += exportBad;
 
 console.log(bad === 0 ? "ALL CHECKS PASSED" : "ISSUES FOUND: " + bad);
 
@@ -305,6 +358,14 @@ const pyFiles = [
   "back_study/core/netinfo.py",
   "back_study/core/security.py",
   "back_study/core/docparse.py",
+  // 个人中心的报表聚合层（纯函数：错题本/复盘/遗忘曲线/学习时长，2026-10-09 加）
+  "back_study/core/report.py",
+  // 问答检索链（2026-10-09 重排改造后加进清单）。
+  // ★ 这三个文件之前不在清单里，等于**没被编译检查过**——
+  //   改坏它们要等到运行时才发现。globRouters() 只收 routers/ 下的路由文件。
+  "back_study/agent/qa/retrieval.py",
+  "back_study/agent/qa/rerank.py",
+  "back_study/agent/qa/retr_cache.py",
   // 存储层：base 是契约，jsonfile / mysql 是两套实现
   "back_study/core/store/__init__.py",
   "back_study/core/store/base.py",
@@ -401,6 +462,37 @@ console.log(
 
 // ---------- 后端 API 冒烟：起临时 Python 服务 → 打接口 → 关掉 ----------
 const { spawn, spawnSync } = require("child_process");
+
+/** 样例 PDF 的 base64（读一次缓存）。
+ *
+ *  ★ 为什么 fixture 现生成而不是提交二进制：`scripts/make_sample_pdf.py`
+ *    手写 PDF 语法产出 1.7KB，内容完全可见、可改、diff 友好。
+ *    文件不存在就现场调 Python 生成一次 —— 省得「谁把 fixture 删了」
+ *    变成一条查不到原因的红。
+ *
+ *  这份 PDF 刻意不含论文版面词（Abstract/References…），所以
+ *  `_looks_like_paper` 对它返回 False：**自动判据一定判不出论文**。
+ *  只有这样，「手动选『论文』仍然生效」才是一条真断言而不是恒真断言。
+ */
+let _samplePdf = null;
+function samplePdfB64() {
+  if (_samplePdf !== null) return _samplePdf;
+  const f = path.join(__dirname, "fixtures", "sample.pdf");
+  try {
+    if (!fs.existsSync(f)) {
+      const py = pickPython();
+      if (!py) return (_samplePdf = false);
+      const r = spawnSync(py, [path.join(__dirname, "make_sample_pdf.py")], {
+        encoding: "utf8",
+      });
+      if (r.status !== 0 || !fs.existsSync(f)) return (_samplePdf = false);
+    }
+    _samplePdf = fs.readFileSync(f).toString("base64");
+  } catch (e) {
+    _samplePdf = false;
+  }
+  return _samplePdf;
+}
 
 function pickPython() {
   const cands = [
@@ -832,19 +924,31 @@ async function smoke(py) {
   //   后果不是少个字段：图上 87% 的卡侧栏 PageRank 一律显示「—」、
   //   节点大小退回 degree，同一张图两种尺寸口径。
   //   用全部卡片 id 打一次、断言一个不少 —— 把「只回一批」的回归锁死。
-  await t("graph/rank 一次回全请求的卡（不再截前 50）", async () => {
+  await t("graph/rank 按分片发能一次回全请求的卡（不再截前 50）", async () => {
     const ids = cards.map((c) => c.id);
-    const r = await call(
-      "/api/graph/rank?ids=" + encodeURIComponent(ids.join(",")),
-    );
-    const ranks = (r.body && r.body.ranks) || {};
-    const got = Object.keys(ranks).length;
-    if (r.code !== 200) {
-      err("code=" + r.code);
-      return false;
+    // ★ 必须**按分片发**，不是把全部 id 拼一个请求。
+    //   接口有 MAX_RANK_IDS=500 的保护上限（system.py），因为全量 id 拼起来
+    //   会顶到 GET 查询串 8KB 上限（前端按 150 一片正是为此）。
+    //   曾经这里一次发全量，卡数少于 500 时刚好通过，卡数一过 500 就 FAIL ——
+    //   **断言写死了库规模，而不是接口契约**，加卡必崩。
+    //   现在按真实分片逻辑发，并断言「所有片的并集 == 全量」，既锁住
+    //   「不回只回前50」的回归，又不受卡数增长影响。
+    const CHUNK = 150;
+    const ranks = {};
+    for (let i = 0; i < ids.length; i += CHUNK) {
+      const slice = ids.slice(i, i + CHUNK);
+      const r = await call(
+        "/api/graph/rank?ids=" + encodeURIComponent(slice.join(",")),
+      );
+      if (r.code !== 200) {
+        err("code=" + r.code + " @ 片 " + i);
+        return false;
+      }
+      Object.assign(ranks, (r.body && r.body.ranks) || {});
     }
+    const got = Object.keys(ranks).length;
     if (got !== ids.length) {
-      err(`请求 ${ids.length} 个 id，只回 ${got} 个排名`);
+      err(`请求 ${ids.length} 个 id（分片发），只回 ${got} 个排名`);
       return false;
     }
     const first = ranks[ids[0]];
@@ -899,6 +1003,67 @@ async function smoke(py) {
   await t("stats 字段完整", async () => {
     const s = (await call("/api/stats")).body.stats;
     return s && typeof s.total === "number" && typeof s.dueToday === "number";
+  });
+  // ===== 个人中心（/api/profile）=====
+  // 这组原来是空白，于是「前端传 cardId / 后端收 card_id」这种
+  // **静默失效**的 bug 漏了过去：请求照返200，只是用户点某张卡看明细
+  // 时拿到的是全库聚合曲线，没有任何报错。
+  await t("profile/overview 字段完整", async () => {
+    const d = (await call("/api/profile/overview")).body.data || {};
+    return (
+      typeof d.totalReviews === "number" &&
+      typeof d.weakCards === "number" &&
+      typeof d.practicedCards === "number" &&
+      typeof d.avgMastery === "number" &&
+      // sessionsAvailable 必须有：用来区分「我没学」和「功能降级了」
+      typeof d.sessionsAvailable === "boolean"
+    );
+  });
+  await t("profile/mistakes 与 overview 口径一致（不能各算一遍）", async () => {
+    const o = (await call("/api/profile/overview")).body.data || {};
+    const m = (await call("/api/profile/mistakes?period=all")).body.data || {};
+    // 概览数事件流、错题本也数事件流 —— 两边必须对得上，
+    // 否则用户在同一页看到「薄弱卡 0」和「薄弱卡 2」会以为有一个是错的
+    return (
+      o.weakCards === (m.weakCards || []).length &&
+      o.fuzzyCards === (m.fuzzyCards || []).length
+    );
+  });
+  await t("profile/forgetting-curve 认 cardId（camelCase，别退回 card_id）", async () => {
+    const cid = cards[0].id;
+    // ★ 用前端 api/profile.js 里真实用的参数名 cardId。
+    //   FastAPI 默认把 Python 参数名 card_id 当查询参数名，前端传 cardId
+    //   就进不来 → 走全库聚合分支 → 单卡明细功能形同失效，且不报错。
+    //   所以这里断言返回体里的 cardId 要等于请求的那张，不能只断言 points 非空
+    //   （points 非空的话整体分支也满足，只有 cardId 字段能把两种分支区分开）。
+    const r = await call(
+      "/api/profile/forgetting-curve?cardId=" + encodeURIComponent(cid) + "&days=30",
+    );
+    const d = r.body.data || {};
+    if (r.code !== 200) return false;
+    if (d.cardId !== cid) return false;
+    // 反向：不传 cardId 时必须回聚合（cardId 为 null/空）
+    const agg = (await call("/api/profile/forgetting-curve?days=30")).body.data || {};
+    return agg.cardId == null || agg.cardId === "";
+  });
+  await t("profile/非法 period 回落 week 且如实回传", async () => {
+    // _norm_period 故意不抛 400（下拉框值错了返空数据更好排查），
+    // 但必须在响应里回传归一化后的值，否则调用方看不出实际用的哪个周期。
+    const d = (await call("/api/profile/mistakes?period=zz-bad")).body.data || {};
+    return d.period === "week";
+  });
+  await t("profile/个人数据端点未登录一律 401", async () => {
+    const paths = [
+      "/api/profile/overview",
+      "/api/profile/mistakes",
+      "/api/profile/forgetting-curve",
+      "/api/profile/study-time",
+    ];
+    for (const p of paths) {
+      const r = await call(p, { auth: false });
+      if (r.code !== 401) return false;
+    }
+    return true;
   });
   // ★ dueToday 拆成「真到期」和「新卡」两个数（2026-10-03）。
   //   原来 dueToday 把「从没背过」的卡也算到期，400 张库里 398 张没标过 →
@@ -1102,18 +1267,31 @@ async function smoke(py) {
     );
   });
   await t("队列按方向过滤", async () => {
-    const all = await call("/api/review/due?limit=500");
-    const one = await call("/api/review/due?limit=500&dirs=agent");
+    const politics = await call("/api/review/due?limit=500&dirs=politics");
+    const english = await call("/api/review/due?limit=500&dirs=english");
     const unk = await call("/api/review/due?limit=500&dirs=zz-no-such-dir");
-    const ids = new Set(all.body.queue.map((x) => x.id));
-    const oneIds = one.body.queue.map((x) => x.id);
-    // 两个方向性断言：方向卡必须是全队列的子集（没混进别的东西），
-    // 以及**未知方向不能把队列筛成空** —— 否则档案里 id 写错就再也学不到卡，
-    // 而页面只会显示「今天没有到期的卡」，看不出是自己配错了。
+    const plain = await call("/api/review/due?limit=500");
+    const pIds = new Set(politics.body.queue.map((x) => x.id));
+    const eIds = new Set(english.body.queue.map((x) => x.id));
+
+    // ★★ 为什么用politics/english 这两个**小方向**做断言，而不是 agent：
+    //   库里 500+ 张卡，而接口 limit 上限就是 500 → 大方向（如 agent）的
+    //   队列会被截断，而 due_list 里「未标记卡」与「到期卡」排序权重不同，
+    //   **同一个 limit 下两个请求的第 500 名不是同一张卡**。
+    //   实测：rag-memory-context-state 在 agent 请求里进了前 500，
+    //   在全量请求里却被截掉 → 任何「拿另一个请求当全集比子集」的断言都必失败。
+    //   小方向（politics 6 张 / english 5 张）不受截断影响，且互斥，
+    //   才能真正证明「方向过滤生效」。
+    //
+    //   验的是三条真性质：① 两个方向都非空 ② 两方向**互斥**（过滤真的筛了）
+    //   ③ 未知方向不筛空（id 写错时不能再也学不到卡）。
+    const disjoint = [...pIds].every((id) => !eIds.has(id));
     return (
-      oneIds.length > 0 &&
-      oneIds.every((id) => ids.has(id)) &&
-      unk.body.queue.length === all.body.queue.length
+      pIds.size > 0 &&
+      eIds.size > 0 &&
+      disjoint &&
+      politics.body.queue.length <= plain.body.queue.length &&
+      unk.body.queue.length === plain.body.queue.length
     );
   });
   await t("今日自选清单：PUT 覆盖 / due?pick=1 只回清单 / 清空", async () => {
@@ -1282,6 +1460,118 @@ async function smoke(py) {
       after.body.total === l.body.total - 1
     );
   });
+  await t("导入选类型 + 论文走原件 + 改名", async () => {
+    // ★ 2026-10-11 加。这组用例盯的是三个曾经**静默失败**的点：
+    //
+    //  1. docType 手动选：文件名不含任何论文特征词（arxiv/paper/期刊…），
+    //     自动判据必然漏判。选了「论文」必须照样 isPaper —— 否则用户
+    //     永远看不到原版，而接口一路 200，不报错。
+    //  2. 论文也必须有 text：以前刻意留空，等于把论文排除在检索/RAG 之外。
+    //     注意 chapters 必须为 0（不分章），两者别搞混。
+    //  3. documents.raw_file 得真的存下来：**列不存在时写入是静默丢弃**，
+    //     前端 canShowOriginal 恒 false，症状是「原件在磁盘上却 404」。
+    //     这条断言的就是「入库后拿得到 rawFile」，能挡住整类回归。
+    const pdfB64 = await samplePdfB64();
+    if (!pdfB64) {
+      // 没有样例 PDF 就退化成纯文本（只测 docType 与 category 落库）
+      const r0 = await call("/api/import/doc", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          text: "# 标题\n\n## 一节\n正文内容要足够长一些便于分章。",
+          filename: "手动选类型.md",
+          docType: "笔记",
+          title: "手动选类型的笔记",
+        }),
+      });
+      if (!r0.body || !r0.body.ok) return false;
+      await call("/api/docs/" + r0.body.doc.id, { method: "DELETE" });
+      return r0.body.doc.category === "笔记";
+    }
+
+    const mk = (docType, filename, title) =>
+      call("/api/import/doc", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          dataB64: pdfB64,
+          filename,
+          docType,
+          title,
+        }),
+      });
+
+    const paper = await mk("论文", "我的读书笔记.pdf", "我起的论文名");
+    const mat = await mk("资料", "讲义.pdf", "我起的讲义名");
+    const p = paper.body && paper.body.doc;
+    const m = mat.body && mat.body.doc;
+    if (!p || !m) return false;
+
+    const r1 = await call("/api/docs/" + p.id, { method: "DELETE" });
+    const r2 = await call("/api/docs/" + m.id, { method: "DELETE" });
+
+    return (
+      // 自定义标题：用户起名优先于任何自动推断
+      p.title === "我起的论文名" &&
+      m.title === "我起的讲义名" &&
+      // 手动选的论文：文件名毫无特征，仍按论文处理
+      p.isPaper === true &&
+      p.category === "论文" &&
+      // 原件路径入库 —— 列不存在时这一项为 false，是整组用例的关键断言
+      !!p.rawFile &&
+      // 论文不分章，但**必须留文本**供检索/RAG
+      (p.chapters || []).length === 0 &&
+      (p.text || "").length > 100 &&
+      // 同一份文件选「资料」就该分章，且不是论文
+      m.isPaper === false &&
+      (m.chapters || []).length >= 1 &&
+      r1.body.ok === true &&
+      r2.body.ok === true
+    );
+  });
+
+  await t("知识库原件可读（raw_file ->文件流）", async () => {
+    // ★ 另一半的坑：raw_path(did, ext) 的 ext **必须容忍前导点**。
+    //   调用方一律传 os.path.splitext(...)[1] == ".pdf"，而原正则要求首字符
+    //   是字母数字 → 直接 return None → 原件明明在磁盘上却永远 404。
+    //   这个 bug 和「raw_file 列不存在」互相掩护：补了列还是 404 才发现。
+    //   这里只验纯文本导入（它也会存原件），够覆盖 ext 那条路径。
+    const pdfB64 = await samplePdfB64();
+    if (!pdfB64) return false; // fixture 造不出来就跳过，不算失败
+    // ⚠️ 必须用**文件**导入：粘贴进来的文本压根没有原始文件
+    //   （raw_bytes 为空 → 不写 rawFile）。拿粘贴文本断言 rawFile 必然 false，
+    //   而那不是 bug 是「本来就没有」—— 这种假失败会让人去查不存在的问题。
+    const r = await call("/api/import/doc", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ dataB64: pdfB64, filename: "原件测试.pdf" }),
+    });
+    if (!r.body || !r.body.ok) {
+      err("导入失败：" + JSON.stringify(r.body).slice(0, 160));
+      return false;
+    }
+    const did = r.body.doc.id;
+    if (!r.body.doc.rawFile) {
+      err("rawFile 没入库（documents.raw_file 列可能不存在）");
+      await call("/api/docs/" + did, { method: "DELETE" });
+      return false;
+    }
+    const f = await call("/api/knowledge/file/" + did);
+    const ct = f.headers && f.headers.get("content-type");
+    await call("/api/docs/" + did, { method: "DELETE" });
+    if (f.code !== 200) {
+      // 这是 raw_path() 不容忍前导点那个 bug 的典型症状：
+      // 文件明明在磁盘上，接口却 404，且**不打任何日志**
+      err("原件流返回 " + f.code + "，raw_file=" + r.body.doc.rawFile);
+      return false;
+    }
+    if (!ct) {
+      err("原件流没有 content-type");
+      return false;
+    }
+    return true;
+  });
+
   await t("base64 上传按文本解码并分章", async () => {
     const b64 = Buffer.from(
       "# 标题\n\n## 小节一\n正文内容要够长一点。\n## 小节二\n再写一段文字。",

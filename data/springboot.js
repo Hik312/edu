@@ -2,7 +2,7 @@
 var CARDS_SPRINGBOOT = [
   {
     "id": "sb-autoconfig",
-    "domain": "求职·Java",
+    "domain": "Java后端",
     "topicPath": [
       "SpringBoot",
       "核心原理",
@@ -107,7 +107,7 @@ var CARDS_SPRINGBOOT = [
   },
   {
     "id": "sb-startup",
-    "domain": "求职·Java",
+    "domain": "Java后端",
     "topicPath": [
       "SpringBoot",
       "核心原理",
@@ -215,7 +215,7 @@ var CARDS_SPRINGBOOT = [
   },
   {
     "id": "sb-bean-lifecycle",
-    "domain": "求职·Java",
+    "domain": "Java后端",
     "topicPath": [
       "SpringBoot",
       "IoC",
@@ -364,7 +364,7 @@ var CARDS_SPRINGBOOT = [
   },
   {
     "id": "sb-circular",
-    "domain": "求职·Java",
+    "domain": "Java后端",
     "topicPath": [
       "SpringBoot",
       "IoC",
@@ -502,7 +502,7 @@ var CARDS_SPRINGBOOT = [
   },
   {
     "id": "sb-aop-proxy",
-    "domain": "求职·Java",
+    "domain": "Java后端",
     "topicPath": [
       "SpringBoot",
       "AOP",
@@ -609,7 +609,7 @@ var CARDS_SPRINGBOOT = [
   },
   {
     "id": "sb-mvc-flow",
-    "domain": "求职·Java",
+    "domain": "Java后端",
     "topicPath": [
       "SpringBoot",
       "SpringMVC",
@@ -722,7 +722,7 @@ var CARDS_SPRINGBOOT = [
   },
   {
     "id": "sb-transactional",
-    "domain": "求职·Java",
+    "domain": "Java后端",
     "topicPath": [
       "SpringBoot",
       "事务",
@@ -829,7 +829,7 @@ var CARDS_SPRINGBOOT = [
   },
   {
     "id": "sb-condition",
-    "domain": "求职·Java",
+    "domain": "Java后端",
     "topicPath": [
       "SpringBoot",
       "核心原理",
@@ -931,7 +931,7 @@ var CARDS_SPRINGBOOT = [
   },
   {
     "id": "sb-filter-levels",
-    "domain": "求职·Java",
+    "domain": "Java后端",
     "topicPath": [
       "SpringBoot",
       "SpringMVC",
@@ -1037,7 +1037,7 @@ var CARDS_SPRINGBOOT = [
   },
   {
     "id": "sb-embedded-tomcat",
-    "domain": "求职·Java",
+    "domain": "Java后端",
     "topicPath": [
       "SpringBoot",
       "核心原理",
