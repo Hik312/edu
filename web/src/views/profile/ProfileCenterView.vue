@@ -1,11 +1,12 @@
 <script setup>
 /* 个人中心 —— 学习效果闭环。
  *
- * 四个 Tab 对应「学了什么 / 哪里没会 / 会怎么忘 / 花了多少时间」：
+ * 五个 Tab 对应「学了什么 / 哪里没会 / 会怎么忘 / 花了多少时间 / 我是谁」：
  *   概览      关键指标 + 连续学习天数 + 最近一次复习摘要
  *   错题本    按周期汇总「不会 / 模糊」的卡，支持周 / 月 / 全部
  *   遗忘曲线  单卡的 BKT 概率 p 随时间变化；整体看时画日均 p
  *   学习时长  日热力图 + 按领域分布 + 按卡片 Top 榜
+ *   个人信息  显示名称可改；用户名 / 角色只读（见后端 db.update_user_profile）
  *
  * 数据全部来自后端 `app/routers/profile.py`（当前未实现时接口返回空结构）。
  * 页面拿到什么就画什么：后端没上线时显示占位提示，不显示「假数据」。
@@ -21,6 +22,7 @@
  */
 import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
+import { ElMessage } from 'element-plus'
 import { useAuthStore } from '@/stores/auth'
 import { useLearningStore } from '@/stores/learning'
 import { useCardsStore } from '@/stores/cards'
@@ -88,6 +90,34 @@ const TIME_PERIODS = [
   { value: 'year', label: '全年' },
   { value: 'all', label: '全部' }
 ]
+
+// ---- 个人信息 ----
+const profileSaving = ref(false)
+const profileForm = ref({ displayName: '' })
+
+/** 把当前登录用户灌进表单。
+ *  在切到该 tab 时调用 —— 表单初始值不能写死在 setup 顶层，
+ *  刷新页面时 auth.user 是异步取回来的，顶层读到的是 null。 */
+function syncProfileForm() {
+  profileForm.value = { displayName: auth.user?.displayName || '' }
+}
+
+/** 保存个人信息。成功后 auth store 里的 user 就地更新（见 stores/auth.js），
+ *  头部问候语跟着变，不用刷新页面。 */
+async function saveProfile() {
+  profileSaving.value = true
+  try {
+    await auth.updateProfile({ displayName: profileForm.value.displayName })
+    // 回灌一次表单：留空保存时后端会回退成用户名（见 db.update_user_profile），
+    // store 里已经是回退后的值，但输入框还挂着空串 —— 不回填就看着像「没保存上」。
+    syncProfileForm()
+    ElMessage.success('昵称已更新')
+  } catch (e) {
+    ElMessage.error(e?.message || '保存失败')
+  } finally {
+    profileSaving.value = false
+  }
+}
 
 // ---- 上报复习埋点 ----
 const TRACK_KEY = 'edu.review.track'
@@ -183,6 +213,7 @@ function onTabChange() {
   if (activeTab.value === 'mistakes' && !mistakes.value && !mistakeLoading.value) loadMistakes()
   if (activeTab.value === 'curve' && !curve.value && !curveLoading.value) loadCurve()
   if (activeTab.value === 'time' && !studyTime.value && !timeLoading.value) loadStudyTime()
+  if (activeTab.value === 'profile') syncProfileForm()
 }
 
 onMounted(() => {
@@ -973,6 +1004,55 @@ function openCard(cardId) {
           </div>
         </section>
       </el-tab-pane>
+
+      <!-- ========== 个人信息 ========== -->
+      <el-tab-pane label="个人信息" name="profile">
+        <section class="tab-body">
+          <div class="panel rise">
+            <header class="panel-head">
+              <h3>基本信息</h3>
+              <span class="hint">用户名是登录凭据，不可修改</span>
+            </header>
+            <div class="profile-form">
+              <div class="pf-row">
+                <span class="pf-label">用户名</span>
+                <span class="pf-readonly mono">{{ auth.user?.username }}</span>
+              </div>
+              <div class="pf-row">
+                <span class="pf-label">昵称</span>
+                <div class="pf-edit">
+                  <el-input
+                    v-model="profileForm.displayName"
+                    class="pf-input"
+                    maxlength="32"
+                    show-word-limit
+                    clearable
+                    placeholder="留空则显示用户名"
+                  />
+                  <el-button
+                    type="primary"
+                    :loading="profileSaving"
+                    class="pf-save"
+                    @click="saveProfile"
+                  >
+                    保存
+                  </el-button>
+                </div>
+              </div>
+              <div class="pf-row">
+                <span class="pf-label">角色</span>
+                <span class="pf-readonly">{{
+                  auth.user?.role === 'admin' ? '管理员' : '学习者'
+                }}</span>
+              </div>
+              <div class="pf-row">
+                <span class="pf-label">注册时间</span>
+                <span class="pf-readonly mono">{{ auth.user?.createdAt || '—' }}</span>
+              </div>
+            </div>
+          </div>
+        </section>
+      </el-tab-pane>
     </el-tabs>
   </div>
 </template>
@@ -1370,5 +1450,36 @@ export default {
 .panel-head .hint {
   font-size: var(--fs-xs);
   color: var(--dim);
+}
+
+/* ===== 个人信息 ===== */
+.profile-form {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  max-width: 560px;
+}
+.pf-row {
+  display: grid;
+  grid-template-columns: 72px 1fr;
+  align-items: center;
+  gap: 12px;
+}
+.pf-label {
+  font-size: var(--fs-xs);
+  color: var(--dim);
+}
+.pf-readonly {
+  font-size: var(--fs-md);
+  font-weight: 600;
+  color: var(--tx);
+}
+.pf-edit {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.pf-input {
+  max-width: 280px;
 }
 </style>

@@ -355,7 +355,49 @@ def segment(text, size=SEG_MAX, overlap=SEG_OVERLAP):
                 cur = cur.strip()
         if cur.strip():
             segs.append(cur.strip())
-    return [{'i': i, 'text': s} for i, s in enumerate(segs)]
+    # ★ translate/type 一律带上，哪怕值是「默认可译的 body」：
+    #   下游（translate_one / get_translation 端点 / 前端徽标）会无差别读这两个键，
+    #   纯文本回退路径漏掉就会变成 KeyError —— 而这条路径只在「老文档没块侧车」
+    #   时才走到，测试环境往往正好是老文档，最容易漏测。
+    return [{'i': i, 'text': s, 'translate': True, 'type': 'body'}
+            for i, s in enumerate(segs)]
+
+
+def segments_from_blocks(blocks):
+    """用结构化块切段（Phase 2）：公式/参考文献/图片/图内文字/表格/附录原样保留，
+    不送模型。
+
+    返回 [{i, text, translate, type}]；缺失/空块返回 None（调用方退回文本分段）。
+    translate=False 的段在 translate_one 里直接 zh=src，省一次 LLM 调用，
+    也避免公式被模型「翻译」坏、参考文献被胡乱中文化、表格数字被改写。
+
+    ★ 为什么公式必须走这条：PDF 抽出来的公式就是**纯文本**
+      （没有 `$...$` 包裹），protect() 的占位符规则抓不到它，
+      直接喂给 8B 模型会被当成普通英文句子改得面目全非。
+      块分类已经把它标成 equation，这里直接原样保留最稳。
+    ★ figtext / table 同理：架构图标签和表格单元格是**数据/专名**不是句子，
+      模型一翻就丢原貌（"GPT-3.5-turbo 8 9 7" 变成一句中文）。
+    ★ appendix：用户要求论文附录（Prompts、补充实验…）不用翻译。"""
+    if not blocks:
+        return None
+    out = []
+    i = 0
+    for b in blocks:
+        typ = (b.get('type') or 'body')
+        txt = (b.get('text') or '').strip()
+        if not txt:
+            continue
+        if typ in ('equation', 'bibliography', 'figure',
+                   'figtext', 'table', 'appendix'):
+            out.append({'i': i, 'text': txt, 'translate': False, 'type': typ})
+            i += 1
+        else:
+            # 可译块过长时按句拆，保持段内连续、索引稳定
+            for sub in segment(txt):
+                out.append({'i': i, 'text': sub['text'], 'translate': True,
+                            'type': typ})
+                i += 1
+    return out or None
 
 
 # ------------------------------------------------------------------

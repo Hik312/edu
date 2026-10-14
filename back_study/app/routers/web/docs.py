@@ -38,7 +38,9 @@ router = APIRouter(prefix='/api', tags=['文档'])
 def list_docs(category: Optional[str] = Query(None),
               subject: Optional[str] = Query(None),
               user=Depends(current_user)):
-    docs = db.load_docs()
+    # ★ 用 brief 而不是 load_docs()：后者是全量读（含每篇论文的 chapters+text，
+    #   MySQL 下 doc_text 是 MEDIUMTEXT），而这个接口只用到 11 个短字段。
+    docs = db.load_docs_brief()
     if category:
         docs = [d for d in docs if d.get('category') == category]
     if subject:
@@ -54,7 +56,13 @@ def list_docs(category: Optional[str] = Query(None),
               'source': d.get('source'), 'createdAt': d.get('createdAt'),
               'stats': d.get('stats'),
               'aiDone': d.get('aiDone') or 0,
-              'aiTotal': d.get('aiTotal') or len(d.get('chapters') or [])}
+              # ★ brief 行**没有 chapters**（那正是我们要省掉的大字段），
+              #   所以不能再用 len(chapters) 兜底 —— 那会让论文的
+              #   「N 章 · M 字」恒显示 0 章。改用 stats.chapters 兜，
+              #   它是导入时 importer 算好存下来的轻字段。
+              'aiTotal': (d.get('aiTotal')
+                          or (d.get('stats') or {}).get('chapters')
+                          or 0)}
              for d in docs]
     brief.sort(key=lambda x: (x.get('createdAt') or ''), reverse=True)
     return {'ok': True, 'total': len(brief), 'docs': brief}
@@ -62,7 +70,9 @@ def list_docs(category: Optional[str] = Query(None),
 
 @router.get('/docs/{did}', summary='文档详情（含全部章节）')
 def get_doc(did: str, user=Depends(current_user)):
-    d = next((x for x in db.load_docs() if x.get('id') == did), None)
+    # WHERE id=%s 走主键索引；别再写全量读回来线性扫（那是 O(N)，
+    # 而且每篇论文的全文都会被读进内存）。
+    d = db.get_doc(did)
     if not d:
         raise HTTPException(404, '文档不存在')
     return {'ok': True, 'doc': d}
@@ -85,6 +95,7 @@ def delete_doc(did: str, user=Depends(current_user)):
     ok = db.delete_doc(did)
     docparse.delete_media(did)          # 图片和文档同生命周期（卡片的图不在这，
     docparse.delete_raw(did)            # 原始文件一起清
+    docparse.delete_blocks(did)         # 块侧车也是派生数据，一起清
     # ★ 还要把树里的引用摘掉。树存在 meta 里，和 documents 是**两个存储**，
     #   删文档不会自动清树 —— 留下的死 id 界面上看不见（按 id 查不到文档），
     #   但库里已经不一致了。见 kbtree.drop_doc 的说明。
@@ -102,7 +113,9 @@ def get_knowledge_file(did: str,
     `?t=`：PDF 预览用 iframe 加载，浏览器不会带 Authorization 头。"""
     auth = authorization or (('Bearer ' + t) if t else None)
     current_user(authorization=auth)
-    d = next((x for x in db.load_docs() if x.get('id') == did), None)
+    # ★ 这里只要 rawFile 一列，用 brief 而不是 doc_get：后者 SELECT * 会把
+    #   这篇论文的 chapters+text 一起拉进内存，只为算一个后缀名，不划算。
+    d = next((x for x in db.load_docs_brief() if x.get('id') == did), None)
     if not d:
         raise HTTPException(404, '文档不存在')
     raw_file = d.get('rawFile') or ''
@@ -175,7 +188,7 @@ def _looks_like_paper(filename, text):
 DOC_TYPES = ('资料', '论文', '笔记')
 
 
-def _save_original_only(body, raw_bytes, raw_ext, fname, text=''):
+def _save_original_only(body, raw_bytes, raw_ext, fname, text='', blocks=None):
     """论文走这条路：存 PDF 原件做阅读版，**同时**留一份纯文本供检索。
 
     页面用 iframe 显示原件（浏览器自带阅读器，版面/公式/图表/双栏都准），
@@ -201,10 +214,12 @@ def _save_original_only(body, raw_bytes, raw_ext, fname, text=''):
         'aiTotal': 0,
         'text': (text or '')[:400000],
     }
-    doc['id'] = db._next_daily_id('doc', db.load_docs())
+    doc['id'] = db._next_daily_id('doc', db.load_docs_brief())
     doc['rawFile'] = docparse.save_raw(doc['id'], raw_bytes, raw_ext)
     if not doc['rawFile']:
         raise HTTPException(500, '原件保存失败，检查 data/store/files 目录是否可写')
+    if blocks:
+        docparse.save_blocks(doc['id'], blocks)
     return {'ok': True, 'doc': db.upsert_doc(doc), 'paper': True}
 
 
@@ -236,6 +251,10 @@ def import_doc(body: DocImportIn, user=Depends(current_user)):
     media = []
     raw_bytes = b''
     raw_ext = ''
+    # ★ 和下面 doc_type 同一个坑：blocks 只在 `if not text and body.dataB64:`
+    #   分支里赋值，纯文本导入走不到，必须在这里给初值 —— 否则下面
+    #   `if blocks:` 抛 UnboundLocalError，粘贴文本导入整条 500。
+    blocks = None
 
     # ★ 类型必须在**函数开头**定，不能放在 `if body.dataB64:` 里。
     #   纯文本导入（粘贴 md / 笔记）走不到那个分支，doc_type 会是未定义局部变量
@@ -276,13 +295,15 @@ def import_doc(body: DocImportIn, user=Depends(current_user)):
             raise HTTPException(400, '文件解析失败，把文字粘贴进来也行')
         text = out['text']
         media = out['media']
+        blocks = out.get('blocks')
         # 论文分流判定（说明见下方 DOC_TYPES 处）。纯文本导入没这段，
         # 但 doc_type 在函数开头就定好了，两条路共用同一个值。
         is_paper = (doc_type == '论文') or (doc_type == 'auto'
                                            and raw_ext == '.pdf'
                                            and _looks_like_paper(fname, text))
         if is_paper:
-            return _save_original_only(body, raw_bytes, raw_ext, fname, text=text)
+            return _save_original_only(body, raw_bytes, raw_ext, fname,
+                                       text=text, blocks=blocks)
 
         # PDF/Word 的纯文本层没有版面：代码不带围栏、页码混进正文、
         # 标题只是一行普通字。靠 pdfmarkup 把结构找回来（认代码块、
@@ -317,11 +338,13 @@ def import_doc(body: DocImportIn, user=Depends(current_user)):
     doc['tags'] = cls['tags']
 
     # 先拿到 docId 再一次存全，避免两次 upsert 的数据不一致窗口
-    doc['id'] = db._next_daily_id('doc', db.load_docs())
+    doc['id'] = db._next_daily_id('doc', db.load_docs_brief())
     if raw_bytes:
         doc['rawFile'] = docparse.save_raw(doc['id'], raw_bytes, raw_ext)
     if media:
         docparse.save_media(doc['id'], media)
+    if blocks:
+        docparse.save_blocks(doc['id'], blocks)
     doc = db.upsert_doc(doc)
     return {'ok': True, 'doc': doc}
 
@@ -580,7 +603,9 @@ def get_translation(did: str, user=Depends(current_user)):
             'glossary': db.glossary_all(did),
             # ★ 一并返回原文分段：前端靠 seg_i 把译文和原文对上号。
             #   只给译文的话前端不知道「第 12 段是什么」，就没法做对照。
-            'segments': [{'i': s['i'], 'src': s['text']} for s in segs],
+            'segments': [{'i': s['i'], 'src': s['text'],
+                          'translate': s.get('translate', True),
+                          'type': s.get('type', 'body')} for s in segs],
             'translations': {str(k): v for k, v in db.trans_all(did).items()},
             'translatable': transjob.looks_translatable(d)}
 

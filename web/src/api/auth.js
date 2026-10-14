@@ -31,6 +31,14 @@ export function me() {
   return client.get('/auth/me')
 }
 
+/** 修改个人信息。目前只有昵称一项可改（用户名/密码走别的流程）。
+ * @param {Object} payload {displayName}
+ * @returns {Promise<{ok:boolean, user:Object}>} 改完的用户（不含 passwordHash）
+ */
+export function updateMe(payload) {
+  return client.put('/auth/me', payload)
+}
+
 /** 用户列表。**只有管理员能调** —— 后端会校验 role，非管理员拿 403。
  *
  * 页面层也要挡一道：普通学习者看到一堆自己点不开的入口只会觉得产品糙。

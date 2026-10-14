@@ -40,6 +40,14 @@ export const useAuthStore = defineStore('auth', () => {
     }
   }
 
+  /** 修改个人信息（目前只有昵称）。成功后就地更新 user，
+   *  免得页面显示新名字、侧栏还是旧的 —— 刷新才一致的体验很糙。 */
+  async function updateProfile(payload) {
+    const r = await authApi.updateMe(payload)
+    user.value = r.user
+    return r.user
+  }
+
   async function fetchMe() {
     if (!token.value) {
       ready.value = true
@@ -76,5 +84,5 @@ export const useAuthStore = defineStore('auth', () => {
     ready.value = true
   }
 
-  return { user, token, loading, ready, isLoggedIn, login, register, fetchMe, logout }
+  return { user, token, loading, ready, isLoggedIn, login, register, updateProfile, fetchMe, logout }
 })

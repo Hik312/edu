@@ -8,7 +8,6 @@ import ElementPlus from 'element-plus'
 // 刻意**不引** dark/css-vars.css：全站只有一套牛皮纸配色，没有暗色主题，
 // 而那份样式只在 html.dark 下生效 —— 引了就是白背 30KB 永远不用的变量。
 import 'element-plus/dist/index.css'
-import datav from '@/plugins/datav'
 import '@/styles/tokens.css'
 
 import App from './App.vue'
@@ -20,8 +19,6 @@ const app = createApp(App)
 app.use(createPinia())
 app.use(router)
 app.use(ElementPlus)
-// DataV 放最后：它的边框组件会给 .dv-* 加一层底色，让 Element Plus 先铺底
-app.use(datav)
 
 // 骨架屏的移除放在 try/finally 里，不能只是挂在 mount 后面那一行：
 //

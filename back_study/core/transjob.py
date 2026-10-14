@@ -30,11 +30,27 @@ def src_hash(text):
 
 
 def segments_of(doc):
-    """切段 + 补指纹。"""
+    """切段 + 补指纹。
+
+    ★ 优先用结构化块（docparse 抽出来的 heading/body/caption/equation/
+      bibliography/figure/figtext/table/appendix）：公式/参考文献/图片/图内文字/
+      表格/附录段标记 translate=False，翻译时原样保留、不送模型。块侧车不存在
+      （老文档 / docx）则退回纯文本分段（全部可译），行为向后兼容。"""
     text = T.doc_text(doc) if hasattr(T, 'doc_text') else (doc.get('text') or '')
     if not text.strip():
         return []
-    segs = T.segment(text)
+    segs = None
+    did = doc.get('id')
+    if did:
+        try:
+            import docparse
+            blocks = docparse.load_blocks(did)
+            if blocks:
+                segs = T.segments_from_blocks(blocks)
+        except Exception:
+            segs = None
+    if segs is None:
+        segs = T.segment(text)
     return segs[:MAX_SEGMENTS]
 
 
@@ -111,6 +127,18 @@ def translate_one(seg, segs, terms, model=None, verify=True, timeout=300):
     ★ 顺序不能改：占位符校验必须在 restore 之前，
       回填之后 ⟦Pn⟧ 已经不存在于字符串里，校验必然报「全缺」。
     """
+    # ★ 公式 / 参考文献 / 图片 / 图内文字 / 表格 / 附录段：原样保留，不送模型。
+    #   zh=src 既省一次 LLM 调用，又彻底避开「公式被翻坏 / 参考文献被胡乱中文化 /
+    #   图片 token 被模型吃掉 / 表格数字被改写 / 架构图标签被当句子重写」几类失败。
+    if seg.get('translate') is False:
+        typ = seg.get('type') or 'keep'
+        label = {'equation': '公式', 'bibliography': '参考文献',
+                 'figure': '图片', 'figtext': '图内文字',
+                 'table': '表格', 'appendix': '附录'}.get(typ, '原文')
+        return {'zh': seg['text'], 'status': 'ok', 'score': 1.0,
+                'missing': [], 'model': '', 'keep': True,
+                'why': '%s原样保留，不翻译' % label}
+
     protected, vals = T.protect(seg['text'])
     msgs = T.build_segment_messages({**seg, 'text': protected}, segs, terms)
     # ★ temperature 0.15 → 0.1：本地只有 qwen3:8b，温度越高越爱「即兴发挥」

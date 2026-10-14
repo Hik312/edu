@@ -62,6 +62,27 @@ class Store(object):
     def docs_all(self):
         raise NotImplementedError
 
+    def docs_brief(self):
+        """只返回**列表页需要的轻字段**，不含 chapters / text。
+
+        ★ 为什么必须有这个方法：`documents` 表的 `chapters` 是 JSON、
+          `doc_text` 是 MEDIUMTEXT（装得下整篇论文，最大 16MB）。
+          列表页一个字段都不用它们，却因为走 `docs_all()` → `SELECT *`
+          把每篇论文全文从 DB 捞一遍 —— 文档越多越慢，且内存峰值是
+          全部论文的总量。**字段少读是这里唯一的优化**，
+          所以约定：SQL 只 SELECT 列表要用的列。
+        """
+        raise NotImplementedError
+
+    def doc_get(self, did):
+        """按 id 取**单篇完整文档**（含 chapters / text）。
+
+        取单篇也要用 `WHERE id=%s`，不能 `docs_all()` 回来线性扫描 ——
+        后者是 O(N)，而 ID 前缀（doc-YYYYMMDD-N）本身就有序，
+        加个索引即可。
+        """
+        raise NotImplementedError
+
     def drafts_all(self):
         raise NotImplementedError
 

@@ -82,8 +82,8 @@ API_DESC = """
 `/api/llm/status` 返回 `ok:false` 是**正常状态**不是故障 —— AI 精读是可选增强，
 关了它，背卡 / 复习 / 导入分章照常工作。
 
-注意：`progress` / `notes` 目前**还没有按用户隔离**（见 README 的「登录」一节），
-所以多账号之间会看到同一份学习进度。这是下一步的事，不是 bug。
+注意：`progress` / `notes` / 复习事件自 2026-10-03 起**都按用户隔离**
+（`user_id` 是归属维度，见 core/db.py 的 set_level / upsert_note）。
 """
 
 # Swagger 里的分组顺序

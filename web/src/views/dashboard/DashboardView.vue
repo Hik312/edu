@@ -1,17 +1,17 @@
 <script setup>
-/* 学习驾驶舱 —— 数据总览。
+/* 学习驾驶舱 —— 首页。
  *
- * ## 它跟别的页面有什么不一样
+ * ## 版式（2026-10-12 改版，仿「介绍 + 数据」双段式首页）
  *
- * 别的页面是「读」，这一页是「扫」：用户进来只为三件事 ——
- * 库里一共有多少卡（这一页的主角）、今天待复习几张、以及确认数据存到哪了。
- * 所以整页只留一个大数字（总卡数），其余都当配角，靠字号和位置分主次。
- * 今日待复习没消失，它降到四张指标卡里当第一张 —— 总量是「资产」，
- * 待复习是「今天的活儿」，前者才是这一页要一眼看到的东西。
- *
- * 曾经这一页是全站唯一的深色页，靠深底把图表托起来。现在全站统一牛皮纸，
- * 图表的对比度靠**压低颜色饱和度 + 描边**来保证，不靠底色深浅 ——
- * 纸底上把颜色调深就够读了，反而更省眼睛。
+ * 别的页面是「读」，这一页是「扫」。改版后整页从上到下五段：
+ *   1. **介绍横幅**：左边是产品介绍（价值主张 + 行动按钮 + 三个小数据），
+ *      右边一张浮动预览卡（今天接下来要复习的那张卡）。这是一眼要看到的东西。
+ *   2. **四张数据卡**：待复习 / 已掌握 / 文档 / 笔记，带图标、可点击直达对应页。
+ *   3. **左右分栏**：左「今日队列」列表（可切 tab），右「常用功能 + 学习指南」。
+ *   4. **图表行**：领域分布 / 自评档位 / BKT 掌握度。
+ *   5. **状态条**：卡片构成 + 运行状态。
+ * 上一版把「总卡数」当唯一主角的大数字排版已废弃 —— 现在首页既要有
+ * 「这个产品是干什么的」（介绍），也要有「我的数据长什么样」（展示）。
  *
  * ## 数据全部来自 /api/stats
  *
@@ -33,7 +33,7 @@ import { useCardsStore } from '@/stores/cards'
 import { storage, getAlgo } from '@/api/system'
 import { getLlmStatus } from '@/api/ai'
 import { getMasteryBrief } from '@/api/learning'
-import { CHART_BG, INK, chartBase, colorOf, levelColor, SEQ } from '@/config/theme'
+import { CHART_BG, INK, chartBase, colorOf, levelColor, levelLabel, SEQ } from '@/config/theme'
 
 const router = useRouter()
 const auth = useAuthStore()
@@ -42,6 +42,26 @@ const cards = useCardsStore()
 
 /** 纸面主题是唯一主题，所以这些是个常量，不再按页取。 */
 const base = chartBase()
+
+/** 内联线性图标（24×24，stroke 风格）。集中一处是为了**换图标只改这里** ——
+ *  散在模板里各写一个 svg，粗细/圆角/尺寸迟早不一致。
+ *  图标只是「扫一眼认出是哪类」的记号，不做装饰细节。 */
+const ICONS = {
+  calendar:
+    '<svg viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="15" rx="2.5"/><path d="M3.5 9.5h17M8 3v4M16 3v4"/></svg>',
+  check:
+    '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M8.5 12.2l2.5 2.5 4.5-5"/></svg>',
+  doc: '<svg viewBox="0 0 24 24"><path d="M6 3.5h8l4 4V20a1.5 1.5 0 0 1-1.5 1.5h-10A1.5 1.5 0 0 1 5 20V5A1.5 1.5 0 0 1 6 3.5z"/><path d="M13.5 3.8V8H18M8.5 12.5h7M8.5 16h7"/></svg>',
+  note: '<svg viewBox="0 0 24 24"><path d="M5 4.5h14v11l-4 4H5z"/><path d="M15 19.5v-4h4M8.5 9h7M8.5 12.5h5"/></svg>',
+  upload:
+    '<svg viewBox="0 0 24 24"><path d="M12 15V4m0 0L8 8m4-4l4 4"/><path d="M4.5 15v3.5A1.5 1.5 0 0 0 6 20h12a1.5 1.5 0 0 0 1.5-1.5V15"/></svg>',
+  spark:
+    '<svg viewBox="0 0 24 24"><path d="M11 3l1.7 4.8L17.5 9.5l-4.8 1.7L11 16l-1.7-4.8L4.5 9.5l4.8-1.7z"/><path d="M18 15l.8 2.2 2.2.8-2.2.8-.8 2.2-.8-2.2-2.2-.8 2.2-.8z"/></svg>',
+  route:
+    '<svg viewBox="0 0 24 24"><path d="M6 20V4.5A1.5 1.5 0 0 1 7.5 3H17l-2.2 3.8L17 10.5H7.5"/><path d="M6 20h5"/></svg>',
+  graph:
+    '<svg viewBox="0 0 24 24"><circle cx="6" cy="7" r="2.5"/><circle cx="18" cy="8" r="2.5"/><circle cx="12" cy="17.5" r="2.5"/><path d="M8.4 8l7.2-.2M7.5 9.3l3.3 6M16.6 10.3l-3.5 5.2"/></svg>'
+}
 
 /** subject id → 中文名，**从 catalog 派生**（不硬编码一份）。
  *
@@ -80,7 +100,8 @@ onMounted(async () => {
   // 领域分布要用 subject id → 中文名，名字在 catalog 里。
   // 不取的话SUBJECT_LABEL 全是空，图上会显示原始 id（algorithm/middleware…）。
   cards.fetchCatalog()
-  learning.fetchDue({ limit: 8 })
+  // 今日队列列表比旧滚动榜（8 行）要长一些，多取几条供列表内滚动。
+  learning.fetchDue({ limit: 20 })
   learning.fetchStats()
   // ★ 两个请求各自 try/catch。
   // 从前它们共用一个 try，`/api/health` 超时会把**已经拿到的** storeInfo
@@ -160,42 +181,39 @@ const todayText = computed(() => {
   return `${d.getMonth() + 1}月${d.getDate()}日 ${week}`
 })
 
-/** 四张顶指标。bar 是视觉占比，分母统一用卡片总数 ——
- *  用各自的极值会让四条杠看起来差不多长，占比图就失去意义了。
+/** 四张数据卡（仿参考首页的「图标 + 数字 + 标签」小卡）。
  *
+ *  每张都可点击直达对应页面 —— 数据卡不是图表的重复，是**入口**：
+ *  「今日待复习 12」点进去就是那 12 张。
  *  四个颜色必须**色相各不相同**，否则四张并排的卡会被人当成两组。
  *  文档 / 笔记 不用语义色，它们不是「掌握程度」，借用语义色会误导。 */
 const metrics = computed(() => {
   const v = s.value
-  const total = Math.max(v.total ?? 0, 1)
   return [
     {
       key: 'due',
       label: '今日待复习',
       value: dueToday.value,
       color: INK.accent,
-      ratio: dueToday.value / total
+      icon: 'calendar',
+      to: 'review'
     },
     {
       key: 'known',
       label: '已掌握',
       value: v.known ?? 0,
       color: INK.known,
-      ratio: (v.known ?? 0) / total
+      icon: 'check',
+      to: 'cards'
     },
-    {
-      key: 'docs',
-      label: '文档',
-      value: v.docs ?? 0,
-      color: '#c08a2e',
-      ratio: (v.docs ?? 0) / Math.max(total / 4, 1)
-    },
+    { key: 'docs', label: '文档', value: v.docs ?? 0, color: '#c08a2e', icon: 'doc', to: 'docs' },
     {
       key: 'notes',
       label: '笔记',
       value: v.notes ?? 0,
       color: '#6a5aa8',
-      ratio: (v.notes ?? 0) / Math.max(total / 4, 1)
+      icon: 'note',
+      to: 'notes'
     }
   ]
 })
@@ -292,7 +310,7 @@ const masteryOption = computed(() => {
  *     ·同名不同写：`Java后端`170 和 `求职·Java`10 是同一个领域两行
  *     · 迁移不同步：middleware 76 张只改了 subject，domain 还留着
  *       `Java后端` → 中间件在首页被显示成「Java后端」
- *     · 粒度不一：有的值是科目、有的��主题（`操作系统`）、还有 `待归类`
+ *     · 粒度不一：有的值是科目、有的是主题（`操作系统`）、还有 `待归类`
  *   而 `bySubject` 的 key 是有 catalog 约束的 `category/subject`，
  *   单一数据源不可能再分裂。
  *   （根因：两个字段都存「分类信息」却各自维护。domain 只能是派生值。）
@@ -345,33 +363,6 @@ const domainOption = computed(() => {
   }
 })
 
-/** 科目构成：玫瑰图。同一份数据换一种图形不是凑数 ——
- *  饼图只看角度，科目多的时候很难分辨谁多；玫瑰图让半径也编码数值，
- *  面积差异被放大，一眼就能看出「明显多的那一个」。 */
-const subjectOption = computed(() => {
-  const rows = Object.entries(s.value.bySubject || {}).sort((a, b) => b[1] - a[1])
-  return {
-    ...base,
-    tooltip: { ...base.tooltip, formatter: '{b}：{c} 张' },
-    legend: { ...base.legend, show: true, bottom: 0, type: 'scroll' },
-    series: [
-      {
-        type: 'pie',
-        radius: [18, 92],
-        center: ['50%', '44%'],
-        roseType: 'area',
-        itemStyle: { borderRadius: 6, borderColor: CHART_BG.paper, borderWidth: 2 },
-        label: { color: CHART_BG.label, fontSize: 12.5, formatter: '{b} {c}' },
-        data: rows.map(r => ({
-          name: r[0],
-          value: r[1],
-          itemStyle: { color: colorOf(r[0], SEQ) }
-        }))
-      }
-    ]
-  }
-})
-
 /** 内置 / 自建的堆叠条。回答的是「我的库里多少是自己加的」。 */
 const composeOption = computed(() => {
   const v = s.value
@@ -416,51 +407,6 @@ const composeOption = computed(() => {
   }
 })
 
-/** DataV 滚动榜。**行里不放太多字段** —— 榜的作用是「一眼扫到标题」，
- *  塞进 oneLine 会让每行变成三行字，滚起来根本看不清。
- *
- *  ⚠️ DataV 这套组件的底色/字色默认值是**给深色大屏**的（文字写死 #fff，
- *  表头是亮青）。所以这里必须逐项覆盖背景，字色则在样式里用 :deep 覆盖
- *  （见 <style> 里那段注释）—— 漏掉任何一项，纸上就会出现一片看不见的白字。 */
-const boardOption = computed(() => {
-  const rows = learning.queue
-    .slice(0, 8)
-    .map(c => [
-      `<span style="color:${levelColor(c.level)}">●</span> ${escapeHtml(c.title)}`,
-      escapeHtml(c.domain || '')
-    ])
-  return {
-    header: ['待办卡片', '领域'],
-    data: rows.length ? rows : [['暂无待复习卡片', '']],
-    rowNum: Math.min(rows.length || 1, 8),
-    headerBGC: 'rgba(31, 75, 107, 0.09)',
-    oddRowBGC: 'rgba(58, 47, 33, 0.035)',
-    evenRowBGC: 'transparent',
-    headerHeight: 36,
-    rowHeight: 30,
-    columnWidth: [340, 130],
-    align: ['left', 'right'],
-    index: false,
-    waitTime: 2600,
-    // ★ 刻意**关掉自动翻页**（carousel: 'page' → ''）。
-    // 滚动榜是用来展示「看不完的量」的，而今日队列最多 8 条 ——
-    // 让它自己滚，读的人就得盯着等下一行，一行标题都读不完整。
-    // 8 条一次摊开（rowNum 8 + rowHeight 30 = 240px，刚好落进 252px 的框），
-    // 想上下扫自己滚就够了。数据量真涨到几十条时再把翻页开回来。
-    carousel: '',
-    hoverPause: true
-  }
-})
-
-/** 滚动榜是按 innerHTML 渲染的，标题里的尖括号会被当成标签。
- *  这当然不是 XSS 的第一道防线（后端也该清洗），但至少别让它把自己渲染坏。 */
-function escapeHtml(str) {
-  return String(str ?? '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-}
-
 const greeting = computed(() => {
   const h = new Date().getHours()
   if (h < 6) return '夜深了'
@@ -469,6 +415,47 @@ const greeting = computed(() => {
   if (h < 18) return '下午好'
   return '晚上好'
 })
+
+/** 横幅右侧的预览卡：今天接下来要复习的那张卡。
+ *  参考首页在横幅右侧放「示例岗位」，这里放**真实的下一张卡** ——
+ *  比任何插图都有用：它就是用户下一步要点的东西。 */
+const heroCard = computed(() => learning.queue[0] || null)
+
+/** 今日队列的 tab。仿参考首页「最新岗位」的分类切换。
+ *  「全部 / 未标记 / 已标记」对应复习的三种扫视需求：
+ *  看总量、找没看过的、找之前标过要再巩固的。 */
+const queueTabs = [
+  { k: 'all', n: '全部' },
+  { k: 'unmarked', n: '未标记' },
+  { k: 'marked', n: '已标记' }
+]
+const queueTab = ref('all')
+
+const queueRows = computed(() => {
+  const q = learning.queue
+  if (queueTab.value === 'unmarked') return q.filter(c => !c.level)
+  if (queueTab.value === 'marked') return q.filter(c => c.level)
+  return q
+})
+
+/** 常用功能宫格。**是入口不是装饰** —— 每格直达对应页面，
+ *  相当于把侧栏最常用的六个入口搬到首屏，少一次「去侧栏找」。 */
+const quickLinks = [
+  { icon: 'upload', label: '导入文档', desc: 'PDF / Word / Markdown', to: 'docs' },
+  { icon: 'spark', label: 'AI 生成卡片', desc: '给个方向批量造卡', to: 'generate' },
+  { icon: 'calendar', label: '开始复习', desc: '今日到期队列', to: 'review' },
+  { icon: 'route', label: '今日路径', desc: '按目标排今天学什么', to: 'path' },
+  { icon: 'graph', label: '知识图谱', desc: '卡片之间的关联', to: 'graph' },
+  { icon: 'note', label: '笔记', desc: '随手记与摘录', to: 'notes' }
+]
+
+/** 学习指南。三句话说清「这系统怎么用」，每条直达对应页面 ——
+ *  新用户前五分钟的动线就靠它，不用去翻文档。 */
+const guideTips = [
+  { n: '1', t: '导入一份 PDF / Word，自动按标题分章，一键转成卡片', to: 'docs' },
+  { n: '2', t: '每天到期一批卡，标一下掌握度，算法安排下一次复习', to: 'review' },
+  { n: '3', t: '模糊、不会的卡会被自动加急，不用自己排复习计划', to: 'path' }
+]
 
 /** 存储状态一句话。**降级必须说清楚** —— 悄悄回退到文件存储是最坏的情况：
  *  用户以为在写数据库，其实写进 JSON 了。 */
@@ -505,80 +492,127 @@ const bktAvg = computed(() => {
 
 <template>
   <div class="dash">
-    <!-- ===== 卷宗题头：总卡数是这一页唯一的主角 ===== -->
+    <!-- ===== 介绍横幅：左边产品介绍 + 行动按钮 + 三个小数据，右边浮动预览卡 ===== -->
     <section class="hero rise" :class="{ blank: isEmpty }">
       <div class="hero-left">
-        <template v-if="isEmpty">
-          <!-- 空库：不显示「0 张卡片」这个大号 0。大号 0 在这里是
-               最糟的排版 —— 它把「你还没开始」渲染成了「你什么都没有」，
-               而这其实是**这个产品最容易劝退人的第一屏**。改成邀请。 -->
-          <div class="eyebrow">
-            {{ greeting }}，{{ auth.user?.displayName || auth.user?.username }}
-          </div>
-          <div class="hero-title">还没有卡片</div>
-          <div class="hero-sub">
-            <span>这个产品的一切都从卡片开始 —— 导入一份文档，或让 AI 生成第一批</span>
-          </div>
-        </template>
-        <template v-else>
-          <div class="eyebrow">
-            {{ greeting }}，{{ auth.user?.displayName || auth.user?.username }}
-          </div>
-          <div class="hero-num">
-            <span class="num mono">{{ s.total ?? 0 }}</span>
-            <span class="unit">张卡片</span>
-          </div>
-        </template>
-        <div class="hero-sub" v-if="!isEmpty">
-          <span>{{ todayText }}</span>
+        <div class="eyebrow">
+          <span class="brand-tag">智径 · AI 自适应学习平台</span>
+          <span>{{ greeting }}，{{ auth.user?.displayName || auth.user?.username }}</span>
           <span class="dot" />
-          <span>今日待复习 {{ dueToday }} 张</span>
-          <!-- 积压解释：为什么库里 400 张、今天只学 20 张。
-               这一行是**必须**的 —— 不解释的话用户会以为系统只挑了 20 张给他，
-               或者以为数据丢了。 -->
-          <template v-if="dueBacklogText">
-            <span class="dot" />
-            <span class="backlog" :title="`后端到期 ${s.dueToday} 张（含没学过的）`">
-              还有 {{ dueBacklog }} 张排队 · {{ dueBacklogText }}
-            </span>
-          </template>
-          <template v-if="learning.dirText">
-            <span class="dot" />
-            <span class="dir">{{ learning.dirText }}</span>
-          </template>
-          <template v-if="storeText">
-            <span class="dot" />
-            <span class="store">{{ storeText }}</span>
-          </template>
-          <template v-if="algoName">
-            <span class="dot" />
-            <span class="algo" title="复习间隔由哪个算法计算（config.local.json 的 ALGO）">
-              {{ algoName }}
-            </span>
-          </template>
+          <span>{{ todayText }}</span>
+        </div>
+        <h1 class="hero-title">把散落的资料，<em>变成记得住的知识</em></h1>
+        <p class="hero-desc">
+          导入文档或让 AI 生成卡片，间隔算法按你的掌握情况安排复习 —— 学得快，忘得慢。
+        </p>
+        <div class="hero-cta">
+          <!-- 零状态：今天没有到期卡时**别再用主色召唤「开始复习」** ——
+               那是个死路（队列是空的），点了只会让人以为页面坏了。
+               主色让位给「生成卡片」，这才是此刻真正该做的事。 -->
+          <button v-if="isEmpty" class="go" @click="router.push({ name: 'generate' })">
+            生成第一批卡片
+            <svg viewBox="0 0 24 24"><path d="M5 12h13M13 6l6 6-6 6" /></svg>
+          </button>
+          <button v-else-if="dueToday > 0" class="go" @click="router.push({ name: 'review' })">
+            开始复习（{{ dueToday }} 张）
+            <svg viewBox="0 0 24 24"><path d="M5 12h13M13 6l6 6-6 6" /></svg>
+          </button>
+          <button v-else class="go" @click="router.push({ name: 'cards' })">
+            去学新卡
+            <svg viewBox="0 0 24 24"><path d="M5 12h13M13 6l6 6-6 6" /></svg>
+          </button>
+          <button v-if="isEmpty" class="go ghost" @click="router.push({ name: 'docs' })">
+            导入文档
+          </button>
+          <button v-else class="go ghost" @click="router.push({ name: 'path' })">今日路径</button>
+        </div>
+
+        <!-- 横幅底部三个小数据（仿参考首页「617 个在招职位 / 15 份我的简历」那行） -->
+        <div v-if="!isEmpty" class="hero-stats">
+          <div class="hs">
+            <b class="mono">{{ s.total ?? 0 }}</b>
+            <span>张卡片</span>
+          </div>
+          <div class="hs">
+            <b class="mono">{{ dueToday }}</b>
+            <span>今日待复习</span>
+          </div>
+          <div class="hs">
+            <b class="mono">{{ s.known ?? 0 }}</b>
+            <span>已掌握</span>
+          </div>
+        </div>
+
+        <!-- 状态徽标行：积压解释 / 学习方向 / 存储 / 算法。
+             积压解释是**必须**的 —— 不解释的话用户会以为系统只挑了 20 张给他，
+             或者以为数据丢了。 -->
+        <div v-if="!isEmpty" class="hero-chips">
+          <span
+            v-if="dueBacklogText"
+            class="chip"
+            :title="`后端到期 ${s.dueToday} 张（含没学过的）`"
+          >
+            还有 {{ dueBacklog }} 张排队 · {{ dueBacklogText }}
+          </span>
+          <span v-if="learning.dirText" class="chip dir">{{ learning.dirText }}</span>
+          <span v-if="storeText" class="chip">{{ storeText }}</span>
+          <span
+            v-if="algoName"
+            class="chip dashed"
+            title="复习间隔由哪个算法计算（config.local.json 的 ALGO）"
+          >
+            {{ algoName }}
+          </span>
         </div>
       </div>
-      <div class="hero-right">
-        <!-- 零状态：今天没有到期卡时**别再用主色召唤「开始复习」** ——
-             那是个死路（队列是空的），点了只会让人以为页面坏了。
-             主色让位给「去学新卡」，这才是此刻真正该做的事。 -->
-        <button v-if="isEmpty" class="go" @click="router.push({ name: 'generate' })">
-          生成第一批卡片
-          <svg viewBox="0 0 24 24"><path d="M5 12h13M13 6l6 6-6 6" /></svg>
-        </button>
-        <button v-else-if="dueToday > 0" class="go" @click="router.push({ name: 'review' })">
-          开始复习
-          <svg viewBox="0 0 24 24"><path d="M5 12h13M13 6l6 6-6 6" /></svg>
-        </button>
-        <button v-else class="go" @click="router.push({ name: 'cards' })">
-          去学新卡
-          <svg viewBox="0 0 24 24"><path d="M5 12h13M13 6l6 6-6 6" /></svg>
-        </button>
-        <button class="go ghost" @click="router.push({ name: 'path' })">今日路径</button>
-        <button v-if="isEmpty" class="go ghost" @click="router.push({ name: 'docs' })">
-          导入文档
-        </button>
-      </div>
+
+      <!-- 右侧浮动预览卡。三态：空库引导 / 今天的下一张卡 / 今天没到期 -->
+      <aside class="preview">
+        <template v-if="heroCard">
+          <div class="pv-top">
+            <span class="pv-tag">今日推荐</span>
+            <span class="pv-level" :style="{ color: levelColor(heroCard.level) }">
+              ● {{ levelLabel(heroCard.level) }}
+            </span>
+          </div>
+          <div class="pv-title">{{ heroCard.title }}</div>
+          <p class="pv-desc">
+            {{ heroCard.oneLine || '这张卡还没有一句话简介，打开卡片可以补写。' }}
+          </p>
+          <div class="pv-tags">
+            <span v-if="heroCard.domain" class="pv-domain">{{ heroCard.domain }}</span>
+            <span class="pv-more">队列共 {{ learning.total }} 张</span>
+          </div>
+          <button class="go sm" @click="router.push({ name: 'review' })">
+            开始复习
+            <svg viewBox="0 0 24 24"><path d="M5 12h13M13 6l6 6-6 6" /></svg>
+          </button>
+        </template>
+        <template v-else-if="isEmpty">
+          <div class="pv-top">
+            <span class="pv-tag">从一份资料开始</span>
+          </div>
+          <div class="pv-title">你的卡片库还是空的</div>
+          <p class="pv-desc">
+            把讲义、论文、笔记丢进来，系统自动分章、转成卡片，之后就交给复习算法。
+          </p>
+          <button class="go sm" @click="router.push({ name: 'docs' })">
+            导入第一份文档
+            <svg viewBox="0 0 24 24"><path d="M5 12h13M13 6l6 6-6 6" /></svg>
+          </button>
+        </template>
+        <template v-else>
+          <div class="pv-top">
+            <span class="pv-tag">今日队列</span>
+          </div>
+          <div class="pv-title">今天没有到期的卡片</div>
+          <p class="pv-desc">排期都照顾到了。可以去卡片库挑几张新的学，按每日目标推进就好。</p>
+          <button class="go sm" @click="router.push({ name: 'cards' })">
+            去学新卡
+            <svg viewBox="0 0 24 24"><path d="M5 12h13M13 6l6 6-6 6" /></svg>
+          </button>
+        </template>
+      </aside>
     </section>
 
     <!-- ===== 空库：给一屏引导，而不是四个 0 + 五张空图 ===== -->
@@ -606,34 +640,127 @@ const bktAvg = computed(() => {
     </section>
 
     <!-- 以下全部是「有卡之后才成立」的内容。空库时整块撤掉，
-         只留上面那三步引导 —— 摆 four 个 0 和五张空图只会让人以为坏了。 -->
+         只留上面那三步引导 —— 摆四个 0 和五张空图只会让人以为坏了。 -->
     <template v-if="!isEmpty">
-      <!-- ===== 四张指标 ===== -->
+      <!-- ===== 四张数据卡（带图标，点击直达） ===== -->
       <section class="metrics">
-        <div
+        <button
           v-for="(m, i) in metrics"
           :key="m.key"
           class="metric rise"
           :style="{ animationDelay: i * 55 + 'ms' }"
+          @click="router.push({ name: m.to })"
         >
-          <div class="m-label">{{ m.label }}</div>
-          <div class="m-value mono" :style="{ color: m.color }">{{ m.value }}</div>
-          <div class="m-bar">
-            <i :style="{ width: Math.min(m.ratio * 100, 100) + '%', background: m.color }" />
-          </div>
-        </div>
+          <span class="m-ico" :style="{ color: m.color, background: m.color + '1c' }">
+            <span class="mi" v-html="ICONS[m.icon]" />
+          </span>
+          <span class="m-body">
+            <span class="m-value mono" :style="{ color: m.color }">{{ m.value }}</span>
+            <span class="m-label">{{ m.label }}</span>
+          </span>
+        </button>
       </section>
 
-      <!-- ===== 图表区 =====
+      <!-- ===== 左右分栏：今日队列 + 常用功能/学习指南 =====
+         仿参考首页「最新岗位 + 常用功能/求职指南」的分栏。
+         列表 7 列、右栏 5 列：队列行有标题+简介+领域标签，需要宽度；
+         右栏是宫格和短句，窄一点反而整齐。每行必须凑满 12。 -->
+      <section class="grid">
+        <div class="panel span-7 rise" :style="{ animationDelay: '80ms' }">
+          <header class="panel-head">
+            <h3>今日队列</h3>
+            <div class="q-tabs">
+              <button
+                v-for="t in queueTabs"
+                :key="t.k"
+                class="q-tab"
+                :class="{ on: queueTab === t.k }"
+                @click="queueTab = t.k"
+              >
+                {{ t.n }}
+              </button>
+              <button class="link" @click="router.push({ name: 'review' })">查看全部 →</button>
+            </div>
+          </header>
+          <div v-if="queueRows.length" class="q-list">
+            <button
+              v-for="c in queueRows"
+              :key="c.id"
+              class="q-row"
+              @click="router.push({ name: 'review' })"
+            >
+              <span class="q-dot" :style="{ background: levelColor(c.level) }" />
+              <span class="q-main">
+                <span class="q-title">{{ c.title }}</span>
+                <span class="q-sub">{{ c.oneLine || '' }}</span>
+              </span>
+              <span class="q-domain">{{ c.domain || '' }}</span>
+              <span class="q-level" :style="{ color: levelColor(c.level) }">
+                {{ levelLabel(c.level) }}
+              </span>
+            </button>
+          </div>
+          <p v-else class="empty">
+            {{
+              queueTab === 'all'
+                ? '今天没有到期的卡片 —— 先去「卡片」页挑几张新的吧'
+                : '这个筛选下没有卡片'
+            }}
+          </p>
+        </div>
+
+        <div class="span-5 side">
+          <div class="panel rise" :style="{ animationDelay: '105ms' }">
+            <header class="panel-head">
+              <h3>常用功能</h3>
+              <span class="hint">一键直达</span>
+            </header>
+            <div class="quick">
+              <button
+                v-for="q in quickLinks"
+                :key="q.to"
+                class="qk"
+                @click="router.push({ name: q.to })"
+              >
+                <span class="qk-ico"><span class="mi" v-html="ICONS[q.icon]" /></span>
+                <span class="qk-t">{{ q.label }}</span>
+                <span class="qk-d">{{ q.desc }}</span>
+              </button>
+            </div>
+          </div>
+
+          <div class="panel rise" :style="{ animationDelay: '130ms' }">
+            <header class="panel-head">
+              <h3>学习指南</h3>
+              <span class="hint">怎么用这个系统</span>
+            </header>
+            <div class="guide">
+              <button
+                v-for="g in guideTips"
+                :key="g.n"
+                class="gd"
+                @click="router.push({ name: g.to })"
+              >
+                <span class="gd-n">{{ g.n }}</span>
+                <span class="gd-t">{{ g.t }}</span>
+                <svg class="gd-arrow" viewBox="0 0 24 24">
+                  <path d="M5 12h13M13 6l6 6-6 6" />
+                </svg>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- ===== 图表行 =====
          栅格分配的依据是**每块图表要放多少字**，不是"看起来匀"。
          · 领域分布 5 列：横向条的左边要放得下「求职·AI工程」这种长领域名，
            给 4 列时标签和条会挤在一起（原来就是这样）；
          · 自评档位 3 列：环形图本身不需要宽，多给的列只是把图撑稀；
          · BKT 4 列：三段条 + 一段说明文字，比环形图需要更多的行内空间。
-         ⚠️ 每行必须凑满 12（5+3+4 / 7+5 / 12）。之前是 4+4+4 / 4+7 / 5，
-         右边永远缺一块，页面看着是"没排完"而不是"排好了"。 -->
-      <section class="grid">
-        <div class="panel span-5 rise" :style="{ animationDelay: '80ms' }">
+         ⚠️ 每行必须凑满 12（7+5 / 5+3+4 / 12）。
+         原「科目构成」玫瑰图已撤：它和领域分布是同一份 bySubject 数据的
+         两种画法，改版后页面以列表为主，重复图形不再值得占一整块。 -->
+        <div class="panel span-5 rise" :style="{ animationDelay: '155ms' }">
           <header class="panel-head">
             <h3>领域分布</h3>
             <span class="hint">卡片按知识领域统计</span>
@@ -641,7 +768,7 @@ const bktAvg = computed(() => {
           <EChart :option="domainOption" height="252px" />
         </div>
 
-        <div class="panel span-3 rise" :style="{ animationDelay: '105ms' }">
+        <div class="panel span-3 rise" :style="{ animationDelay: '180ms' }">
           <header class="panel-head">
             <!-- 原先这里叫「掌握度分布」，但它画的是 users 自评的三档标记，
              不是掌握度。名字和内容对不上比不写更糟 —— 会让人以为
@@ -653,7 +780,7 @@ const bktAvg = computed(() => {
           <EChart :option="masteryOption" height="252px" />
         </div>
 
-        <div class="panel span-4 rise" :style="{ animationDelay: '130ms' }">
+        <div class="panel span-4 rise" :style="{ animationDelay: '205ms' }">
           <header class="panel-head">
             <h3>BKT 掌握度</h3>
             <span class="hint">
@@ -661,7 +788,7 @@ const bktAvg = computed(() => {
             </span>
           </header>
           <!-- 用 CSS 条而不是 ECharts：这里只有三段，引入一个图表实例
-             去画三段 div 完全不划算（这一页已经有 4 个 ECharts 实例了）。
+             去画三段 div 完全不划算（这一页已经有 3 个 ECharts 实例了）。
              没数据时**不留 252px 的空框**（见 .bkt-empty）：一块纯文字却
              占着跟环形图一样高，是这一页最明显的「像坏了」的地方。 -->
           <div v-if="bktBars.length" class="bkt">
@@ -691,37 +818,10 @@ const bktAvg = computed(() => {
             </p>
           </div>
         </div>
-
-        <!-- 宽度分布：**图表 7 / 滚动榜 5**。
-     试过对调（队列 7、图 5）想让队列标题不被截断，实测反而更糟：
-     科目构成的扇区外标签和图例一起被挤到省略号（"work/ai 1…"、"k mayo…"），
-     而队列那点多出来的宽度只够多显示两三个字。
-     两边都是「标签放不下」，但图表的标签是**外置引线**的，截断更像坏了。 -->
-        <div class="panel span-7 rise" :style="{ animationDelay: '180ms' }">
-          <header class="panel-head">
-            <h3>科目构成</h3>
-            <span class="hint">扇区半径与面积同时编码数量</span>
-          </header>
-          <EChart :option="subjectOption" height="288px" />
-        </div>
-
-        <div class="panel span-5 rise" :style="{ animationDelay: '230ms' }">
-          <header class="panel-head">
-            <h3>今日队列</h3>
-            <span class="hint">共 {{ learning.total }} 张</span>
-          </header>
-          <div class="board">
-            <DvScrollBoard v-if="learning.queue.length" :config="boardOption" />
-            <p v-else class="empty">今天没有到期的卡片 —— 先去「卡片」页挑几张新的吧</p>
-          </div>
-        </div>
       </section>
 
       <!-- ===== 底部状态条 =====
-         原来「卡片构成」和「系统状态」挤在同一个 span-5 的窄面板里，
-         堆叠条只有 64px 高、下面拖着三行小字，右侧空 7 列。
-         改成一条**横贯整行**的状态条：左边是构成条，右边三格是运行状态。
-         信息量没变，但 12 列的宽度正好够 —— 这行本来就是收尾，
+         「卡片构成 + 系统状态」横贯整行。这行本来就是收尾，
          不该再跟上面的图表抢注意力。 -->
       <section class="statusbar rise">
         <div class="sb-compose">
@@ -781,18 +881,11 @@ const bktAvg = computed(() => {
 
 /* ===== 空库引导 =====
  * 空驾驶舱不是「数据为 0 的驾驶舱」，是另一个页面。所以：
- *   - hero 的大号 0 换成一句邀请（.blank 去掉靛蓝压线，压线是「数据在这」的信号）；
+ *   - 横幅主按钮让位给「生成第一批卡片」（压线是「数据在这」的信号，空库去掉）；
  *   - 指标卡与图表区整块 v-if 撤掉（摆四个 0 和五张空图只会像坏了）；
  *   - 给三步「导入 / 生成 / 复习」，每步都带一个真的能点的按钮。 */
 .hero.blank::before {
   display: none;
-}
-.hero-title {
-  font-size: 34px;
-  font-weight: 700;
-  line-height: 1.15;
-  margin: 8px 0 6px;
-  color: var(--tx);
 }
 .blank-panel {
   padding: 8px 4px 4px;
@@ -836,27 +929,27 @@ const bktAvg = computed(() => {
   color: var(--mu);
   margin-bottom: 14px;
 }
-.go.sm {
-  margin-top: auto;
-  padding: 7px 14px;
-  font-size: var(--fs-sm);
-}
 @media (max-width: 900px) {
   .bp-steps {
     grid-template-columns: 1fr;
   }
 }
 
-/* ===== 卷宗题头 =====
- * 顶上一道靛蓝压线 + 纸面本色。压线是整页唯一的重色，
- * 它就是「主角在这儿」的信号，不需要再做发光或渐变。 */
+/* ===== 介绍横幅 =====
+ * 左边：小标签 + 大标题 + 一句介绍 + 行动按钮 + 三个小数据。
+ * 右边：浮动预览卡（今天接下来要复习的那张卡）。
+ * 顶上一道靛蓝压线是整页唯一的重色 —— 「主角在这儿」的信号。
+ * 参考页横幅是浅绿渐变，这里用靛蓝淡晕保持全站牛皮纸一致性。 */
 .hero {
   display: flex;
+  /* 垂直居中而不是拉伸：预览卡保持**内容高度**浮在右侧。
+     拉伸时它会被撑到和左边文字一样高，卡下半截一大片空白
+     （参考页的浮卡就是紧凑的一张）。 */
   align-items: center;
   justify-content: space-between;
-  gap: 24px;
+  gap: 28px;
   flex-wrap: wrap;
-  padding: 26px 28px;
+  padding: 30px 32px 26px;
   border-radius: var(--radius);
   border: 1px solid var(--line);
   background-color: var(--panel);
@@ -873,29 +966,13 @@ const bktAvg = computed(() => {
 }
 
 .hero-left {
+  flex: 1 1 420px;
   min-width: 0;
-}
-.hero-num {
   display: flex;
-  align-items: baseline;
-  gap: 10px;
-  margin: 6px 0 8px;
+  flex-direction: column;
+  align-items: flex-start;
 }
-.num {
-  font-size: 54px;
-  font-weight: 700;
-  line-height: 1;
-  color: var(--ac);
-  /* 等宽数字：四个指标卡并排时，20 / 0 / 0 / 0 的字宽一致才像一张表。
-     比例数字（1 有宽、0 窄）会让右对齐的列看着在抖 —— 这是"廉价感"最常见的来源。 */
-  font-variant-numeric: tabular-nums;
-  letter-spacing: -0.5px;
-}
-.unit {
-  font-size: var(--fs-md);
-  color: var(--mu);
-}
-.hero-sub {
+.eyebrow {
   display: flex;
   align-items: center;
   gap: 10px;
@@ -903,53 +980,162 @@ const bktAvg = computed(() => {
   font-size: var(--fs-sm);
   color: var(--mu);
 }
-.dot {
-  width: 3px;
-  height: 3px;
-  border-radius: 50%;
-  background: var(--line2);
-}
-.store {
-  font-family: var(--font-mono);
+/* 产品小标签：仿参考页横幅左上角那行小字。主色描边，是「品牌」不是「状态」 */
+.brand-tag {
   font-size: var(--fs-xs);
-  padding: 2px 9px;
-  border-radius: 20px;
-  border: 1px solid var(--line2);
-  color: var(--dim);
-}
-/* 学习方向：回答「今天在学什么」，比存储徽标重要一档 —— 用主色点出来 */
-.dir {
-  font-size: var(--fs-xs);
-  padding: 2px 9px;
+  padding: 3px 11px;
   border-radius: 20px;
   border: 1px solid var(--ac-dim);
   background: var(--ac-glow);
   color: var(--ac);
+  font-weight: 600;
 }
-/* 积压说明。用**中性描边**而不是警示色 —— 积压不是错误，
-   400 张库里只学 20 张是「按计划排队」，标成橙色会让人以为坏了。 */
-.backlog {
+.hero-title {
+  font-size: var(--fs-hero);
+  font-weight: 700;
+  line-height: 1.22;
+  margin: 14px 0 10px;
+  color: var(--tx);
+}
+/* 标题后半句用主色 —— 仿参考页「职业机会」那半句的处理，
+ * 一眼看出这产品的价值落在哪几个字上。 */
+.hero-title em {
+  font-style: normal;
+  color: var(--ac);
+}
+.hero-desc {
+  font-size: var(--fs-md);
+  line-height: 1.75;
+  color: var(--mu);
+  max-width: 560px;
+}
+.hero-cta {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 20px;
+}
+
+/* 横幅底部三个小数据：仿参考页「617 个 / 15 份 / 400 个」那行。
+ * 数字大、标签小，竖分隔线隔开 —— 这是「介绍」到「数据」的过渡。 */
+.hero-stats {
+  display: flex;
+  gap: 26px;
+  margin-top: 22px;
+  padding-top: 18px;
+  border-top: 1px dashed var(--line2);
+  width: 100%;
+}
+.hs {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+}
+.hs b {
+  font-size: 26px;
+  font-weight: 700;
+  color: var(--tx);
+  font-variant-numeric: tabular-nums;
+}
+.hs span {
+  font-size: var(--fs-xs);
+  color: var(--dim);
+}
+
+.hero-chips {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+}
+.chip {
   font-size: var(--fs-xs);
   padding: 2px 9px;
   border-radius: 20px;
   border: 1px solid var(--line2);
   color: var(--dim);
 }
-/* 调度算法：也是「系统在替你做什么」的说明，但它是**配置**而不是
- * 内容状态，所以用中性描边（不抢主色的戏）。title 里给全称。 */
-.algo {
+/* 积压说明用**中性描边**而不是警示色 —— 积压不是错误，
+   400 张库里只学 20 张是「按计划排队」，标成橙色会让人以为坏了。 */
+.chip.dir {
+  border-color: var(--ac-dim);
+  background: var(--ac-glow);
+  color: var(--ac);
+}
+/* 调度算法是**配置**而不是内容状态，虚线描边跟其它徽标再区分一档 */
+.chip.dashed {
+  border-style: dashed;
+}
+
+/* ===== 浮动预览卡 =====
+ * 仿参考页横幅右侧的「示例岗位」卡：小标签 + 标题 + 简介 + 底部行动。
+ * 用比面板更强的投影「浮」起来，是横幅里唯一立体的东西。 */
+.preview {
+  flex: 0 1 330px;
+  min-width: 280px;
+  padding: 20px 22px 18px;
+  border-radius: var(--radius);
+  border: 1px solid var(--line2);
+  background: var(--panel);
+  box-shadow: var(--shadow);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+.pv-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+}
+.pv-tag {
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  padding: 2px 10px;
+  border-radius: 20px;
+  background: var(--ac-glow);
+  color: var(--ac);
+}
+.pv-level {
+  font-size: var(--fs-xs);
+  font-weight: 600;
+}
+.pv-title {
+  font-size: var(--fs-lg);
+  font-weight: 700;
+  line-height: 1.45;
+  color: var(--tx);
+  margin: 12px 0 6px;
+}
+.pv-desc {
+  font-size: var(--fs-sm);
+  line-height: 1.7;
+  color: var(--mu);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.pv-tags {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 12px 0 14px;
+}
+.pv-domain {
   font-size: var(--fs-xs);
   padding: 2px 9px;
   border-radius: 20px;
-  border: 1px dashed var(--line2);
+  border: 1px solid var(--line2);
+  color: var(--mu);
+}
+.pv-more {
+  font-size: var(--fs-xs);
   color: var(--dim);
 }
 
-.hero-right {
-  display: flex;
-  gap: 10px;
-  flex-wrap: wrap;
-}
 /* 主按钮用平涂的靛蓝，不做渐变 —— 渐变是屏幕语言，
    纸面上的墨是平的。这一处克制了，整页的"纸质"才立得住 */
 .go {
@@ -961,6 +1147,7 @@ const bktAvg = computed(() => {
   border: 1px solid var(--ac);
   font-size: var(--fs-md);
   font-weight: 600;
+  font-family: var(--font);
   color: #fdfaf3;
   background: var(--ac);
   cursor: pointer;
@@ -991,66 +1178,92 @@ const bktAvg = computed(() => {
   border-color: var(--ac-dim);
   background: var(--panel2);
 }
+.go.sm {
+  padding: 8px 16px;
+  font-size: var(--fs-sm);
+}
 
-/* ===== 指标卡 ===== */
+/* ===== 四张数据卡 =====
+ * 仿参考页「图标 + 数字 + 标签」小卡。button 元素自带的外观全清掉，
+ * 只留 hover 抬升 —— 整张卡就是入口。 */
 .metrics {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
   gap: 14px;
 }
 .metric {
-  position: relative;
-  padding: 16px 18px 14px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 18px 20px;
   border-radius: var(--radius);
   border: 1px solid var(--line);
   background: var(--panel);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.62);
+  font-family: var(--font);
+  text-align: left;
+  cursor: pointer;
   transition:
     border-color 0.18s,
     transform 0.18s,
     box-shadow 0.18s;
 }
 .metric:hover {
-  border-color: var(--line2);
-  transform: translateY(-2px);
+  /* 抬升 + 描边转主色：光靠 2px 位移在截图里几乎看不出来，
+     「可点击」的暗示不够。描边变靛蓝是最明确的「这是入口」信号。 */
+  border-color: var(--ac-dim);
+  transform: translateY(-3px);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.62),
     var(--shadow);
 }
+/* 图标底盘：圆角方块 + 各卡自己的淡色底，仿参考页的圆形图标底 */
+.m-ico {
+  flex: none;
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  display: grid;
+  place-items: center;
+}
+.mi {
+  display: inline-flex;
+}
+/* 图标是 v-html 注入的（无 scope 属性），要用 :deep 才够得着 */
+.m-ico :deep(svg),
+.qk-ico :deep(svg) {
+  width: 22px;
+  height: 22px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.m-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.m-value {
+  font-size: 28px;
+  font-weight: 700;
+  line-height: 1.15;
+  /* 等宽数字：四卡并排时，20 / 0 / 0 / 0 的字宽一致才像一张表。
+     比例数字（1 有宽、0 窄）会让并排的列看着在抖。 */
+  font-variant-numeric: tabular-nums;
+}
 .m-label {
   font-size: var(--fs-sm);
   color: var(--mu);
-  /* 标签给一点点字距：纯中文标签不能给（会糊），但这个字号下
-     0.2px 的紧排能让四张卡的标签左边缘看起来是一条直线 */
   letter-spacing: 0.2px;
-}
-.m-value {
-  font-size: 32px;
-  font-weight: 700;
-  line-height: 1.25;
-  /* 同 .num：等宽数字，四卡并排不抖 */
-  font-variant-numeric: tabular-nums;
-  margin-top: 2px;
-}
-.m-bar {
-  height: 4px;
-  margin-top: 8px;
-  border-radius: 3px;
-  background: var(--line);
-  overflow: hidden;
-}
-.m-bar i {
-  display: block;
-  height: 100%;
-  border-radius: 3px;
-  transition: width 0.6s cubic-bezier(0.22, 0.7, 0.28, 1);
 }
 
 /* ===== 图表网格 =====
  * 12 栅格，按信息复杂度分配列数，**不要平均** ——
  * 平均分配的结果就是六块一样大的方块，眼睛找不到重点。
- * ⚠️ 每一行的 span 之和必须等于 12：4+4+4 / 4+7 / 5 这种排法右边
- * 永远缺一块，页面读起来像「没排完」。现在是 5+3+4 / 7+5 / 12（全宽条）。
+ * ⚠️ 每一行的 span 之和必须等于 12：7+5 / 5+3+4。
  * .panel / .panel-head 用 tokens.css 里的全局类，这里只写栅格。 */
 .grid {
   display: grid;
@@ -1070,8 +1283,225 @@ const bktAvg = computed(() => {
   grid-column: span 7;
 }
 
-.board {
-  height: 252px;
+/* 右栏：常用功能 + 学习指南上下两块 */
+.side {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.side .panel {
+  flex: 1;
+}
+
+/* ===== 今日队列 ===== */
+.q-tabs {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.q-tab {
+  padding: 3px 11px;
+  border-radius: 20px;
+  border: 1px solid transparent;
+  background: none;
+  font-family: var(--font);
+  font-size: var(--fs-xs);
+  color: var(--mu);
+  cursor: pointer;
+  transition:
+    color 0.15s,
+    background 0.15s,
+    border-color 0.15s;
+}
+.q-tab:hover {
+  color: var(--ac);
+}
+.q-tab.on {
+  color: var(--ac);
+  background: var(--ac-glow);
+  border-color: var(--ac-dim);
+  font-weight: 600;
+}
+.q-list {
+  display: flex;
+  flex-direction: column;
+  max-height: 300px;
+  overflow-y: auto;
+}
+/* 行按钮：色点 + 标题/简介 + 领域 + 档位。整行可点进复习。
+ * 行间用淡分隔线，不用卡片套卡片 —— 一张纸上的清单。 */
+.q-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 11px 6px;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  background: none;
+  font-family: var(--font);
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.q-row:last-child {
+  border-bottom: 0;
+}
+.q-row:hover {
+  background: var(--panel2);
+}
+.q-dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+.q-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.q-title {
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--tx);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.q-sub {
+  font-size: var(--fs-xs);
+  color: var(--dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.q-domain {
+  flex: none;
+  max-width: 120px;
+  font-size: var(--fs-xs);
+  padding: 2px 9px;
+  border-radius: 20px;
+  border: 1px solid var(--line2);
+  color: var(--mu);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.q-level {
+  flex: none;
+  width: 44px;
+  text-align: right;
+  font-size: var(--fs-xs);
+  font-weight: 600;
+}
+
+/* ===== 常用功能宫格 =====
+ * 2×3 六格，仿参考页「常用功能」。格子是入口：图标 + 名字 + 一句说明。 */
+.quick {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+  padding: 4px 2px 6px;
+}
+.qk {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 13px 14px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--line);
+  background: var(--panel2);
+  font-family: var(--font);
+  text-align: left;
+  cursor: pointer;
+  transition:
+    border-color 0.15s,
+    background 0.15s;
+}
+.qk:hover {
+  border-color: var(--ac-dim);
+  background: var(--panel);
+}
+.qk-ico {
+  color: var(--ac);
+  margin-bottom: 2px;
+}
+.qk-t {
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--tx);
+}
+.qk-d {
+  font-size: var(--fs-xs);
+  color: var(--dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+
+/* ===== 学习指南 =====
+ * 三行「怎么用」，编号 + 一句话 + 箭头。仿参考页「求职指南」。 */
+.guide {
+  display: flex;
+  flex-direction: column;
+  padding: 2px 0 4px;
+}
+.gd {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 11px 6px;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  background: none;
+  font-family: var(--font);
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.gd:last-child {
+  border-bottom: 0;
+}
+.gd:hover {
+  background: var(--panel2);
+}
+.gd-n {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--ac-glow);
+  color: var(--ac);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  line-height: 22px;
+  text-align: center;
+}
+.gd-t {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--fs-sm);
+  line-height: 1.6;
+  color: var(--mu);
+}
+.gd-arrow {
+  flex: none;
+  width: 15px;
+  height: 15px;
+  fill: none;
+  stroke: var(--dim);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.gd:hover .gd-arrow {
+  stroke: var(--ac);
 }
 
 /* ===== BKT 掌握度分布 =====
@@ -1139,25 +1569,9 @@ const bktAvg = computed(() => {
   color: var(--dim);
 }
 
-/* DataV 滚动榜的文字色写死在它自己的 CSS 里（.dv-scroll-board{color:#fff}），
-   那是给深色大屏用的 —— 在纸面上等于看不见。:deep 会编成
-   `[data-v-xxx] .dv-scroll-board`，特异性高过它，与引入顺序无关。
-   ⚠️ 别把这段搬去 tokens.css：那样它是全局规则，会连带影响以后别处
-   可能用到的 DataV 组件，而且一旦失效很难想到是这里。 */
-.board :deep(.dv-scroll-board) {
-  color: var(--tx);
-}
-.board :deep(.dv-scroll-board .header) {
-  color: var(--mu);
-  font-weight: 600;
-}
-.board :deep(.dv-scroll-board .row-item) {
-  font-size: var(--fs-sm);
-  line-height: 2;
-}
-
 .empty {
   height: 100%;
+  min-height: 120px;
   display: grid;
   place-items: center;
   text-align: center;
@@ -1185,11 +1599,7 @@ const bktAvg = computed(() => {
 }
 
 /* ===== 底部状态条 =====
- * 「卡片构成 + 运行状态」从原来那个 span-5 的窄面板改成横贯整行的一条。
- * 动机有两条，缺一不可：
- *   1. **填满栅格**。原来这行只占了 5 列，右边空 7 列。
- *   2. **宽度要够放三格状态**。「存储后端 / 内置卡 / AI 精读」挤在
- *      半屏里时每格都得折行，现在每格分到 200px 上下，一行放得下。
+ * 「卡片构成 + 运行状态」横贯整行的一条。
  * 用 grid 而不是 flex：flex + 三格 + 一个按钮，宽度分配全靠 flex-grow
  * 猜，而这里每格内容长度差别很大（"mysql" vs "未同步"），得按内容定量。 */
 .statusbar {
@@ -1276,7 +1686,9 @@ const bktAvg = computed(() => {
   background: none;
   color: var(--ac);
   font-size: var(--fs-sm);
+  font-family: var(--font);
   cursor: pointer;
+  white-space: nowrap;
 }
 .link:hover {
   text-decoration: underline;
@@ -1292,11 +1704,24 @@ const bktAvg = computed(() => {
   .span-7 {
     grid-column: span 12;
   }
-  /* 图表全部拉满宽之后，252px 的定高对「今日队列」和 BKT 都偏矮，
+  /* 图表全部拉满宽之后，252px 的定高对 BKT 偏矮，
    * 但 ECharts 高度是 prop 写死的，这里只把 CSS 容器放开。 */
-  .board,
   .bkt {
     height: 288px;
+  }
+}
+@media (max-width: 900px) {
+  .hero {
+    padding: 24px 22px;
+  }
+  .hero-title {
+    font-size: var(--fs-2xl);
+  }
+  .preview {
+    flex-basis: 100%;
+  }
+  .metrics {
+    grid-template-columns: 1fr;
   }
 }
 </style>

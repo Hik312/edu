@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
-"""SM-2（SuperMemo 2）简化版 —— 系统当前在跑的那个。
+"""SM-2（SuperMemo 2）简化版 —— 代码里的兜底默认算法（algo.DEFAULT_NAME）。
+实际跑哪个由配置定（env `ALGO` > config.local.json > sm2），本机配的是 fsrs。
 
 这是 2026-09-29 从 `core/db.py:schedule()` **逐行搬过来**的，业务逻辑一个
 数字都没改。搬的目的不是重写，是让它和 FSRS 站在同一条起跑线上，能被同一

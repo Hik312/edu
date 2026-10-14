@@ -128,27 +128,41 @@ def schedule(prev, level, today=None):
 _src_cache = {'key': None, 'cards': None}
 
 
-def _src_key(files):
+def _src_files_key():
+    """data/*.js 的文件指纹键（文件名 + mtime + size 元组）。
+
+    `_src_cache` / `_stale_cache` / `_all_cache` 三处失效判断共用这一把键 ——
+    「源文件变没变」只有一个答案，各写各的迟早口径分裂。
+    ★ 用 os.scandir 而不是 listdir + getmtime/getsize：后者一个文件两次系统
+      调用，11 个文件实测 3.9ms —— 这笔钱每次 all_cards() 都要付，把「命中
+      不到 1ms」直接磨成 4ms。scandir 的 DirEntry.stat() 复用目录枚举带回来
+      的文件属性，零额外系统调用，实测 0.11ms，键值与旧口径逐字段一致。
+    """
     try:
-        return tuple((f, os.path.getmtime(os.path.join(DATA_DIR, f)),
-                      os.path.getsize(os.path.join(DATA_DIR, f))) for f in files)
+        out = []
+        with os.scandir(DATA_DIR) as it:
+            for e in it:
+                if e.name.endswith('.js'):
+                    s = e.stat()
+                    out.append((e.name, s.st_mtime, s.st_size))
+        return tuple(sorted(out))
     except OSError:
         return None
 
 
-def load_source_cards():
-    """读 data/*.js。文件形如 `var CARDS_X = [...]`，
-    数组部分是严格 JSON 字面量（由 back_study/scripts/normalize-data.js 保证），
-    用 raw_decode 从 '[' 处直接解析，不跑 JS 引擎。
+def _source_cards_ref():
+    """内置卡解析结果的**共享引用**（不拷贝）。**只读！要改先自己拷贝。**
 
-    返回的是**深拷贝**：调用方随手改一下返回值不会污染缓存。
+    指纹比对、合并建缓存这类只读场景用它 —— 每次 deepcopy 是 17ms，
+    正是 2026-10-13 性能排查里要杀的那块。对外的 load_source_cards()
+    契约不变（仍返回深拷贝），怕调用方污染的场景照旧走它。
     """
     if not os.path.isdir(DATA_DIR):
         return []
     files = sorted(f for f in os.listdir(DATA_DIR) if f.endswith('.js'))
-    key = _src_key(files)
+    key = _src_files_key()
     if key is not None and _src_cache['key'] == key and _src_cache['cards'] is not None:
-        return [copy.deepcopy(c) for c in _src_cache['cards']]
+        return _src_cache['cards']
 
     out = []
     for f in files:
@@ -170,25 +184,62 @@ def load_source_cards():
 
     _src_cache['key'] = key
     _src_cache['cards'] = out
-    return [copy.deepcopy(c) for c in out]
+    return out
+
+
+def load_source_cards():
+    """读 data/*.js。文件形如 `var CARDS_X = [...]`，
+    数组部分是严格 JSON 字面量（由 back_study/scripts/normalize-data.js 保证），
+    用 raw_decode 从 '[' 处直接解析，不跑 JS 引擎。
+
+    返回的是**深拷贝**：调用方随手改一下返回值不会污染缓存。
+    （解析缓存本身在 _source_cards_ref 里，这里只负责拷贝那一层。）
+    """
+    return [copy.deepcopy(c) for c in _source_cards_ref()]
+
+
+#: builtin_stale() 的判定缓存。一次指纹比对约 55ms，不该每个请求都付 ——
+#: all_cards() / due_list() 每次都会问它一遍（2026-10-13 实测就是它把
+#: 74ms 的 all_cards() 拖垮的）。失效论证（改这里先读完）：
+#:   · 危险方向「False→True」（库里副本不再匹配文件）只会因 data/*.js
+#:     变化触发 → 文件键变 → 必重算，不会漏；
+#:   · 「True→False」只发生在 dbseed.py --sync 重灌之后，晚一点知道**只是
+#:     多走文件回落，内容照旧正确**（内容是文件说了算）；
+#:   · dbseed / fix 脚本是**别的进程**，本进程看不见它写库，所以再加 60s
+#:     时效兜底 —— 同步完最多 1 分钟就切回 SQL 快路径。
+_stale_cache = {'key': None, 'val': None, 'at': 0.0}
+_STALE_TTL = 60
 
 
 def builtin_stale():
     """MySQL 后端专用：库里的内置卡跟 data/*.js 对不对得上。
 
     True 的两种情况：表里一条都没有（还没跑 dbseed.py --sync）、
-    或者指纹对不上（改了 data/*.js 没同步）。
+    或者指纹对不上（改了 data/*.js 没同步）。判定结果按文件键缓存 60s，
+    失效论证见 `_stale_cache` 的注释。
     """
     st = backend()
     if not st.holds_builtin:
         return False
+    key = _src_files_key()
+    now = _time.time()
+    if (_stale_cache['key'] == key and _stale_cache['val'] is not None
+            and now - _stale_cache['at'] < _STALE_TTL):
+        return _stale_cache['val']
     try:
         if not st.builtin_all():
-            return True
-        return bool(st.builtin_stale(load_source_cards()))
+            val = True
+        else:
+            # 传共享引用即可：mysql.builtin_stale 只读（算指纹 + 比 id 集合），
+            # 不必付 load_source_cards() 的 17ms deepcopy
+            val = bool(st.builtin_stale(_source_cards_ref()))
     except Exception as e:
         print('[db] 内置卡指纹检查失败: %s' % e, file=sys.stderr)
-        return True
+        val = True
+    _stale_cache['key'] = key
+    _stale_cache['val'] = val
+    _stale_cache['at'] = now
+    return val
 
 
 def builtin_cards():
@@ -211,11 +262,25 @@ def builtin_cards():
 
 
 # ---------- 自定义卡 ----------
+#: 自定义卡 / 覆盖层的**写代数**。all_cards() 的合并缓存拿它当失效键的一半
+#: （另一半是 data/*.js 的文件键）。进程内任何写都要经 save_custom /
+#: save_overrides 这两个口（apply_card_patch / revert_override / web/cards.py /
+#: importer.py 全走它们），在口上集中失效，比让每个调用点记得失效可靠。
+_cards_ver = 0
+
+
+def _bump_cards_ver():
+    """让 all_cards() 的合并缓存作废。只在 save_custom / save_overrides 里调。"""
+    global _cards_ver
+    _cards_ver += 1
+
+
 def load_custom():
     return backend().custom_all()
 
 
 def save_custom(lst):
+    _bump_cards_ver()          # 先失效再写：宁可多重建一次，也不能写完忘了失效
     backend().custom_replace(lst)
 
 
@@ -234,6 +299,7 @@ def load_overrides():
 
 
 def save_overrides(d):
+    _bump_cards_ver()          # 同 save_custom：先失效再写
     ensure_store()
     _write_json(_OVERRIDE_PATH, d)
 
@@ -284,9 +350,22 @@ def revert_override(card_id):
 
 
 # ---------- 卡片汇总 ----------
-def all_cards(category=None, subject=None):
-    """内置卡 + 自定义卡；同 id 时自定义优先；覆盖层(override)叠加在内置卡上。
-    可按领域/科目过滤。"""
+#: 合并结果缓存。合并本身 0.3ms 不贵，贵的是每次重走 builtin_cards()
+#: （SQL 全量读 + 指纹检查，2026-10-13 实测合计 70ms+）—— 而合并结果只在
+#: 内置文件 / 自定义卡 / 覆盖层变化时才需要重算，所以按
+#: 「data/*.js 文件键 + _cards_ver 写代数」缓存。
+#: dbseed / fix 脚本是别的进程、本进程看不见它写库，60s TTL 兜底
+#: （与 _stale_cache 同一套论证，见那边注释）。
+_all_cache = {'key': None, 'cards': None, 'at': 0.0}
+
+
+def _merged_cards():
+    """builtin + custom + override 的合并结果。只在数据变化时重算。"""
+    key = (_src_files_key(), _cards_ver)
+    now = _time.time()
+    if (_all_cache['key'] == key and _all_cache['cards'] is not None
+            and now - _all_cache['at'] < _STALE_TTL):
+        return _all_cache['cards']
     m = {}
     for c in builtin_cards():
         m[c['id']] = c
@@ -307,11 +386,29 @@ def all_cards(category=None, subject=None):
                 merged['_override'] = True
                 m[cid] = merged
     out = list(m.values())
+    _all_cache['key'] = key
+    _all_cache['cards'] = out
+    _all_cache['at'] = now
+    return out
+
+
+def all_cards(category=None, subject=None):
+    """内置卡 + 自定义卡；同 id 时自定义优先；覆盖层(override)叠加在内置卡上。
+    可按领域/科目过滤。
+
+    返回的是**每张卡一层的浅拷贝**：顶层字段可随手改，改不到缓存；
+    但嵌套容器（related/keywords/mechanism…）与缓存**共享** —— 要动嵌套先
+    自己拷贝。2026-10-13 把「每次合并」改成「合并结果缓存」时定的契约：
+    全仓调用方都只读或只改顶层（apply_card_patch 改的是 load_custom() 新读
+    的对象，离线脚本各改各的文件/新读列表），而逐张 deepcopy 是 17ms/次，
+    正是这次要杀的瓶颈。
+    """
+    out = _merged_cards()
     if category:
         out = [c for c in out if c.get('category') == category]
     if subject:
         out = [c for c in out if c.get('subject') == subject]
-    return out
+    return [dict(c) for c in out]
 
 
 # ---------- 分类树（配置，留在文件里） ----------
@@ -1295,6 +1392,39 @@ def load_docs():
     return backend().docs_all()
 
 
+def load_docs_brief():
+    """文档列表用：只要轻字段，**不含 chapters / text**。
+
+    ★ 为什么不直接用 load_docs()：`documents` 表的 chapters(JSON) 与
+      doc_text(MEDIUMTEXT，装整篇论文) 是两个大字段，列表页一个都用不到，
+      读出来是纯浪费。MySQL 下差别是 `SELECT *` vs 指定 17 个轻列。
+      路由层凡是「只要列表」的地方都该走这个，别图省事写 load_docs()。
+    """
+    try:
+        return backend().docs_brief()
+    except NotImplementedError:
+        # 老后端没实现就退回全量读：功能不缺（字段照样有），只是慢。
+        # ★ 用 stderr 而不是静默 fallback —— 降级要看得见。
+        sys.stderr.write('[db] 该后端未实现 docs_brief，回退全量读（列表会变慢）\n')
+        return backend().docs_all()
+
+
+def get_doc(did):
+    """按 id 取**单篇完整文档**；找不到返回 None。
+
+    ★ 别写 `next((x for x in load_docs() if x.get('id')==did), None)`：
+      那是把全部文档（含每篇论文全文）读回来在应用层线性扫。
+      这个门面底层是 `WHERE id=%s`，走主键索引。
+    """
+    try:
+        return backend().doc_get(did)
+    except NotImplementedError:
+        for d in backend().docs_all():
+            if d.get('id') == did:
+                return d
+        return None
+
+
 def upsert_doc(doc):
     """有 id 就覆盖，没有就新建。chapters 一并存，不做增量合并
     （一份文档要么整存要么整删）。"""
@@ -1709,10 +1839,23 @@ def due_list(domain=None, include_all=False, category=None, subject=None,
             print('[db] SQL 队列失败，回落 Python 路径: %s' % e, file=sys.stderr)
             rows = None
         if rows is not None:
+            # 卡片内容不在 SQL 里带（2026-10-13 改）：一是 payload 全量拉回 +
+            # 解析实测 59ms/次，二是 SQL 拿的是 cards 表的**原始卡**，吃不到
+            # cards.override.json 的修正 —— 复习队列会显示修正前的旧内容
+            # （实测标题/机制/关键词三处不一致，就是个 bug）。
+            # 内容统一从合并缓存附上，SQL 只管「谁到期、什么顺序」。
+            m = {c['id']: c for c in all_cards()}
+            items = []
             for x in rows:
-                if x['overdue'] is None:
-                    x['overdue'] = OVERDUE_NEVER
-            return rows
+                card = m.get(x['cid'])
+                if card is None:
+                    continue                     # 理论到不了：两路同源
+                items.append({'card': card, 'progress': x['progress'],
+                              'level': x['level'],
+                              'overdue': OVERDUE_NEVER if x['overdue'] is None
+                              else x['overdue'],
+                              'due': x['due']})
+            return items
 
     today = today_str()
     prog = get_progress(user_id)
@@ -1743,8 +1886,11 @@ def due_list(domain=None, include_all=False, category=None, subject=None,
     return items
 
 
-def stats(user_id=None):
+def stats(user_id=None, cards=None):
     """全库统计。
+
+    `cards`：调用方手里已有 all_cards() 结果时传进来，省一次取数
+    （小程序首页就是先取卡再要统计的）。不传就自己取，行为不变。
     ## dueToday 拆成两个数（2026-10-03）
     原来只有一个 `dueToday`，把两类完全不同的东西加在一起：
       · `dueLearned` —— **学过的卡排期到了**，该复习了。这是真·到期。
@@ -1758,12 +1904,15 @@ def stats(user_id=None):
     check.js 的 `typeof dueToday === 'number'` 断言也照旧成立）。
     """
     prog = get_progress(user_id)
-    cards = all_cards()
+    cards = all_cards() if cards is None else cards
     today = today_str()
     s = {'total': len(cards), 'custom': 0, 'known': 0, 'fuzzy': 0,
          'weak': 0, 'unmarked': 0, 'dueToday': 0, 'dueLearned': 0, 'fresh': 0,
          'notes': len(load_notes(user_id)),
-         'drafts': len(load_drafts()), 'docs': len(load_docs()),
+         # 只数个数别读全文：load_docs() 会把每篇的 chapters/doc_text 整个
+         # 读回来（2026-10-13 实测是 stats 里仅次于卡片装载的开销）。
+         # docs_brief 同表同数行、只取轻列（见 load_docs_brief 的注释）。
+         'drafts': len(load_drafts()), 'docs': len(load_docs_brief()),
          'domains': {}, 'byCategory': {}, 'bySubject': {}}
     for c in cards:
         if c.get('_custom'):
@@ -1869,6 +2018,25 @@ def create_user(username, password, display_name=''):
     }
     uid = backend().user_put(rec)
     return public_user(backend().user_get(uid)), None
+
+
+def update_user_profile(uid, display_name=''):
+    """改个人信息（目前只有昵称一项可改）。返回 `(user 或 None, 错误话术)`。
+
+    用户名 / 密码 / 角色**不在这里改**：用户名是登录凭据（还有唯一索引），
+    密码要走单独的改密流程（要验旧密码），混在一个「改资料」接口里
+    迟早出越权问题。
+
+    昵称口径与 create_user 一致：strip、截 32 字、留空回退用户名 ——
+    同一个字段在两处各写一套校验，改一处忘一处就是 bug。
+    """
+    u = backend().user_get(uid)
+    if not u:
+        return None, '用户不存在'
+    rec = dict(u)   # 含 passwordHash，原样写回（user_put 是整条替换）
+    rec['displayName'] = (display_name or '').strip()[:32] or rec.get('username') or ''
+    nid = backend().user_put(rec)
+    return public_user(backend().user_get(nid)), None
 
 
 def verify_login(username, password):

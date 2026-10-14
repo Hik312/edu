@@ -78,7 +78,7 @@ def home(user=Depends(current_user)):
     counts = db.direction_counts(cards)
     dirs_out = [dict(d, count=counts.get(d.get('id'), 0))
                 for d in db.load_directions()]
-    st = db.stats(user.get('id'))
+    st = db.stats(user.get('id'), cards=cards)   # cards 刚取过，别让 stats 再取一次
     pick = db.get_today_pick(user.get('id'))
     # dueToday 是**全库到期数**，而复习队列端点默认只给 20 张（review_queue 的
     # limit=20）。首页大数字直接摆 400、点进去只有 20，是同一套系统两个口径。
@@ -129,14 +129,15 @@ def list_cards(page: int = Query(1, ge=1),
 
 @router.get('/cards/{cid}', summary='卡详情（含图示与相关卡标题）')
 def get_card(cid: str, user=Depends(current_user)):
-    c = next((x for x in db.all_cards() if x['id'] == cid), None)
+    cards = db.all_cards()                       # 一次取全：单卡查找和下面的 related 共用
+    c = next((x for x in cards if x['id'] == cid), None)
     if not c:
         raise HTTPException(404, '卡片不存在')
     c = dict(c)
     c['level'] = (db.get_progress(user.get('id')).get(cid) or {}).get('level', 0)
     # 相关卡直接带标题+理由：详情页底部「相关卡片」一屏点走，不再补请求。
     # related 元素是 {id,kind,note}（check.js 校验的契约），兼容纯 id 老数据。
-    by_id = {x['id']: x for x in db.all_cards()}
+    by_id = {x['id']: x for x in cards}
     rel_brief = []
     for r in (c.get('related') or []):
         rid = r.get('id') if isinstance(r, dict) else r
@@ -164,15 +165,25 @@ def review_queue(limit: int = Query(0, ge=0, le=100,
                  by: str = Query('level',
                                  description='level=按自评档位排（默认）| bkt=按 BKT 掌握度低的优先'),
                  user=Depends(current_user)):
+    # dueTotal 的口径 = 全库到期数（不带 domain/dirs/include_all）。这份全量
+    # 列表同时当下面各分支的筛选底稿 —— 以前它是在结尾为一个 len() 单独再查
+    # 一遍全库的（一次请求 2 次 due_list），纯浪费。
+    due_all = db.due_list(user_id=user.get('id'))
+    due_total = len(due_all)
     if pick == '1':
         # 口径和 /api/review/due?pick=1 一致：due_list 全量排序后按清单 id 收窄，
         # 字段/顺序与普通队列同一套渲染，前端不用分两套。
+        # 自选清单允许含「还没到期」的卡，所以这路仍要 include_all=True 的
+        # 另一份列表 —— 两次查的东西不同，不算重复调用。
         ids = set(db.get_today_pick(user.get('id')))
         items = [x for x in db.due_list(include_all=True, user_id=user.get('id'))
                  if x['card']['id'] in ids]
     else:
-        items = _filter_dirs(db.due_list(domain=domain or None,
-                                         user_id=user.get('id')), dirs)
+        # domain 过滤的谓词与 due_list 内部逐字一致（c.get('domain') != domain
+        # 就跳过），挪到本层筛只为复用 due_all，口径不变。
+        items = due_all if not domain else [
+            x for x in due_all if x['card'].get('domain') == domain]
+        items = _filter_dirs(items, dirs)
     # limit 不传（0）就用这个人的每日目标，而不是模块级常量 ——
     # 否则用户在 web 端设的目标在小程序不生效。
     # all=1 则忽略每日目标，把到期的全给（上限仍受 le=100 约束）。
@@ -201,11 +212,8 @@ def review_queue(limit: int = Query(0, ge=0, le=100,
     # 而库里明明还剩 393 张到期 —— 用户在小程序里**没有任何入口能刷到它们**
     # （刷新队列也没用，那 20 张已经答过）。这是产品死结，不只是体验瑕疵。
     # 所以额外回dueTotal（全库到期数）：前端据此显示「今天已刷完，还有 N 张，
-    # 继续刷」并给一个all=1 的入口。
-    try:
-        due_total = len(db.due_list(user_id=user.get('id')))
-    except Exception:
-        due_total = len(items)
+    # 继续刷」并给一个all=1 的入口。数字就是开头那份 due_all 的长度，
+    # 不再为它单独查一遍全库。
     return {'ok': True, 'today': db.today_str(), 'total': len(queue),
             'dueTotal': due_total, 'queue': queue}
 

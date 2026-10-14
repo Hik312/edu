@@ -81,17 +81,22 @@ def card_fingerprint(ids):
     return hashlib.md5(raw).hexdigest()[:10]
 
 
-def _key(question, mode, web, ids):
-    raw = '|'.join([question.strip(), mode, '1' if web else '0', card_fingerprint(ids)])
+def _key(question, mode, web, ids, user_id=None):
+    # ★ key 必须带 user_id：答案可能含有**个人数据**（due_rows 工具会把
+    #   当前用户的复习队列写进回答），不带用户维度就是 A 缓存的答案
+    #   原样吐给 B（问同一句话就命中）。匿名调用统一归 'anon' 共享。
+    raw = '|'.join([question.strip(), mode, '1' if web else '0',
+                    str(user_id) if user_id is not None else 'anon',
+                    card_fingerprint(ids)])
     return '%s%s' % (PREFIX, hashlib.md5(raw.encode('utf-8')).hexdigest()[:16])
 
 
-def get(question, mode, web, ids):
+def get(question, mode, web, ids, user_id=None):
     """读缓存。命中返回 {'answer','sources'}，未命中/出错返回 None。"""
     if not _enabled():
         return None
     try:
-        raw = core_cache.get().get(_key(question, mode, web, ids))
+        raw = core_cache.get().get(_key(question, mode, web, ids, user_id))
     except Exception:
         return None
     if not raw:
@@ -105,7 +110,7 @@ def get(question, mode, web, ids):
     return obj
 
 
-def put(question, mode, web, ids, answer, sources):
+def put(question, mode, web, ids, answer, sources, user_id=None):
     """写缓存。写失败不影响主流程。"""
     if not _enabled():
         return
@@ -113,7 +118,7 @@ def put(question, mode, web, ids, answer, sources):
         return
     try:
         core_cache.get().set(
-            _key(question, mode, web, ids),
+            _key(question, mode, web, ids, user_id),
             json.dumps({'answer': answer, 'sources': sources or []},
                        ensure_ascii=False),
             ttl=DEFAULT_TTL)

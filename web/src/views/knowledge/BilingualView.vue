@@ -37,6 +37,17 @@ const props = defineProps({
   hasText: { type: Boolean, default: false }
 })
 
+/* ---------------- 阅读字体 / 字号（用户可在工具条切换） ---------------- */
+/* ★ 译文默认用衬线（思源宋体/Noto Serif SC 之类）—— 长段中文用衬线比黑体更像
+ *   一本书、读久了不累眼；英文原文用衬线（Source Serif / Georgia）更有论文味。
+ *   不习惯衬线可一键切黑体（思源黑体/Noto Sans SC）。
+ *   字体走「Web 字体优先 + 系统字体兜底」：离线时自动落到本机宋体/黑体，不会变丑。 */
+const fontMode = ref('serif')          // 'serif' | 'sans'
+const fontSize = ref(16)               // 译文基准字号(px)
+function stepFont(d) {
+  fontSize.value = Math.min(21, Math.max(13, fontSize.value + d))
+}
+
 /* ---------------- 状态 ---------------- */
 const loading = ref(false)
 const running = ref(false)
@@ -66,9 +77,31 @@ const rows = computed(() =>
     zh: (merged.value[s.i]?.zh || '').trim(),
     status: merged.value[s.i]?.status || '',
     score: merged.value[s.i]?.score ?? null,
-    missing: merged.value[s.i]?.missing || []
+    missing: merged.value[s.i]?.missing || [],
+    translate: s.translate !== false,   // false = 公式/参考文献/图片，原样保留不译
+    type: s.type || 'body'
   }))
 )
+
+/** 原样保留段的提示文案（公式/参考文献/图片/图内文字/表格/附录不翻译，明确告诉用户）。 */
+function keepBadge(r) {
+  if (r.translate) return ''
+  return { equation: '公式·保留原文', bibliography: '参考文献·保留原文',
+           figure: '图片·保留原文', figtext: '图内文字·保留原文',
+           table: '表格·保留原文', appendix: '附录·保留原文',
+           keep: '保留原文' }[r.type] || '保留原文'
+}
+
+/* 标题段识别：编号段（1 / Introduction、4.1 / ...）或孤立的章节词（Abstract/
+ * Conclusion/References…）渲染成「小节标题」而非正文，结构才立得起来、好看。 */
+const HEADING_WORDS = /^(abstract|introduction|related work|conclusion|references|appendix|acknowledg|background|method|results|discussion|overview|preliminaries)/i
+function isHeading(r) {
+  const src = (r.src || '').trim()
+  if (!src) return false
+  if (/^\d+(\.\d+)*\s*\/?\s*\S/.test(src) && src.length < 72) return true
+  if (HEADING_WORDS.test(src) && src.length < 40) return true
+  return false
+}
 
 /* ---------------- 加载 ---------------- */
 async function load() {
@@ -222,7 +255,15 @@ async function describe(p) {
 </script>
 
 <template>
-  <div class="bi">
+  <div
+    class="bi"
+    :style="{
+      '--rd-fs': fontSize + 'px',
+      '--rd-zh': fontMode === 'serif'
+        ? 'var(--ff-zh-serif)'
+        : 'var(--ff-zh-sans)'
+    }"
+  >
     <!-- 工具条 -->
     <div class="bi-bar">
       <span class="bi-mode">论文对照</span>
@@ -233,6 +274,25 @@ async function describe(p) {
         <button class="btn btn-bare" :class="{ on: showSrc }" @click="showSrc = !showSrc">
           附英文
         </button>
+        <span class="bi-font">
+          <button
+            class="btn btn-bare"
+            :class="{ on: fontMode === 'serif' }"
+            title="译文用衬线（书卷感，长文更耐读）"
+            @click="fontMode = 'serif'"
+          >衬线</button>
+          <button
+            class="btn btn-bare"
+            :class="{ on: fontMode === 'sans' }"
+            title="译文用黑体（屏幕感，更清晰）"
+            @click="fontMode = 'sans'"
+          >黑体</button>
+          <span class="bi-fs">
+            <button class="btn btn-bare sq" :disabled="fontSize <= 13" @click="stepFont(-1)">A−</button>
+            <span class="bi-fs-val">{{ fontSize }}</span>
+            <button class="btn btn-bare sq" :disabled="fontSize >= 21" @click="stepFont(1)">A+</button>
+          </span>
+        </span>
         <button class="btn btn-bare" @click="showGlossary = !showGlossary">
           术语表 {{ data?.glossary?.length || 0 }}
         </button>
@@ -294,11 +354,12 @@ async function describe(p) {
           v-for="r in rows"
           :key="r.i"
           class="t-row"
-          :class="{ warn: r.status === 'warn', bad: r.status === 'bad' }"
+          :class="{ warn: r.status === 'warn', bad: r.status === 'bad', heading: isHeading(r) }"
         >
           <span class="t-no">{{ r.i + 1 }}</span>
           <div class="t-body">
             <div v-if="showSrc && r.src" class="t-src">{{ r.src }}</div>
+            <span class="t-keep" v-if="!r.translate" :title="keepBadge(r) + '：这类内容按你的要求原样保留，不送模型翻译'">{{ keepBadge(r) }}</span>
             <template v-if="r.zh">
               <span class="t-flag" v-if="flagText(r)" :title="flagTitle(r)">{{ flagText(r) }}</span>
               <template v-for="(p, pi) in partsOf(r)" :key="pi">
@@ -357,7 +418,14 @@ async function describe(p) {
 </template>
 
 <style scoped>
+/* Web 字体优先，离线自动落到本机宋体/黑体（不会变丑） */
+@import url('https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;700&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600;8..60,700&display=swap');
+
 .bi {
+  --ff-en-serif: 'Source Serif 4', Georgia, 'Times New Roman', 'Noto Serif SC', serif;
+  --ff-zh-serif: 'Noto Serif SC', 'Source Han Serif SC', 'Songti SC', 'SimSun', Georgia, serif;
+  --ff-zh-sans: 'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', 'Source Han Sans SC', system-ui, sans-serif;
+  --ff-en-sans: 'Inter', 'Segoe UI', system-ui, 'PingFang SC', sans-serif;
   display: flex;
   flex-direction: column;
   flex: 1;
@@ -368,10 +436,47 @@ async function describe(p) {
   flex: none;
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 6px 10px;
+  gap: 6px;
+  flex-wrap: wrap;
+  padding: 7px 12px;
   background: var(--panel);
   border-bottom: 1px solid var(--line);
+}
+/* 字号 / 字体切换一组，做成连贯的小控件 */
+.bi-font {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px 4px;
+  margin-left: 2px;
+  background: var(--panel2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+}
+.bi-font .btn.on {
+  color: var(--ac);
+  background: var(--ac-glow);
+  border-color: var(--ac-dim);
+}
+.bi-fs {
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+  margin-left: 3px;
+  padding-left: 5px;
+  border-left: 1px solid var(--line);
+}
+.bi-fs .sq {
+  min-width: 22px;
+  padding: 0 5px;
+  font-size: 11px;
+}
+.bi-fs-val {
+  min-width: 22px;
+  text-align: center;
+  font-size: 11px;
+  color: var(--mu);
+  font-variant-numeric: tabular-nums;
 }
 .bi-mode {
   font-size: var(--fs-sm);
@@ -481,8 +586,8 @@ async function describe(p) {
 }
 .t-row {
   display: flex;
-  gap: 10px;
-  padding: 8px 14px;
+  gap: 12px;
+  padding: 11px 18px;
   border-left: 2px solid transparent;
   border-bottom: 1px solid var(--line);
 }
@@ -495,6 +600,15 @@ async function describe(p) {
 .t-row.bad {
   background: color-mix(in srgb, #d9534f 7%, transparent);
 }
+/* 标题段：像书的章节名，拉开与正文的呼吸感 */
+.t-row.heading {
+  padding-top: 22px;
+  padding-bottom: 6px;
+  border-left-color: var(--ac-dim);
+}
+.t-row.heading + .t-row:not(.heading) {
+  border-top: none;
+}
 .t-no {
   flex: none;
   width: 26px;
@@ -504,24 +618,44 @@ async function describe(p) {
   font-variant-numeric: tabular-nums;
   line-height: 1.9;
 }
+.t-row.heading .t-no {
+  line-height: 1.5;
+  font-size: 11px;
+  color: var(--ac);
+}
 .t-body {
   flex: 1;
   min-width: 0;
+  max-width: 52em;        /* 控制每行字数，太宽反而累眼 */
 }
 .t-src {
-  font-size: var(--fs-xs);
-  color: var(--mu);
-  line-height: 1.7;
-  margin-bottom: 3px;
-  padding-left: 8px;
+  font-family: var(--ff-en-serif);
+  font-size: 13.5px;
+  color: color-mix(in srgb, var(--mu) 88%, var(--dim));
+  line-height: 1.75;
+  margin-bottom: 4px;
+  padding-left: 9px;
   border-left: 2px solid var(--line2);
+  font-style: italic;
 }
 .t-zh {
-  font-size: var(--fs-sm);
-  line-height: 1.85;
+  font-family: var(--rd-zh);
+  font-size: var(--rd-fs);
+  line-height: 1.95;
+  letter-spacing: 0.01em;
   color: var(--tx);
   white-space: pre-wrap;
   word-break: break-word;
+  text-align: justify;
+  text-justify: inter-ideograph;
+}
+.t-row.heading .t-zh {
+  font-size: calc(var(--rd-fs) + 5px);
+  font-weight: 700;
+  line-height: 1.5;
+  letter-spacing: 0.02em;
+  color: var(--mu);
+  margin: 2px 0;
 }
 .t-todo {
   font-size: var(--fs-xs);
@@ -531,14 +665,15 @@ async function describe(p) {
 .t-flag {
   display: inline-block;
   font-size: 10px;
-  padding: 0 4px;
-  height: 15px;
-  line-height: 15px;
-  border-radius: 3px;
+  padding: 1px 6px;
+  height: 16px;
+  line-height: 14px;
+  border-radius: 8px;
   background: var(--line2);
   color: var(--mu);
-  margin-right: 5px;
+  margin-right: 6px;
   vertical-align: 1px;
+  font-weight: 500;
 }
 .t-row.warn .t-flag {
   background: var(--ac-glow);
@@ -548,14 +683,32 @@ async function describe(p) {
   background: #d9534f;
   color: #fff;
 }
+/* 「公式/参考文献/图片·保留原文」：原样不译的段，给一个明确的浅色标识，
+   让用户一眼知道这是「故意不译」而不是「还没翻」。 */
+.t-keep {
+  display: inline-block;
+  font-size: 10px;
+  padding: 1px 8px;
+  height: 16px;
+  line-height: 14px;
+  border-radius: 8px;
+  margin: 0 6px 4px 0;
+  vertical-align: 1px;
+  font-weight: 600;
+  letter-spacing: .3px;
+  background: color-mix(in srgb, #3a7afe 14%, transparent);
+  color: color-mix(in srgb, #3a7afe 78%, var(--tx));
+  border: 1px solid color-mix(in srgb, #3a7afe 32%, transparent);
+}
 
 /* 图片 / 架构图：保留原图，明确标「未译」，不把它塞进译文正文 */
 .t-img {
-  margin: 8px 0;
+  margin: 10px 0;
   border: 1px solid var(--line);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius);
   overflow: hidden;
   background: var(--panel2);
+  box-shadow: 0 1px 4px color-mix(in srgb, #000 8%, transparent);
 }
 .t-img img {
   display: block;
@@ -568,16 +721,17 @@ async function describe(p) {
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
-  padding: 5px 8px;
+  padding: 6px 10px;
   border-top: 1px solid var(--line);
 }
 .t-img-cap .badge {
   font-size: 10px;
-  padding: 1px 6px;
-  border-radius: 3px;
-  background: color-mix(in srgb, #8a6d3b 22%, transparent);
+  padding: 2px 8px;
+  border-radius: 9px;
+  background: color-mix(in srgb, #8a6d3b 20%, transparent);
   color: var(--mu);
-  border: 1px solid color-mix(in srgb, #8a6d3b 40%, transparent);
+  border: 1px solid color-mix(in srgb, #8a6d3b 38%, transparent);
+  font-weight: 500;
 }
 .t-img-cap .link {
   font-size: var(--fs-xs);

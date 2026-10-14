@@ -112,6 +112,24 @@ class JsonFileStore(Store):
     def docs_all(self):
         return self._read('documents', [])
 
+    # ★ 列表页不需要 chapters / text，这两列在 jsonfile 里是**真实内存占用**：
+    #   一份论文的 chapters + text 可达数百 KB，50 篇就是十几 MB 常驻。
+    #   这里显式裁掉，jsonfile 后端才和 MySQL 后端一样「只读轻字段」。
+    _BRIEF_KEYS = ('id', 'title', 'source', 'category', 'subject', 'domain',
+                   'tags', 'rawFile', 'isPaper', 'stats',
+                   'aiDone', 'aiTotal', 'aiModel', 'aiProvider',
+                   'createdAt', 'updatedAt')
+
+    def docs_brief(self):
+        return [{k: d[k] for k in self._BRIEF_KEYS if k in d}
+                for d in self._read('documents', [])]
+
+    def doc_get(self, did):
+        for d in self._read('documents', []):
+            if d.get('id') == did:
+                return d
+        return None
+
     def drafts_all(self):
         return self._read('drafts', [])
 

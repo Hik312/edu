@@ -48,3 +48,29 @@ desktop.ini
 
 # 个人学习笔记（RAG/Redis 的 .ipynb，非项目代码，用户选择保留磁盘但入库）
 back_study/学习Study/
+
+# ===== 本仓库只保留前后端代码（2026-10-14 整理）=====
+
+# 记忆 / AI 编排产物，不入库
+.workbuddy/
+.opencode/
+checklist.md
+spec.md
+tasks.md
+
+# 本地运行数据（进度/笔记/文档/PDF，以及 data/*.js 卡片数据），整体移出版本库
+data/
+
+# 构建校验产物（Vite dist 的副本，跑完即弃）
+web/dist_verify/
+web/_buildcheck*/
+web/_bc*/
+
+# 原型 / 统计脚本（非生产代码）
+back_study/demo.py
+back_study/scripts/probe_layout.py
+
+# docs 只保留「开发者文档」与「技术架构」两篇
+docs/*
+!docs/开发者文档.md
+!docs/技术架构.md

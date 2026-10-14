@@ -97,7 +97,7 @@ node back_study/scripts/check.js
   事件循环（整个服务一起等，一个精读请求能堵死所有人）；FastAPI 见到 `def` 会自动丢进线程池。
 - **`/api/llm/status` 返回 `ok:false` 时 HTTP 仍是 200**。AI 不可用是正常状态不是故障，
   前端据此渲染提示而不是弹错误。
-- **请求体超 16MB 返 `413`**，查询参数写错返 `400` 并指出参数名（Pydantic 兜的）。
+- **请求体超 64MB 返 `413`**（`app/config.py` 的 `MAX_BODY`，错误话术里写着当前上限），查询参数写错返 `400` 并指出参数名（Pydantic 兜的）。
 
 ### 「两个后端」这段历史的教训
 

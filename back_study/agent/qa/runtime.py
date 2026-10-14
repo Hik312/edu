@@ -248,7 +248,7 @@ def stream_flow(question: str, on_token, history=None, profile=None,
     没过检照样会重写一轮 —— 所以用户可能看到答案被覆盖重写，这是设计如此。
 
     ★ **带答案缓存**（qa/ans_cache.py）：单轮问题（没有 history）时，
-    先查一次「同问题+ 同卡片底料+ 同模式 + 同联网开关」的缓存，命中就把
+    先查一次「同用户 + 同问题 + 同卡片底料 + 同模式 + 同联网开关」的缓存，命中就把
     答案按 chunk 吐出来（假装流式，用户几百毫秒就看到完整回答）。
     有 history 一律不查缓存 —— 历史不同答案就不同，命中会答偏。
     """
@@ -256,7 +256,7 @@ def stream_flow(question: str, on_token, history=None, profile=None,
 
     # ---- 缓存路径：只对「单轮 + 完整问题」生效 ----
     if not history:
-        hit = ans_cache.get(question, 'flow', web, [])
+        hit = ans_cache.get(question, 'flow', web, [], user_id=user_id)
         if hit:
             ans = hit.get('answer') or ''
             if on_step:
@@ -293,7 +293,7 @@ def stream_flow(question: str, on_token, history=None, profile=None,
     sources = st.get('sources') or []
     answer = clean_answer(st.get('answer'))
     if not sources:
-        ans_cache.put(question, 'flow', web, [], answer, [])
+        ans_cache.put(question, 'flow', web, [], answer, [], user_id=user_id)
     return {'answer': answer,
             'sources': sources,
             'steps': None}

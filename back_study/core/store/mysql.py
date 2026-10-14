@@ -523,6 +523,31 @@ class MySQLStore(Store):
         rows = self._q('SELECT * FROM documents', fetch=True)
         return [_doc_of(r) for r in rows]
 
+    #: 列表页/详情页**不碰**的两列。
+    #: `chapters` 是 JSON（一篇论文几十章）、`doc_text` 是 MEDIUMTEXT（整篇原文，
+    #: 最大 16MB）—— 一起 SELECT 出来就是「列表卡一下」，文档越多越明显。
+    _DOC_HEAVY = 'chapters, doc_text'
+
+    _DOC_BRIEF_COLS = (
+        'id, title, source, category, subject, domain, tags, raw_file, '
+        'is_paper, stats, parse, ai_done, ai_total, ai_model, ai_provider, '
+        'created_at, updated_at')
+
+    def docs_brief(self):
+        """★ 只 SELECT 轻字段 —— 与 docs_all 的差别就是这一行列清单。
+
+        实测影响：10 篇论文文档的库，`docs_all()` 读出的 doc_text 合计
+        几百 KB ~ 几 MB，而列表页实际只用 11 个短字段。
+        """
+        rows = self._q('SELECT %s FROM documents ORDER BY created_at DESC, id'
+                       % self._DOC_BRIEF_COLS, fetch=True)
+        return [_doc_of(r) for r in rows]
+
+    def doc_get(self, did):
+        """按主键取单篇。`WHERE id=%s` 走主键索引，别在应用层线性扫。"""
+        rows = self._q('SELECT * FROM documents WHERE id=%s', (did,), fetch=True)
+        return _doc_of(rows[0]) if rows else None
+
     def drafts_all(self):
         return [json_loads(r['payload'], {})
                 for r in self._q('SELECT payload FROM drafts ORDER BY created_at, id',
@@ -531,7 +556,14 @@ class MySQLStore(Store):
     # ---------------- 到期队列：这条 SQL 是上数据库的主要理由 ----------------
     def due_cards(self, category=None, subject=None, domain=None, include_all=False,
                   user_id=None):
-        """一次 JOIN 出「卡 + 进度 + 逾期天数」，且已按复习优先级排好。
+        """一次 JOIN 出「进度 + 逾期天数」，且已按复习优先级排好。
+
+        ★ **不带卡片内容**（2026-10-13 改）：以前 `SELECT c.payload` 把 525 张
+        卡的 mechanism/scene 全文整个拉回来再 json 解析，实测 59ms/次；而且
+        payload 是 cards 表里的**原始卡**，吃不到 cards.override.json 的修正 ——
+        复习队列显示的是修正前的旧内容（实测标题/机制/关键词三处不一致）。
+        现在只出 cid + 进度 + 逾期 + 排序，卡片内容由 db.due_list 从合并缓存
+        附上（那条路既快又吃覆盖层）。
 
         ★ JOIN 条件里**必须有 `p.user_id=%s`**：progress 主键已经是
         (user_id, card_id)，不加这个条件就是**笛卡尔积** —— 每张卡会匹配到
@@ -584,7 +616,7 @@ class MySQLStore(Store):
         # 按顺序吃掉，而 w 的片段里本来就含 %s（那些是留给驱动的），
         # 两者混用必然错位 —— 而且错位时报错点在驱动层，很难联想到是模板拼装。
         sql = """
-            SELECT c.payload, c.id AS cid,
+            SELECT c.id AS cid,
                    p.card_id AS p_cid, p.level, p.interval_d, p.ef, p.reps,
                    p.next_at, p.updated_at,
                    CASE WHEN p.next_at IS NULL THEN NULL
@@ -601,7 +633,6 @@ class MySQLStore(Store):
         a = [uid] + a                             # JOIN 的 uid 排在所有 WHERE 值之前
         out = []
         for r in self._q(sql, a, fetch=True):
-            card = json_loads(r['payload'], {})
             prog = None
             if r['p_cid']:
                 prog = {'level': int(r['level'] or 0),
@@ -610,11 +641,15 @@ class MySQLStore(Store):
                         'reps': int(r['reps'] or 0),
                         'nextAt': _dstr(r['next_at']),
                         'updatedAt': _dstr(r['updated_at'])}
-            out.append({'card': card, 'progress': prog,
+            out.append({'cid': r['cid'], 'progress': prog,
                         'level': prog['level'] if prog else 0,
                         # None = 从没复习过，由上层翻译成 999 哨兵值
                         'overdue': None if r['overdue'] is None else int(r['overdue']),
-                        'due': True})
+                        # 与 db.due_list 的 Python 路径逐字对齐：没记录 / 没定
+                        # next_at 都算到期，只有逾期为负（还没到点）才不算。
+                        # 原来这里写死 True，include_all 拉进来的「没到期」卡
+                        # 也报 due —— 只是全仓没人读这字段才没炸。
+                        'due': r['overdue'] is None or r['overdue'] >= 0})
         return out
 
     # ---------------- 写：卡片 ----------------
@@ -1064,7 +1099,10 @@ def _doc_of(r):
     d = {'id': r['id'],
          'title': r['title'] or '',
          'source': r['source'] or '',
-         'chapters': json_loads(r['chapters'], []),
+         # ★ chapters / text 一律用 .get：docs_brief() 故意不 SELECT 这两列，
+         #   这里写 r['chapters'] 会直接 KeyError —— 而症状是「列表页整页 500」，
+         #   排查时很难想到是行里少了一个字段而不是代码写错。
+         'chapters': json_loads(r.get('chapters'), []),
          # ★ tags / raw_file / is_paper / text 曾经**读不出来** —— 表里没这几列，
          #   doc_put 写进去也白写。前端 canShowOriginal 判 rawFile，
          #   于是论文永远显示抽取文本而不是原件。都走 r.get 兜底老库。

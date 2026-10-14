@@ -28,6 +28,10 @@ class LoginIn(BaseModel):
     password: str
 
 
+class ProfileIn(BaseModel):
+    displayName: str = Field('', description='昵称，最多 32 字，留空回退用户名')
+
+
 def _issue(user):
     """签发 token 并把用户一起返回。
 
@@ -62,6 +66,15 @@ def login(body: LoginIn):
 def me(user=Depends(current_user)):
     """前端刷新页面时用它确认 token 还有效，顺便拿到用户信息。"""
     return {'ok': True, 'user': user}
+
+
+@router.put('/me', summary='修改个人信息')
+def update_me(body: ProfileIn, user=Depends(current_user)):
+    """改自己的昵称。只改 displayName —— 用户名/密码/角色不走这里（见 db.update_user_profile）。"""
+    updated, err = db.update_user_profile(user['id'], body.displayName)
+    if err:
+        raise HTTPException(400, err)
+    return {'ok': True, 'user': updated}
 
 
 @router.get('/users', summary='用户列表（仅管理员）')
