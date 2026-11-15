@@ -10,7 +10,7 @@ import sys
 import time
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response
 from fastapi.responses import FileResponse, JSONResponse
 
 import db
@@ -506,6 +506,13 @@ def reparse_doc(did: str, user=Depends(current_user)):
       在它之前导入的 PDF 存的 text 是**未加工的裸文本** —— 代码没围栏、
       标题没标记，只能重新导入才能用上。重新导入会换新 id、丢章节进度，
       而这里能就地修好同一份文档。
+
+    ★ 2026-11-15 补 media/blocks 落盘（用户截图抓到的存量洞）：旧版论文
+      路线从不存媒体文件，对照页里的 `![](media:...)` 全部 404 裂图、
+      VLM 图注解读无机可施。reparse 重跑 extract 会重新抠出全部图片，
+      现在把它们和 blocks（含 caption/figtext 关联）一起落盘 ——
+      旧文档点一次「提取文本」就能补齐图片和图注解读的全部原料。
+      正文段文本不变 → srcHash 不变 → 已译段落照常复用，不白翻。
     """
     d = db.get_doc(did)
     if not d:
@@ -524,13 +531,24 @@ def reparse_doc(did: str, user=Depends(current_user)):
     if len(text.strip()) < 20:
         raise HTTPException(400, '这次没抽出有效文字')
 
-    parsed = importer.parse_document(text, {'filename': d.get('source')})
-    d['title'] = parsed['title'] or d.get('title')
-    d['chapters'] = parsed['chapters']
-    d['stats'] = parsed['stats']
-    d['text'] = text[:400000]
-    d['aiDone'] = 0
-    d['aiTotal'] = len(parsed['chapters'])
+    if out.get('media'):
+        docparse.save_media(did, out['media'])
+    if out.get('blocks'):
+        docparse.save_blocks(did, out['blocks'])
+
+    if not d.get('isPaper'):
+        # 资料类：照旧分章覆盖（reparse 的原始语义）
+        parsed = importer.parse_document(text, {'filename': d.get('source')})
+        d['title'] = parsed['title'] or d.get('title')
+        d['chapters'] = parsed['chapters']
+        d['stats'] = parsed['stats']
+        d['aiDone'] = 0
+        d['aiTotal'] = len(parsed['chapters'])
+    else:
+        # 论文类：**不分章**（原件阅读 + 对照翻译的形态不能被 reparse 悄悄
+        # 改成章节视图），只更新 text / stats；title 保留用户可能改过的名字。
+        d['text'] = text[:400000]
+        d['stats'] = {'chapters': 0, 'chars': len(text), 'headings': 0}
     if not d.get('category') or not d.get('domain'):
         cls = classifier.classify_doc(d['title'], text, d.get('source') or '')
         d['category'] = d.get('category') or cls['category']
@@ -656,10 +674,15 @@ def figure_caption(did: str, body: FigureCaptionIn, user=Depends(current_user)):
 #   分开后前端才能自然显示「已译 26 / 261」。
 
 @router.get('/docs/{did}/translate', summary='译文进度 + 已译内容')
-def get_translation(did: str, user=Depends(current_user)):
+def get_translation(did: str, user=Depends(current_user), response: Response = None):
     d = db.get_doc(did)
     if not d:
         raise HTTPException(404, '文档不存在')
+    # ★ no-store（2026-11-15）：浏览器 UI 验证抓到——这个响应没缓存头时
+    #   Chrome 会启发式缓存，reparse/续翻之后前端拿到的还是旧分段。
+    #   译文是实时状态，永远不该被浏览器缓存。
+    if response is not None:
+        response.headers['Cache-Control'] = 'no-store'
     segs = transjob.segments_of(d)
     return {'ok': True,
             'status': transjob.status_of(d),

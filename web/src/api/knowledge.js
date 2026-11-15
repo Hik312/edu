@@ -219,7 +219,12 @@ export function askDocStream(did, question, history, cb = {}) {
  *    translatable:boolean}>}
  */
 export function getTranslation(did) {
-  return client.get('/docs/' + encodeURIComponent(did) + '/translate')
+  // ★ _t 时间戳参数（2026-11-15）：译文是实时状态，但这个 GET 无缓存头时
+  //   Chrome 会启发式缓存——reparse/续翻之后前端拿到的还是旧分段（实测：
+  //   硬刷新都绕不过无验证器的缓存条目）。URL 变化 = 永远绕过。后端
+  //   /translate 也已补 Cache-Control: no-store，双保险。
+  return client.get('/docs/' + encodeURIComponent(did) + '/translate',
+                    { params: { _t: Date.now() } })
 }
 
 /** 开始/继续翻译（SSE）。
@@ -307,7 +312,8 @@ export function runTranslation(did, opt, cb = {}) {
  *   vlm:boolean, vlmModel:string}>}
  */
 export function getTranslateStatus(did) {
-  return client.get('/docs/' + encodeURIComponent(did) + '/translate/status')
+  return client.get('/docs/' + encodeURIComponent(did) + '/translate/status',
+                    { params: { _t: Date.now() } })
 }
 
 /** 请求停止翻译（协作式：当前段翻完就断，已翻段落已落库）。

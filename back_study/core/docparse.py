@@ -598,13 +598,19 @@ def _split_clusters_by_captions(clusters, caption_boxes):
     return out
 
 
-def _vector_clusters(page, min_side=8.0):
+def _vector_clusters(page, min_side=8.0, extra_rects=None):
     """把矢量绘图路径聚成「一块图」。返回 [fitz.Rect]（按 y 从上到下）。
 
     ★ 为什么需要这一步：`page.get_images()` 只能抽出**位图**，
       而 Reflexion / Toolformer 这类论文的架构图是用矢量路径 + 文字画的
       （实测 Reflexion 全文 images=0），于是所有架构图在新管线里也丢了。
       矢量图没有统一的「一张图」对象，只能自己把散落的 path 框聚起来。
+
+    ★ extra_rects（2026-11-15）：**位图 bbox 也进合并池** —— 论文里一张
+      逻辑图常是「矢量底板 + 嵌入位图碎片」混编（AutoGen Figure 1 = 15 张
+      嵌入位图），逐张抽位图会得到 15 个透明/黑底碎片，谁也读不了。
+      把位图框当聚类种子并进来，整簇从页面渲染（渲染器自动合成
+      SMask/透明度），出来就是和 PDF 里一样的完整图。
 
     聚类规则（够用且不易误判）：
       - 丢掉面积过小的碎片（线段、箭头、边框线）和占满整页的背景框；
@@ -630,6 +636,10 @@ def _vector_clusters(page, min_side=8.0):
         if r.width > W * 0.97 and r.height > H * 0.90:
             continue
         rects.append(fitz.Rect(r))
+    for r in (extra_rects or []):
+        r = fitz.Rect(r)
+        if not r.is_empty and not (r.width < 4 or r.height < 4):
+            rects.append(r)
     if not rects:
         return []
 
@@ -810,41 +820,25 @@ def _extract_pdf_pymupdf(data):
         head_m = max(48.0, H * 0.045)
         foot_m = max(48.0, H * 0.045)
 
-        # ---- 图片：真实抽取（增强项，失败不阻断整页） ----
+        # ---- 图片：只收集**位图排版框**，不再逐张抽嵌入图（2026-11-15 重构） ----
+        # ★ 旧做法 extract_image 逐张抽：论文的嵌入位图常带 SMask（透明底/
+        #   半透明渐变），抽出来是黑块或灰底碎片；而且一张逻辑图往往由
+        #   十几个位图碎片拼成（AutoGen Figure 1 = 15 张），逐张显示根本
+        #   没法读 —— 用户原话「读的时候都不知道该怎么读了」。
+        #   新做法：位图 bbox 只当**聚类种子**，与矢量路径合并成视觉簇，
+        #   统一从页面整簇渲染（渲染器自动合成透明度），所见即所得。
         img_items = []                 # [(y0, xcenter, token)]
-        img_rects = []                 # 位图的实际排版框（图内文字判定用）
+        img_rects = []                 # 位图的实际排版框（聚类种子 + 图内文字判定）
         try:
             for im in page.get_images(full=True):
                 xref = im[0] if isinstance(im, (list, tuple)) else im
                 try:
-                    blob = page.parent.extract_image(xref)
-                except Exception:
-                    continue
-                if not blob or not blob.get('image'):
-                    continue
-                img = blob['image']
-                h = hashlib.sha1(img).hexdigest()[:10]
-                ext = (blob.get('ext') or 'img').lstrip('.') or 'img'
-                if h in seen_hash:
-                    tname = seen_hash[h]
-                else:
-                    base = _safe_basename(blob.get('name', '') or 'img')
-                    name = '%s_%s.%s' % (h, base, ext)
-                    if any(m['name'] == name for m in media):
-                        name = '%s_%d.%s' % (h, len(media), ext)
-                    media.append({'name': name, 'mime': mime_of(name), 'data': img})
-                    seen_hash[h] = name
-                    tname = name
-                try:
                     rects = page.get_image_rects(xref)
-                    r0 = rects[0] if rects else None
                 except Exception:
-                    r0 = None
-                y0 = r0.y0 if r0 else H / 2
-                xc = (r0.x0 + r0.x1) / 2 if r0 else W / 2
-                img_items.append((y0, xc, '![](media:%s)' % tname))
-                if r0 is not None:
-                    img_rects.append(fitz.Rect(r0))
+                    continue
+                for r0 in (rects or []):
+                    if r0 and r0.width > 6 and r0.height > 6:
+                        img_rects.append(fitz.Rect(r0))
         except Exception:
             pass
 
@@ -879,11 +873,13 @@ def _extract_pdf_pymupdf(data):
                 continue
             items.append((x0, y0, x1, y1, raw, typ))
 
-        # ---- 矢量架构图：渲染成 PNG（Phase 3）----
-        # ★ 必须放在「位图抽完」之后：get_images 抽不到矢量图，而
-        #   同一页里两者可能都有（MedAgentBoard 有位图也有矢量表格线），
-        #   所以要先知道这块区域没被位图占掉，否则会重复存两份。
-        vec_rects = []                 # 渲染成功的矢量图区域（图内文字判定用）
+        # ---- 视觉簇：矢量路径 + 位图 bbox 统一聚类，整簇渲染成 PNG ----
+        # ★ 旧结构是「位图逐张抽 + 矢量聚类渲染，相交让位」两套并行 ——
+        #   位图碎片黑块、逻辑图被拆成 N 段的问题都出在「两套并行」上。
+        #   现在 img_rects 作为 extra_rects 进 _vector_clusters 的合并池，
+        #   出来的每个簇就是一张完整图（矢量底板 + 位图碎片 + 透明度全合成），
+        #   _pick_figure_regions 的收边/过滤逻辑照旧生效。
+        vec_rects = []                 # 渲染成功的视觉簇区域（图内文字判定用）
         try:
             import fitz as _fitz
             cap_boxes, txt_boxes = [], []
@@ -892,14 +888,9 @@ def _extract_pdf_pymupdf(data):
                 if _classify_block(txt) == 'caption':
                     cap_boxes.append(r)
                 txt_boxes.append(r)
-            occupied = []
-            for (y0, xc, tok) in img_items:
-                occupied.append(_fitz.Rect(xc - W * 0.28, y0 - H * 0.10,
-                                           xc + W * 0.28, y0 + H * 0.10))
-            for reg in _pick_figure_regions(page, _vector_clusters(page),
-                                            cap_boxes, W, H, txt_boxes):
-                if any(reg.intersects(o) and reg.get_area() > 400 for o in occupied):
-                    continue          # 这块已经有位图了，别重复
+            for reg in _pick_figure_regions(
+                    page, _vector_clusters(page, extra_rects=img_rects),
+                    cap_boxes, W, H, txt_boxes):
                 png = _render_region(page, reg)
                 if not png:
                     continue
@@ -907,14 +898,14 @@ def _extract_pdf_pymupdf(data):
                 if h in seen_hash:
                     tname = seen_hash[h]
                 else:
-                    tname = '%s_vec_p%d.png' % (h, pno)
+                    tname = '%s_fig_p%d.png' % (h, pno)
                     media.append({'name': tname, 'mime': 'image/png', 'data': png})
                     seen_hash[h] = tname
                 img_items.append((reg.y0, (reg.x0 + reg.x1) / 2,
                                   '![](media:%s)' % tname))
                 vec_rects.append(_fitz.Rect(reg))
         except Exception as e:
-            sys.stderr.write('[docparse] 矢量图渲染失败（该页不处理）：%s\n' % e)
+            sys.stderr.write('[docparse] 视觉簇渲染失败（该页不处理）：%s\n' % e)
 
         # ---- 表格框（find_tables）：框内单元格文字「保留原文不译」 ----
         try:

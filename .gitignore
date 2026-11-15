@@ -75,3 +75,4 @@ docs/*
 !docs/开发者文档.md
 !docs/技术架构.md
 .smoke_tmp_*
+.smoke_*.json
