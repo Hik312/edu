@@ -76,3 +76,13 @@ docs/*
 !docs/技术架构.md
 .smoke_tmp_*
 .smoke_*.json
+
+# ---- 本地工具与资料（2026-11-15 盘点补齐）----
+# ZCode / 其它 AI 编码工具的会话配置
+.zcode/
+.workbuddy/
+.opencode/
+# 外部资料克隆（docs/资料来源.md 指引的自行 clone 目录，不入库）
+.sources/
+# 截图/验证产物
+.screenshots/
