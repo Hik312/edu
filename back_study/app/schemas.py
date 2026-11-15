@@ -168,7 +168,8 @@ class TranslateIn(BaseModel):
     """
     mode: str = Field('run', description=(
         'run=只翻没翻好的（续跑）· redo=全翻 · redo:N=从第N段起'
-        '· limit:N=只处理 N 段（试跑用）'))
+        '· limit:N=只处理 N 段（试跑用）· vlm=只给还没解读的图跑 VLM 中文解读'
+        '（2026-11-15 加；不碰文本段，解读进译文表，断点续译）'))
     verify: bool = Field(
         True, description='每段做回译校验（慢一倍，能发现幻觉）；'
                           '调提示词时可关掉快速试跑')

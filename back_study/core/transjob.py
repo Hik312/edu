@@ -14,6 +14,8 @@
 import hashlib
 import sys
 import re
+import threading
+import time
 
 import db
 import translate as T
@@ -21,6 +23,72 @@ import translate as T
 #: 一篇论文最多存多少条译文。理论上段数由 segment() 决定，
 #: 这个上限是防「文本异常导致段数爆炸」把库撑爆的最后一道闸。
 MAX_SEGMENTS = 4000
+
+
+# ---------- 任务注册表（2026-11-15） ----------
+# ★ 以前「翻译在不在跑」这件事**无状态**：SSE 的 worker 是 daemon 线程，
+#   断开连接（刷新页面）它照跑，但前端无从得知 —— 于是用户点「继续翻译」
+#   就起了第二个并行线程（逐段 upsert 不会脏数据，但两线程抢同一段
+#   = 白烧一倍算力，进度条还互相干扰）。注册表让三件事成为可能：
+#   run 防重（409）、GET status 报 running、POST stop 协作式停止。
+#   进程内状态：服务重启自然清空 —— 此时也确实没有线程在跑，语义自洽。
+_RUNS = {}                                       # did -> {'started': ts, 'cancel': bool}
+_RUNS_LOCK = threading.Lock()
+
+
+def is_running(did):
+    with _RUNS_LOCK:
+        return bool(_RUNS.get(str(did)))
+
+
+def running_info(did):
+    with _RUNS_LOCK:
+        r = _RUNS.get(str(did))
+        if not r:
+            return {'running': False, 'startedAt': None,
+                    'seconds': 0, 'cancelRequested': False}
+        return {'running': True,
+                'startedAt': time.strftime('%Y-%m-%d %H:%M:%S',
+                                           time.localtime(r['started'])),
+                'seconds': int(time.time() - r['started']),
+                'cancelRequested': bool(r['cancel'])}
+
+
+def request_cancel(did):
+    """请求停止。协作式：当前段翻完就断（单段 3~8s 内响应），已翻段落已落库。"""
+    with _RUNS_LOCK:
+        r = _RUNS.get(str(did))
+        if not r:
+            return False
+        r['cancel'] = True
+        return True
+
+
+def _cancelled(did):
+    with _RUNS_LOCK:
+        r = _RUNS.get(str(did))
+        return bool(r and r['cancel'])
+
+
+def _acquire(did):
+    """抢任务槽。原子检查+注册 —— 端点的 is_running 检查与线程真正起跑
+    之间有窗口，这里才是防双跑的最终防线。"""
+    with _RUNS_LOCK:
+        if str(did) in _RUNS:
+            return False
+        _RUNS[str(did)] = {'started': time.time(), 'cancel': False}
+        return True
+
+
+def _release(did):
+    with _RUNS_LOCK:
+        _RUNS.pop(str(did), None)
+
+
+def _vlm_pending_rows(doc):
+    """figure 段里还没做过 VLM 解读的（model 列没有 vlm: 前缀）。"""
+    rows = db.trans_all(doc.get('id'))
+    return rows
 
 
 def src_hash(text):
@@ -71,7 +139,17 @@ def pending(doc, segs, existing=None, redo=False):
             if (row.get('srcHash') == h and (row.get('zh') or '').strip()
                     and not row.get('missing')):
                 continue
-        out.append({'i': s['i'], 'text': s['text'], 'srcHash': h})
+        # ★ 必须把 translate/type（以及 figure 段的 caption/figtext）带出去：
+        #   run() 把这里的 item 传给 translate_one，而「公式/参考文献/图片段
+        #   原样保留」的判断读的是 seg['translate'] —— 以前只带 i/text/srcHash，
+        #   判断永远落空，**公式和参考文献一直被白送进文本 LLM**（zh 恰好
+        #   ≈ 原文，因为 protect 保住了内容，浪费一次调用还可能被改坏）。
+        #   2026-11-15 评测 vlm 链路时暴露。
+        out.append({'i': s['i'], 'text': s['text'], 'srcHash': h,
+                    'translate': s.get('translate', True),
+                    'type': s.get('type', 'body'),
+                    'caption': s.get('caption') or '',
+                    'figtext': s.get('figtext') or []})
     return out
 
 
@@ -120,18 +198,31 @@ def build_glossary(doc, force=False):
     return out
 
 
-def translate_one(seg, segs, terms, model=None, verify=True, timeout=300):
+def translate_one(seg, segs, terms, model=None, verify=True, timeout=300,
+                  did=None, only=None):
     """翻一段。返回可直接入库的 dict。
 
     流程：保护 → 翻译 → **回填前**校验占位符 → 回填 →（可选）回译校验。
     ★ 顺序不能改：占位符校验必须在 restore 之前，
       回填之后 ⟦Pn⟧ 已经不存在于字符串里，校验必然报「全缺」。
+
+    `only='vlm'`：只处理 figure 段的 VLM 中文解读（mode=vlm 专用），
+    其余段落原样返回不送任何模型 —— normal run 与 vlm run 互不越界。
     """
     # ★ 公式 / 参考文献 / 图片 / 图内文字 / 表格 / 附录段：原样保留，不送模型。
     #   zh=src 既省一次 LLM 调用，又彻底避开「公式被翻坏 / 参考文献被胡乱中文化 /
     #   图片 token 被模型吃掉 / 表格数字被改写 / 架构图标签被当句子重写」几类失败。
     if seg.get('translate') is False:
         typ = seg.get('type') or 'keep'
+        # ---- figure 段的 VLM 中文解读（mode=vlm，2026-11-15 加）----
+        # ★ 解读结果直接进译文表（zh 列），model 列写 'vlm:<模型名>' 做
+        #   「已解读」标记 —— 于是它天然享有断点续译：刷新不丢、重跑跳过。
+        #   VLM 失败/没装：zh 保持原文、model 留空 → 下次 vlm run 会再试，
+        #   不影响 normal run（normal run 从不碰 figure 段）。
+        if typ == 'figure' and only == 'vlm' and did:
+            row = _vlm_figure(did, seg)
+            if row:
+                return row
         label = {'equation': '公式', 'bibliography': '参考文献',
                  'figure': '图片', 'figtext': '图内文字',
                  'table': '表格', 'appendix': '附录'}.get(typ, '原文')
@@ -177,48 +268,124 @@ def translate_one(seg, segs, terms, model=None, verify=True, timeout=300):
             'missing': missing, 'model': model or ''}
 
 
+def _vlm_figure(did, seg):
+    """对一张图跑 VLM 中文解读。成功返回可入库的 row，失败返回 None。
+
+    media token 从段文本里解析，图片按 docparse.media_path 落地读 ——
+    段文本就是 `![](media:name)`，token 不会错位。
+    """
+    import base64
+
+    import docparse
+    import llm as core_llm
+    if core_llm.AI_OFF:
+        return None
+    vm = core_llm.vlm_model()
+    if not vm:
+        return None
+    m = re.search(r'!\[\]\(media:([^)]+)\)', seg.get('text') or '')
+    if not m:
+        return None                       # 图都丢了（media 被清）：按保留处理
+    path = docparse.media_path(did, m.group(1))
+    if not path:
+        return None
+    try:
+        with open(path, 'rb') as f:
+            b64 = base64.b64encode(f.read()).decode('ascii')
+    except OSError:
+        return None
+    out = core_llm.figure_interpret(b64, seg.get('caption') or '',
+                                    seg.get('figtext') or [])
+    if not out:
+        return None
+    return {'zh': out, 'status': 'ok', 'score': None, 'missing': [],
+            'model': 'vlm:%s' % vm, 'keep': True, 'why': 'VLM 中文解读'}
+
+
 def run(doc, on_progress=None, model=None, verify=True, limit=0,
-        redo=False, start=0):
+        redo=False, start=0, only=None):
     """把一份文档整篇翻完。逐段落库，可中断续跑。
 
     on_progress(seg_index, n_total, payload) 回调给路由做 SSE 推送。
-    """
-    segs = segments_of(doc)
-    if not segs:
-        return {'ok': False, 'msg': '这份文档没有可翻译的正文', 'total': 0}
-    terms = build_glossary(doc)
-    todo = pending(doc, segs, redo=redo)
-    if start:
-        todo = [t for t in todo if t['i'] >= start]
-    if limit:
-        todo = todo[:limit]
 
-    done = 0
+    only='vlm'（2026-11-15）：只处理 figure 段的中文解读 ——
+    normal run（only=None）**从不碰** figure 段，两条通道互不越界；
+    解读结果进译文表（zh 列），断点续译天然生效。
+
+    ★ 任务注册表：进入即抢占 did 槽（原子），重复起跑返回 busy；
+      每段边界检查 cancel —— 「停止」是协作式的，当前段翻完就断，
+      已翻段落已落库，绝不丢成果。
+    """
     did = doc.get('id')
-    for item in todo:
-        try:
-            row = translate_one(item, segs, terms, model=model, verify=verify)
-        except Exception as e:
-            # ★ 单段失败不能让整篇停下：261 段翻到第 200 段断了，
-            #   前 200 段已经落库是实打实的成果，不能因为一段网络抖动全丢。
-            row = {'zh': '', 'status': 'bad', 'score': None,
-                   'missing': [], 'model': model or '',
-                   'error': str(e)[:200]}
-            # ★★ 必须**同时打到 stderr**。只在返回值里带 error 是不够的：
-            #   SSE 帧有error 字段但前端通常不显示它，于是表现是
-            #   「翻译全部标红、一条错误信息都没有、0 秒就结束」。
-            #   而真因（模型连接失败 / 提示词超长）在这里被 except 吞掉了，
-            #   排查时完全无从下手 —— 「静默的批量失败」比崩溃更难查。
-            sys.stderr.write('[translate] 段 %d 失败：%s\n'
-                             % (item['i'], str(e)[:200]))
-        db.trans_put(did, item['i'], row['zh'], src_hash=item['srcHash'],
-                     status=row['status'], score=row['score'],
-                     missing=row.get('missing'), model=row.get('model') or '')
-        done += 1
-        if on_progress:
-            on_progress(item['i'], len(segs), row)
-    return {'ok': True, 'total': len(segs), 'done': done,
-            'remaining': len(pending(doc, segs))}
+    if not _acquire(did):
+        return {'ok': False, 'busy': True, 'msg': '已有翻译在跑',
+                'total': 0}
+    try:
+        segs = segments_of(doc)
+        if not segs:
+            return {'ok': False, 'msg': '这份文档没有可翻译的正文', 'total': 0}
+        terms = build_glossary(doc)
+        if only == 'vlm':
+            # 只挑「figure 段且尚未解读（model 列无 vlm: 前缀）」的段。
+            # ★ 单次上限：一篇论文 177 张图 × 每张 5~15s = 一个多小时，
+            #   一口气跑完既占死模型又让前端等太久。断点续译兜底：
+            #   每次跑 20 张，点「图注解读」继续下一批。
+            rows = db.trans_all(did)
+            todo = [{'i': s['i'], 'text': s['text'],
+                     'srcHash': src_hash(s['text']),
+                     'translate': s.get('translate', True),
+                     'type': s.get('type', 'body'),
+                     'caption': s.get('caption') or '',
+                     'figtext': s.get('figtext') or []}
+                    for s in segs if s.get('type') == 'figure'
+                    and not (rows.get(s['i']) or {}).get('model', '').startswith('vlm:')]
+            todo = todo[:20]
+        else:
+            todo = pending(doc, segs, redo=redo)
+        if start:
+            todo = [t for t in todo if t['i'] >= start]
+        if limit:
+            todo = todo[:limit]
+
+        done = 0
+        cancelled = False
+        for item in todo:
+            if _cancelled(did):
+                # 协作式停止：当前段翻完、下一段开跑前退出。
+                # 已翻段落都已落库，remaining 会让前端显示「还剩 N 段」。
+                cancelled = True
+                break
+            try:
+                row = translate_one(item, segs, terms, model=model,
+                                    verify=verify, did=did, only=only)
+            except Exception as e:
+                # ★ 单段失败不能让整篇停下：261 段翻到第 200 段断了，
+                #   前 200 段已经落库是实打实的成果，不能因为一段网络抖动全丢。
+                row = {'zh': '', 'status': 'bad', 'score': None,
+                       'missing': [], 'model': model or '',
+                       'error': str(e)[:200]}
+                # ★★ 必须**同时打到 stderr**。只在返回值里带 error 是不够的：
+                #   SSE 帧有error 字段但前端通常不显示它，于是表现是
+                #   「翻译全部标红、一条错误信息都没有、0 秒就结束」。
+                #   而真因（模型连接失败 / 提示词超长）在这里被 except 吞掉了，
+                #   排查时完全无从下手 —— 「静默的批量失败」比崩溃更难查。
+                sys.stderr.write('[translate] 段 %d 失败：%s\n'
+                                 % (item['i'], str(e)[:200]))
+            db.trans_put(did, item['i'], row['zh'], src_hash=item['srcHash'],
+                         status=row['status'], score=row['score'],
+                         missing=row.get('missing'), model=row.get('model') or '')
+            done += 1
+            if on_progress:
+                on_progress(item['i'], len(segs), row)
+        res = {'ok': True, 'total': len(segs), 'done': done,
+               'remaining': len(pending(doc, segs))}
+        if cancelled:
+            res['cancelled'] = True
+        if only == 'vlm':
+            res['only'] = 'vlm'
+        return res
+    finally:
+        _release(did)
 
 
 def status_of(doc):

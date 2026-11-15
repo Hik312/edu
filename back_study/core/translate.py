@@ -389,7 +389,17 @@ def segments_from_blocks(blocks):
             continue
         if typ in ('equation', 'bibliography', 'figure',
                    'figtext', 'table', 'appendix'):
-            out.append({'i': i, 'text': txt, 'translate': False, 'type': typ})
+            item = {'i': i, 'text': txt, 'translate': False, 'type': typ}
+            # ★ figure 段附加 docparse 关联好的 caption / figtext（2026-11-15）：
+            #   VLM 解读（mode=vlm）要拿它们当提示词素材。
+            #   **只加字段不改 text** —— srcHash 只按 text 算，
+            #   旧译文不会因为这次扩列而整篇失效。
+            if typ == 'figure':
+                if (b.get('caption') or '').strip():
+                    item['caption'] = b['caption']
+                if b.get('figtext'):
+                    item['figtext'] = b['figtext'][:40]
+            out.append(item)
             i += 1
         else:
             # 可译块过长时按句拆，保持段内连续、索引稳定

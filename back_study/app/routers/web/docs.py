@@ -242,7 +242,8 @@ def _looks_like_paper(filename, text):
 DOC_TYPES = ('资料', '论文', '笔记')
 
 
-def _save_original_only(body, raw_bytes, raw_ext, fname, text='', blocks=None):
+def _save_original_only(body, raw_bytes, raw_ext, fname, text='', blocks=None,
+                        media=None):
     """论文走这条路：存 PDF 原件做阅读版，**同时**留一份纯文本供检索。
 
     页面用 iframe 显示原件（浏览器自带阅读器，版面/公式/图表/双栏都准），
@@ -253,6 +254,12 @@ def _save_original_only(body, raw_bytes, raw_ext, fname, text='', blocks=None):
       「以后能问它」，不让检索等于白导入。双栏抽取的文本确实不适合阅读，
       所以做法是**原件与检索文本分离**：阅读永远走 iframe，抽出来的文本只
       供搜索/RAG，前端不拿它当正文渲染。
+
+    ★ 2026-11-15 补 save_media（评测 VLM 链路时抓到的存量洞）：blocks 里的
+      figure 块带 `![](media:...)` token，双语对照页和翻译都要按它渲染原图，
+      但这条路线以前只存 raw+blocks、**媒体文件从来没落过盘** ——
+      media/ 目录整个是空的，图片 404、VLM 解读找不到文件。multipart
+      路线（:399）一直是存的，只有 base64 论文路线漏了。
     """
     doc = {
         'title': (body.title or os.path.splitext(fname or '')[0] or '未命名论文').strip()[:120],
@@ -272,6 +279,8 @@ def _save_original_only(body, raw_bytes, raw_ext, fname, text='', blocks=None):
     doc['rawFile'] = docparse.save_raw(doc['id'], raw_bytes, raw_ext)
     if not doc['rawFile']:
         raise HTTPException(500, '原件保存失败，检查 data/store/files 目录是否可写')
+    if media:
+        docparse.save_media(doc['id'], media)
     if blocks:
         docparse.save_blocks(doc['id'], blocks)
     return {'ok': True, 'doc': db.upsert_doc(doc), 'paper': True}
@@ -357,7 +366,7 @@ def import_doc(body: DocImportIn, user=Depends(current_user)):
                                            and _looks_like_paper(fname, text))
         if is_paper:
             return _save_original_only(body, raw_bytes, raw_ext, fname,
-                                       text=text, blocks=blocks)
+                                       text=text, blocks=blocks, media=media)
 
         # PDF/Word 的纯文本层没有版面：代码不带围栏、页码混进正文、
         # 标题只是一行普通字。靠 pdfmarkup 把结构找回来（认代码块、
@@ -700,6 +709,7 @@ def run_translation(did: str, body: TranslateIn, user=Depends(current_user)):
     redo = False
     start = 0
     limit = 0
+    only = None
     head, _, tail = mode.partition(':')
     n = None
     if ':' in mode:
@@ -712,7 +722,19 @@ def run_translation(did: str, body: TranslateIn, user=Depends(current_user)):
         start = n or 0
     elif head == 'limit':
         limit = n or 0
+    elif head == 'vlm':
+        # mode=vlm：只给还没解读的图跑 VLM 中文解读（2026-11-15）。
+        # 走同一条 SSE 流、同一个进度条；不碰文本段。
+        only = 'vlm'
+        if llm.AI_OFF or not llm.vlm_model():
+            raise HTTPException(503, 'VLM 不可用（没装视觉模型，如 qwen2.5vl）')
     verify = body.verify
+
+    # ★ 防双跑（2026-11-15）：以前「在不在跑」无状态，刷新页面后用户
+    #   再点一次就起第二个并行线程。现在有注册表了，端点先挡一道；
+    #   竞态窗口由 transjob.run 的原子 _acquire 兜底（busy 时 error 帧）。
+    if transjob.is_running(did):
+        raise HTTPException(409, '已有翻译在跑（刷新页面可接管进度，或点停止）')
 
     def worker(emit):
         done = {'n': 0}
@@ -728,12 +750,59 @@ def run_translation(did: str, body: TranslateIn, user=Depends(current_user)):
 
         emit('total', {'total': len(segs)})
         res = transjob.run(d, on_progress=on_progress, verify=verify,
-                           redo=redo, start=start, limit=limit)
+                           redo=redo, start=start, limit=limit, only=only)
+        if res.get('busy'):
+            # 极小竞态：端点检查后另一请求先抢到了槽。如实报错而不是装完成。
+            emit('error', {'msg': res.get('msg') or '已有翻译在跑'})
+            return
+        if res.get('cancelled'):
+            # 协作式停止：当前段翻完就断。已翻的都在库里，前端刷新进度条即可。
+            emit('cancelled', {'total': len(segs), 'ok': res.get('done', 0),
+                               'remaining': res.get('remaining', 0),
+                               'status': transjob.status_of(d),
+                               'msg': '已停止（已完成的段落都保留）'})
+            return
         emit('done', {'total': len(segs), 'ok': res.get('done', 0),
                       'remaining': res.get('remaining', 0),
                       'status': transjob.status_of(d)})
 
     return sse_json_stream(worker, first=[('total', {'total': len(segs)})])
+
+
+@router.get('/docs/{did}/translate/status', summary='翻译任务状态（running + 进度）')
+def translate_status(did: str, user=Depends(current_user)):
+    """刷新页面后靠它恢复「翻译还在跑吗、到哪了」。
+
+    ★ 以前唯一的进度查询是 GET /translate（全量：段落+译文+术语表），
+     「查一下还在不在跑」也要拉几百 KB。status 只回轻字段：
+     running / startedAt / cancelRequested + status_of 的计数。
+     前端轮询它（3s），翻完再拉一次全量。
+    """
+    d = db.get_doc(did)
+    if not d:
+        raise HTTPException(404, '文档不存在')
+    info = transjob.running_info(did)
+    vm = ''
+    try:
+        vm = llm.vlm_model() if not llm.AI_OFF else ''
+    except Exception:
+        vm = ''
+    return {'ok': True, **info,
+            'status': transjob.status_of(d),
+            'vlm': bool(vm), 'vlmModel': vm}
+
+
+@router.post('/docs/{did}/translate/stop', summary='请求停止翻译（协作式）')
+def translate_stop(did: str, user=Depends(current_user)):
+    """置取消标志：当前段翻完就断（单段 3~8 秒内响应）。
+
+    ★ 为什么不是强杀线程：worker 是 daemon 线程，Python 没有安全的
+      线程强杀；协作式停止的语义反而更好 —— 「停在这一段的边界上」，
+      已翻段落全部落库，续跑从断点继续，不会有半段译文。
+    """
+    ok = transjob.request_cancel(did)
+    return {'ok': True, 'wasRunning': ok,
+            'msg': '' if ok else '这份文档当前没有翻译任务在跑'}
 
 
 @router.post('/docs/{did}/translate/glossary', summary='重抽术语表')
