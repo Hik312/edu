@@ -10,6 +10,7 @@ user_id，也就是「谁都能登，但数据还是大家共用一份」。这�
 比暂时不隔离糟糕得多。
 （此注释已成历史：progress / notes 现已按 user_id 隔离，2026-10-03。）
 """
+import os
 import time
 
 import security                                            # core/security.py
@@ -82,7 +83,9 @@ def create_user(username, password, display_name=''):
     （注册端点 / 将来的 CLI 建号都要走它）：
       1. 用户名重复要拦 —— 存储层虽然有唯一索引，但得换成人话报错
       2. **第一个注册的人自动是管理员** —— 单机部署不用手工建号，
-         自己一个人用也不会出现「大家都一样」的尴尬
+         自己一个人用也不会出现「大家都一样」的尴尬。
+         公开部署时设 ADMIN_FIRST=0 关掉这个行为（路人先注册会拿到
+         admin），admin 由运维脚本预置
     """
     ok, name_or_msg = security.check_username(username)
     if not ok:
@@ -100,7 +103,16 @@ def create_user(username, password, display_name=''):
         'username': name,
         'passwordHash': security.hash_password(pw_or_msg),
         'displayName': (display_name or '').strip()[:32] or name,
-        'role': 'admin' if user_count() == 0 else 'user',
+        # ★ 第一个注册的人自动是管理员 —— 单机部署的便利设计。
+        #   但**公开部署**（如参赛部署到公网）下这是权限口子：
+        #   路人先注册就拿到 admin（能看用户列表）。所以加一个
+        #   ADMIN_FIRST 显式开关：部署场景设 ADMIN_FIRST=0，
+        #   admin 改由运维用 seeds 脚本预置，首个路人只是普通用户。
+        #   不设置（默认 '1'）保持单机老行为不变。
+        'role': ('admin' if (user_count() == 0
+                             and os.environ.get('ADMIN_FIRST', '1').strip().lower()
+                                 not in ('0', 'false', 'no', 'off'))
+                 else 'user'),
         'openid': None,
     }
     uid = backend().user_put(rec)
