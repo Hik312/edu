@@ -6,11 +6,12 @@
 """
 import base64
 import os
+import sys
 import time
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 
 import db
 import docparse
@@ -34,6 +35,27 @@ router = APIRouter(prefix='/api', tags=['文档'])
 # 还能 DELETE 掉。详见 notes.py 顶上那段说明。
 
 
+def _raw_state(d):
+    """库里的 rawFile 是否**真能在磁盘上找到** → (可用的 rawFile, 是否丢失)。
+
+    data/store/files/ 是本地目录（data/ 不入 git），清理仓库、换机器、只恢复
+    数据库都会留下「rawFile 有值、文件却没了」的孤儿记录。原样把 rawFile 交给
+    前端，只会换来 PDF 阅读器里一句「HTTP 404 / 打不开这份 PDF」，而这份文档
+    其实还有抽取文本可用。
+
+    ★ 所以这里做一次落地校验：文件不在就把 rawFile 收成空串，知识库会自然
+      退回文本视图；同时带 rawMissing=True，让界面能说明「原件丢了，这是文本版」。
+      只改响应、不改库 —— 文件恢复后 rawFile 自动重新生效。
+    """
+    raw = (d.get('rawFile') or '').strip()
+    if not raw:
+        return '', False
+    ext = os.path.splitext(raw)[1]
+    if docparse.raw_path(d.get('id'), ext):
+        return raw, False
+    return '', True
+
+
 @router.get('/docs', summary='文档列表（轻字段）')
 def list_docs(category: Optional[str] = Query(None),
               subject: Optional[str] = Query(None),
@@ -47,23 +69,28 @@ def list_docs(category: Optional[str] = Query(None),
         docs = [d for d in docs if d.get('subject') == subject]
     # 列表不带 chapters：一份八股文几十章，全带上列表接口就废了
     # 但分类字段（domain/tags/rawFile）必须带 —— 知识库页面靠它们做分类树和原件标记
-    brief = [{'id': d.get('id'), 'title': d.get('title'),
-              'category': d.get('category'), 'subject': d.get('subject'),
-              'domain': d.get('domain') or '',
-              'tags': d.get('tags') or [],
-              'rawFile': d.get('rawFile') or '',
-              'isPaper': d.get('isPaper') is True,
-              'source': d.get('source'), 'createdAt': d.get('createdAt'),
-              'stats': d.get('stats'),
-              'aiDone': d.get('aiDone') or 0,
-              # ★ brief 行**没有 chapters**（那正是我们要省掉的大字段），
-              #   所以不能再用 len(chapters) 兜底 —— 那会让论文的
-              #   「N 章 · M 字」恒显示 0 章。改用 stats.chapters 兜，
-              #   它是导入时 importer 算好存下来的轻字段。
-              'aiTotal': (d.get('aiTotal')
-                          or (d.get('stats') or {}).get('chapters')
-                          or 0)}
-             for d in docs]
+    brief = []
+    for d in docs:
+        raw_file, raw_missing = _raw_state(d)
+        brief.append({
+            'id': d.get('id'), 'title': d.get('title'),
+            'category': d.get('category'), 'subject': d.get('subject'),
+            'domain': d.get('domain') or '',
+            'tags': d.get('tags') or [],
+            'rawFile': raw_file,
+            'rawMissing': raw_missing,
+            'isPaper': d.get('isPaper') is True,
+            'source': d.get('source'), 'createdAt': d.get('createdAt'),
+            'stats': d.get('stats'),
+            'aiDone': d.get('aiDone') or 0,
+            # ★ brief 行**没有 chapters**（那正是我们要省掉的大字段），
+            #   所以不能再用 len(chapters) 兜底 —— 那会让论文的
+            #   「N 章 · M 字」恒显示 0 章。改用 stats.chapters 兜，
+            #   它是导入时 importer 算好存下来的轻字段。
+            'aiTotal': (d.get('aiTotal')
+                        or (d.get('stats') or {}).get('chapters')
+                        or 0)
+        })
     brief.sort(key=lambda x: (x.get('createdAt') or ''), reverse=True)
     return {'ok': True, 'total': len(brief), 'docs': brief}
 
@@ -75,6 +102,14 @@ def get_doc(did: str, user=Depends(current_user)):
     d = db.get_doc(did)
     if not d:
         raise HTTPException(404, '文档不存在')
+    # 拷一份再改响应：JSON 后端可能把同一份对象缓存在内存里，
+    # 原地清空 rawFile 会把库里的相对路径也一起抹掉。
+    d = dict(d)
+    raw_before = d.get('rawFile') or ''
+    d['rawFile'], d['rawMissing'] = _raw_state(d)
+    if d['rawMissing']:
+        sys.stderr.write('[docs] 原件缺失，退回文本视图：%s（rawFile=%s）\n'
+                         % (did, raw_before))
     return {'ok': True, 'doc': d}
 
 
@@ -119,10 +154,29 @@ def get_knowledge_file(did: str,
     if not d:
         raise HTTPException(404, '文档不存在')
     raw_file = d.get('rawFile') or ''
-    ext = os.path.splitext(raw_file)[1] if raw_file else ''
+    if not raw_file:
+        # 纯文本导入本来就没有原件 —— 这不是错误，是这类文档的正常状态
+        return JSONResponse(status_code=404, content={
+            'ok': False, 'code': 'no_original', 'did': did,
+            'msg': '这份文档是纯文本导入，没有原始文件；正文请看文本视图。'
+        })
+    ext = os.path.splitext(raw_file)[1]
     path = docparse.raw_path(did, ext)
     if not path:
-        raise HTTPException(404, '原始文件不存在（可能是纯文本导入，无原始文件）')
+        # ★ 2026-11-02 定位：库里 rawFile 有值、data/store/files/ 下却没有文件
+        #   （清理仓库 / 换机器时最容易发生）。原来这里和「纯文本导入」共用一句
+        #   404，前端只能显示「打不开这份 PDF」，完全看不出是文件丢了。
+        #   改成 410 + 可读原因，并把抽取文本是否还在告诉前端，能自动退回文本版。
+        sys.stderr.write('[docs] 原件缺失：%s → %s（data/store/files 下找不到）\n'
+                         % (did, raw_file))
+        return JSONResponse(status_code=410, content={
+            'ok': False, 'code': 'raw_missing', 'did': did,
+            'rawFile': raw_file,
+            'hasText': bool((d.get('stats') or {}).get('chars')),
+            'msg': '原始文件已丢失，原件预览打不开；已抽取的文本还在，可看文本版。',
+            'hint': '把原文件重新导入，或恢复到 data/store/files/%s/ 后即可恢复原件预览。'
+                    % did
+        })
     resp = FileResponse(path, media_type=docparse.raw_mime(path))
     resp.headers['Referrer-Policy'] = 'no-referrer'
     resp.headers['X-Content-Type-Options'] = 'nosniff'
