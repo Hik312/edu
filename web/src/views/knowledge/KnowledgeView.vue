@@ -69,8 +69,19 @@ const importInto = ref('')
  *   需要它时点一下标题栏的「AI 问答」就在。 */
 const aiOpen = ref(false)
 
-/** 论文对照模式。关着 = 只看 PDF 原件。 */
-const biOpen = ref(false)
+/** 论文对照模式。关着 = 只看 PDF 原件。
+ * ★ 2026-11-15 起记住开关（edu.kb.bi）：翻译跑一半刷新页面，对照面板
+ *   自己不开，用户就看不到「翻译中…」的恢复状态 —— 状态轮询在面板里，
+ *   面板不开等于白做。与 edu.kb.slim 同一套 localStorage 显示偏好。 */
+const biOpen = ref(localStorage.getItem('edu.kb.bi') === '1')
+
+function setBiOpen(v) {
+  biOpen.value = v
+  try {
+    if (v) localStorage.setItem('edu.kb.bi', '1')
+    else localStorage.removeItem('edu.kb.bi')
+  } catch { /* 配额满就不存 */ }
+}
 
 /** 顶部两栏（知识库标题栏 + 文档标题栏）是否收起。
  *
@@ -533,9 +544,9 @@ function onMore(cmd) {
     a.remove()
   } else if (cmd === 'extract') {
     showExtract.value = !showExtract.value
-    if (showExtract.value) { aiOpen.value = false; biOpen.value = false }
+    if (showExtract.value) { aiOpen.value = false; setBiOpen(false) }
   } else if (cmd === 'bi') {
-    biOpen.value = !biOpen.value
+    setBiOpen(!biOpen.value)
     if (biOpen.value) { showExtract.value = false; aiOpen.value = false }
   } else if (cmd === 'reparse') {
     onReparse()

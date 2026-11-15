@@ -18,12 +18,14 @@
  * 本地只存一份增量覆盖。理由：翻译要跑将近半小时，用户可能刷新、
  * 关页面、换设备 —— 本地状态一丢就是几十分钟白跑。
  */
-import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import PdfViewer from './PdfViewer.vue'
 import {
   getTranslation,
+  getTranslateStatus,
   runTranslation,
+  stopTranslation,
   redoGlossary,
   putGlossaryTerm,
   delGlossaryTerm,
@@ -86,11 +88,38 @@ const rows = computed(() =>
 /** 原样保留段的提示文案（公式/参考文献/图片/图内文字/表格/附录不翻译，明确告诉用户）。 */
 function keepBadge(r) {
   if (r.translate) return ''
+  if (r.type === 'figure') return figInterpreted(r) ? '图片·已中文解读' : '图片·保留原图'
   return { equation: '公式·保留原文', bibliography: '参考文献·保留原文',
-           figure: '图片·保留原文', figtext: '图内文字·保留原文',
+           figure: '图片·保留原图', figtext: '图内文字·保留原文',
            table: '表格·保留原文', appendix: '附录·保留原文',
            keep: '保留原文' }[r.type] || '保留原文'
 }
+
+/* ---------------- 图表解读卡（2026-11-15） ----------------
+ * figure 段的译文（zh）有两种可能：mode=vlm 跑过 → 是「中文解读卡」文本；
+ * 没跑过 → 与原文相同（media token）。区别就在 zh 是否等于 src。
+ * ★ 解读是**持久化**的（存在译文表），刷新不丢 —— 以前 VLM 图注存前端内存，
+ *   一刷新就没，等于白识别。 */
+const MEDIA_NAME_RE = /!\[\]\(media:([^)]+)\)/
+
+function figName(src) {
+  const m = String(src || '').match(MEDIA_NAME_RE)
+  return m ? m[1] : ''
+}
+
+function figInterpreted(r) {
+  const zh = (r.zh || '').trim()
+  return !!zh && zh !== (r.src || '').trim()
+}
+
+function figLines(zh) {
+  return String(zh || '').split('\n').map(s => s.trim()).filter(Boolean)
+}
+
+/** 有多少张图还没解读（工具条按钮上的角标）。 */
+const vlmPending = computed(() =>
+  rows.value.filter(r => r.type === 'figure' && !figInterpreted(r)).length)
+const hasFigures = computed(() => rows.value.some(r => r.type === 'figure'))
 
 /* 标题段识别：编号段（1 / Introduction、4.1 / ...）或孤立的章节词（Abstract/
  * Conclusion/References…）渲染成「小节标题」而非正文，结构才立得起来、好看。 */
@@ -116,13 +145,82 @@ async function load() {
   } finally {
     loading.value = false
   }
+  // ★ 刷新恢复（2026-11-15）：内容拉完了，再查一次「任务还在不在跑」。
+  //   在跑 → running=true + 轮询接管；不在跑 → 保持 false，按钮回到可点。
+  checkRunning()
 }
 
-watch(() => props.docId, load, { immediate: true })
+watch(() => props.docId, () => { stopPoll(); load() }, { immediate: true })
+
+/* ---------------- 翻译任务状态（2026-11-15）：刷新不丢、可停止 ----------------
+ * ★ 以前刷新页面后 running=false，用户再点一次就起了第二个并行翻译线程
+ *   （后端没注册表，谁都不知道在跑）。现在：load() 后查 status，
+ *   服务端说在跑 → running=true + 3s 轮询接管进度；run 端点 409（已有任务）
+ *   也转入同一条接管路径。轮询期间 progress 条由 status 驱动，
+ *   任务结束自动 load() 拉全量。 */
+let pollTimer = null
+const runInfo = ref({ running: false, startedAt: null, cancelRequested: false })
+const vlmInfo = ref({ vlm: false, vlmModel: '' })
+
+function stopPoll() {
+  if (pollTimer) { clearInterval(pollTimer); pollTimer = null }
+}
+
+function startPoll() {
+  stopPoll()
+  pollTimer = setInterval(async () => {
+    try {
+      const r = await getTranslateStatus(props.docId)
+      runInfo.value = r
+      if (r.status && data.value) data.value = { ...data.value, status: r.status }
+      if (!r.running) {
+        stopPoll()
+        running.value = false
+        ElMessage.success(r.cancelRequested
+          ? '翻译已停止（已完成的段落都保留）'
+          : '后台翻译已完成（刷新前跑的那次）')
+        load()
+      }
+    } catch {
+      // 任务端点都没了（服务重启 / 文档被删）：别再空转
+      stopPoll()
+      running.value = false
+    }
+  }, 3000)
+}
+
+async function checkRunning() {
+  try {
+    const r = await getTranslateStatus(props.docId)
+    runInfo.value = r
+    vlmInfo.value = { vlm: !!r.vlm, vlmModel: r.vlmModel || '' }
+    if (r.running) {
+      running.value = true
+      startPoll()
+    }
+  } catch {
+    /* 404（文档没了）/ 网络抖动：静默，正常加载不受影响 */
+  }
+}
+
+async function onStop() {
+  try {
+    const r = await stopTranslation(props.docId)
+    ElMessage.info(r.wasRunning
+      ? '已请求停止：当前段翻完就断，已完成段落都保留'
+      : (r.msg || '当前没有翻译在跑'))
+  } catch (e) {
+    ElMessage.error('停止失败：' + (e?.message || e))
+  }
+}
+
+onUnmounted(stopPoll)
 
 /* ---------------- 翻译 ---------------- */
+const lastMode = ref('run')
 async function start(mode = 'run', verify = true) {
   if (running.value || !props.docId) return
+  lastMode.value = mode
   running.value = true
   const t0 = Date.now()
   let n = 0
@@ -135,21 +233,31 @@ async function start(mode = 'run', verify = true) {
       },
       onDone: () => {
         const dt = ((Date.now() - t0) / 1000).toFixed(0)
-        ElMessage.success(`本次翻了 ${n} 段，用了 ${dt}s`)
+        ElMessage.success(mode === 'vlm'
+          ? `图注解读完成（${n} 张图），刷新也不会丢`
+          : `本次翻了 ${n} 段，用了 ${dt}s`)
         // 跑完重新拉一次，让 status/glossary 与服务端完全一致
+        load()
+      },
+      onCancelled: () => {
+        ElMessage.info('翻译已停止（已完成的段落都保留）')
         load()
       },
       onError: msg => ElMessage.warning(msg)
     })
   } catch (e) {
-    ElMessage.error('翻译失败：' + (e?.message || e))
+    const msg = String(e?.message || e)
+    if (msg.includes('已有翻译在跑') || msg.includes('409')) {
+      // 409 = 别的会话/刷新前的那次还在跑 → 转入接管：轮询它的进度
+      ElMessage.info('已接管正在进行的翻译任务（可随时点停止）')
+      await checkRunning()
+    } else {
+      ElMessage.error('翻译失败：' + msg)
+    }
   } finally {
-    running.value = false
+    // 接管路径 checkRunning 会重新把 running 置回 true，这里先归零没关系
+    if (!runInfo.value.running) running.value = false
   }
-}
-
-function stopHint() {
-  ElMessage.info('关掉页面或切走都不会丢：已译的段落已经存下来了')
 }
 
 /* ---------------- 术语表 ---------------- */
@@ -299,7 +407,26 @@ async function describe(p) {
         <button v-if="!running" class="btn btn-ghost" :disabled="!hasText" @click="start('run', true)">
           {{ status.done ? '继续翻译' : '开始翻译' }}
         </button>
-        <button v-else class="btn btn-ghost" @click="stopHint">翻译中… {{ pct }}%</button>
+        <template v-else>
+          <button class="btn btn-ghost"
+                  :title="runInfo.startedAt ? '从 ' + runInfo.startedAt + ' 起在跑（刷新页面后接管）' : ''">
+            翻译中… {{ pct }}%
+          </button>
+          <!-- 协作式停止：当前段翻完就断，已完成的段落都在库里 -->
+          <button class="btn btn-bare" title="当前段翻完就断（3~8s 内），已完成的段落都保留"
+                  @click="onStop">停止</button>
+        </template>
+        <button
+          v-if="vlmInfo.vlm && hasFigures && !running"
+          class="btn btn-ghost"
+          title="给还没解读的图跑本地 VLM：中文图题 + 图内标注对照 + 一句话解读。结果持久保存，刷新不丢"
+          @click="start('vlm', false)"
+        >
+          图注解读<template v-if="vlmPending">（{{ vlmPending }} 张待解读）</template>
+        </button>
+        <button
+          v-else-if="running && lastMode === 'vlm'"
+          class="btn btn-ghost">解读中… {{ pct }}%</button>
         <button
           v-if="status.done"
           class="btn btn-bare"
@@ -362,21 +489,40 @@ async function describe(p) {
             <span class="t-keep" v-if="!r.translate" :title="keepBadge(r) + '：这类内容按你的要求原样保留，不送模型翻译'">{{ keepBadge(r) }}</span>
             <template v-if="r.zh">
               <span class="t-flag" v-if="flagText(r)" :title="flagTitle(r)">{{ flagText(r) }}</span>
-              <template v-for="(p, pi) in partsOf(r)" :key="pi">
-                <span v-if="p.type === 'text'" class="t-zh">{{ p.text }}</span>
-                <div v-else class="t-img">
-                  <img :src="getMediaUrl(docId, p.name)" :alt="p.name" loading="lazy" />
+              <!-- figure 段专用渲染（2026-11-15）：原图永远保留；跑过 mode=vlm 的
+                   段，译文列是「中文解读卡」（图题+标注对照+解读），持久保存 -->
+              <template v-if="r.type === 'figure'">
+                <div class="t-img">
+                  <img :src="getMediaUrl(docId, figName(r.src))" :alt="figName(r.src)" loading="lazy" />
                   <div class="t-img-cap">
-                    <span class="badge">原文图片 · 未译（保留原图）</span>
-                    <button class="link" :disabled="capOf(p.name).busy" @click="describe(p)">
-                      {{
-                        capOf(p.name).cap
-                          ? 'AI 图注：' + capOf(p.name).cap
-                          : (capOf(p.name).busy ? '识别中…' : '用 AI 识别这张图')
-                      }}
-                    </button>
+                    <span class="badge" :class="{ 'badge-ok': figInterpreted(r) }">
+                      {{ figInterpreted(r) ? '已生成中文解读（持久保存）' : '原文图片 · 未译（保留原图）' }}
+                    </span>
+                    <span class="fig-cap-src">{{ r.src.replace(MEDIA_NAME_RE, '').trim() }}</span>
+                  </div>
+                  <div v-if="figInterpreted(r)" class="fig-card">
+                    <div v-for="(ln, li) in figLines(r.zh)" :key="li"
+                         class="fig-line" :class="{ 'fig-title': li === 0 }">{{ ln }}</div>
                   </div>
                 </div>
+              </template>
+              <template v-else>
+                <template v-for="(p, pi) in partsOf(r)" :key="pi">
+                  <span v-if="p.type === 'text'" class="t-zh">{{ p.text }}</span>
+                  <div v-else class="t-img">
+                    <img :src="getMediaUrl(docId, p.name)" :alt="p.name" loading="lazy" />
+                    <div class="t-img-cap">
+                      <span class="badge">原文图片 · 未译（保留原图）</span>
+                      <button class="link" :disabled="capOf(p.name).busy" @click="describe(p)">
+                        {{
+                          capOf(p.name).cap
+                            ? 'AI 图注：' + capOf(p.name).cap
+                            : (capOf(p.name).busy ? '识别中…' : '用 AI 识别这张图')
+                        }}
+                      </button>
+                    </div>
+                  </div>
+                </template>
               </template>
             </template>
             <span v-else class="t-todo">未译</span>
@@ -744,6 +890,39 @@ async function describe(p) {
 .t-img-cap .link:disabled {
   color: var(--dim);
   cursor: default;
+}
+.t-img-cap .badge-ok {
+  background: color-mix(in srgb, #3f8f6d 18%, transparent);
+  color: #3f8f6d;
+  border-color: color-mix(in srgb, #3f8f6d 40%, transparent);
+}
+.t-img-cap .fig-cap-src {
+  font-size: 11px;
+  color: var(--dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+
+/* ---- VLM 中文解读卡（2026-11-15）：图题 + 标注对照 + 解读，三段式 ---- */
+.fig-card {
+  padding: 8px 12px;
+  border-top: 1px dashed var(--line);
+  background: color-mix(in srgb, #3f8f6d 5%, transparent);
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.fig-line {
+  font-size: 12.5px;
+  color: var(--tx);
+  line-height: 1.65;
+}
+.fig-line.fig-title {
+  font-weight: 700;
+  color: #3f8f6d;
+  font-size: 13px;
 }
 
 /* 术语表 */

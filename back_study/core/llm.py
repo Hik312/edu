@@ -227,6 +227,56 @@ def vlm_caption(img_b64, context='', model=None, timeout=300):
     return cap[:80]
 
 
+FIG_INTERPRET_SYS = (
+    '你是学术论文的图表解读助手。给你一张论文里的图（架构图/流程图/曲线图等），'
+    '以及它的原文图题（caption）和图内识别出的文字标注。请输出三部分，格式固定：\n'
+    '第一行：【图】<中文图题，20 字以内>\n'
+    '第二部分（图内标注，可选，最多 12 条）：图里出现的关键英文标注/缩写的中文对照，'
+    '每行一条，格式「- 英文 → 中文」；图里没有文字标注就省略这部分；\n'
+    '第三行：解读：<60 字以内，说明这张图整体在讲什么、数据/流程的关键结论>\n'
+    '要求：忠实于图面，图里没有的不许编造；箭头/连线关系用「A → B」描述；'
+    '不要输出 markdown 代码块，不要任何额外解释。'
+)
+
+
+def figure_interpret(img_b64, caption='', figtext=None, model=None, timeout=150):
+    """图表中文解读卡：图题 + 图内标注对照 + 一句话解读。失败返回 None。
+
+    ★ 为什么分任务而不是一句「解释这张图」：调研结论（docling/marker/
+      pdf2zh 方向的公开实践 + qwen2.5vl 社区评测）一致指出——描述性图题
+      和「标注对照」是 VLM 的强项，精确读数（chart-to-table）是弱项。
+      分任务给输出结构，8B 本地模型才守得住格式；标注对照以图内已抽出的
+      figtext 为底稿（那是精确的位置级文字），模型只补图面上识别到的、
+      figtext 漏掉的部分。
+
+    返回多行纯文本（前端按行渲染解读卡），失败/不可用返回 None——
+    调用方（transjob）按「这条没解读，下次再试」处理，不影响翻译主流程。
+    """
+    if AI_OFF:
+        return None
+    model = model or vlm_model()
+    if not model:
+        return None
+    lines = [FIG_INTERPRET_SYS]
+    if (caption or '').strip():
+        lines.append('原文图题：%s' % str(caption)[:160])
+    for t in (figtext or [])[:24]:
+        t = str(t or '').strip()
+        if t:
+            lines.append('图内文字：%s' % t[:80])
+    payload = {'model': model, 'prompt': '\n'.join(lines), 'images': [img_b64],
+               'stream': False,
+               'options': {'temperature': 0.2, 'num_predict': 500}}
+    try:
+        j = _post(OLLAMA + '/api/generate', payload, None, timeout)
+    except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError, OSError):
+        return None                       # 模型没拉/没起/超时：降级，不是故障
+    out = (j.get('response') or '').strip()
+    if not out:
+        return None
+    return out[:1200]
+
+
 # ---------- 调用 + 解析 ----------
 def _clean_json(raw):
     """模型爱把 JSON 包在 ```json 里，还爱在前后加一句话。逐层剥。"""

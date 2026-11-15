@@ -287,12 +287,35 @@ export function runTranslation(did, opt, cb = {}) {
             else cb.onDone && cb.onDone(j)
           } else if (ev === 'error') {
             cb.onError && cb.onError(payload)
+          } else if (ev === 'cancelled') {
+            // 协作式停止（2026-11-15）：当前段翻完就断，已翻的都在库里
+            cb.onCancelled && cb.onCancelled(payload ? JSON.parse(payload) : {})
           }
         }
         return pump()
       })
     return pump()
   })
+}
+
+/** 翻译任务状态（2026-11-15）：running + 轻量进度。
+ * 页面刷新后靠它恢复「翻译还在跑吗、到哪了」——以前唯一的进度查询是
+ * 全量 getTranslation（几百 KB），「查一下在不在跑」也要拉全文。
+ * @param {string} did
+ * @returns {Promise<{ok:boolean, running:boolean, startedAt:?string,
+ *   seconds:number, cancelRequested:boolean, status:Object,
+ *   vlm:boolean, vlmModel:string}>}
+ */
+export function getTranslateStatus(did) {
+  return client.get('/docs/' + encodeURIComponent(did) + '/translate/status')
+}
+
+/** 请求停止翻译（协作式：当前段翻完就断，已翻段落已落库）。
+ * @param {string} did
+ * @returns {Promise<{ok:boolean, wasRunning:boolean, msg:string}>}
+ */
+export function stopTranslation(did) {
+  return client.post('/docs/' + encodeURIComponent(did) + '/translate/stop')
 }
 
 /** 重抽术语表（锁定的条目不会被覆盖）。 */

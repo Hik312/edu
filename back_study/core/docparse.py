@@ -350,6 +350,68 @@ def _classify_block(txt):
     return 'body'
 
 
+#: 图题 / 表题前缀（2026-11-15，caption 关联用）。
+#: `_classify_block` 把 Figure 和 Table 的题注都判成 'caption'，但挂到图上的
+#: 只应该是图题 —— "Table 2: ..." 出现在图正下方时挂上去就是张冠李戴。
+_FIG_CAPTION_RE = re.compile(r'^(figure|fig\.?)\s*\d|^图\s*\d', re.I)
+_TAB_CAPTION_RE = re.compile(r'^(table|tab\.?)\s*\d|^表\s*\d', re.I)
+
+
+def _looks_like_label(txt):
+    """图内零碎标签的启发式：短、不是完整句子。pdffigures2 的「异常文本」
+    思想极简版 —— 标签和正文的最大区别是**标签不成句**。
+    误收进 figtext 的代价极低（只是 VLM 解读的提示词素材，不进译文正文），
+    漏收的代价是解读卡少素材 —— 所以门槛刻意放宽。"""
+    t = (txt or '').strip()
+    if not t or len(t) > 60:
+        return False
+    if t.endswith(('.', '。', '!', '?', '！', '？', ';', '；')):
+        return False
+    if t.startswith('['):                      # 引文编号行
+        return False
+    return True
+
+
+def _link_fig(territory, typ, txt):
+    """图领地-题注/图内文字关联的**单步状态机**（纯函数，页内循环调用）。
+
+    ★ 领地是**列表**不是单块（2026-11-15 实测 AutoGen 论文后改的）：
+      论文里一张逻辑图常由**多张小位图拼成**（Figure 1 = 15 个子图块连续出现，
+      中间夹图表标签），阅读顺序里它们连成一片。单图状态机遇到连续 img
+      会「新的关掉旧的」，图题永远只能挂给最后一个子图。领地列表语义：
+      连续 img（中间无正文打断）同属一个领地，图题挂给**领地全体** ——
+      子图各自的解读卡都能带上正确的图题。
+
+    领地从第一个 img 开始，到题注/长正文/标题结束：
+      img*(开/追加) → 零碎块（收进全体 figtext）→ 图题（挂全体并闭合）
+    返回新的 territory（None = 领地结束）。规则：
+
+      1. **前缀优先**：图题/表题按前缀认（Figure N / 图 N / Table N / 表 N），
+         而不是按块的 type —— `_mark_refs_and_appendix` 会把附录区的
+         caption 整体重打成 'appendix'，按 type 判就全漏了。
+         Table 题注不挂图（张冠李戴防线），只把领地闭合。
+      2. figtext（几何判定命中的图内文字）照旧挂。
+      3. **短标签容忍**：图内零碎标签（"Month"、"Example Agent Chat"）大量
+         被 `_overlap_ratio>=0.55` 几何阈值漏判成 body/table，会把领地提前
+         关掉 —— 短且不成句的块视为标签：收进 figtext、领地继续开着。
+      4. 其余（长正文/标题/公式/参考文献）→ 领地结束。
+    """
+    if not territory:
+        return None
+    if _FIG_CAPTION_RE.match(txt):
+        for blk in territory:
+            if not blk.get('caption'):
+                blk['caption'] = txt
+        return None                            # 一个领地吃一个图题
+    if _TAB_CAPTION_RE.match(txt):
+        return None                            # 表题：领地到此为止
+    if typ == 'figtext' or _looks_like_label(txt):
+        for blk in territory:
+            blk.setdefault('figtext', []).append(txt)
+        return territory
+    return None                                # 长正文/标题/公式：领地结束
+
+
 def _normalize_heading(t):
     """编号标题统一成 `N. Title`（点号分隔），让下游 importer.detect_heading
     的 `RE_AR_NUM`/`RE_D2` 能认出它是一级/二级标题，分章才立得起来。
@@ -876,6 +938,7 @@ def _extract_pdf_pymupdf(data):
         merged.sort(key=lambda m: (m[0], m[1], m[2]))
 
         lines = []
+        territory = None               # 图领地（2026-11-15，语义见 _link_fig）
         for m in merged:
             if m[3] == 'img':
                 lines.append(m[4])
@@ -883,7 +946,14 @@ def _extract_pdf_pymupdf(data):
                 #   否则切到「按块翻译」后图片会丢（text 里的 token 不被块引用）。
                 #   翻译层对 figure 段原样保留（protect 也会保 token），
                 #   前端据此渲染原图 + 「原文图片·未译」徽标。
-                blocks_out.append({'type': 'figure', 'text': m[4], 'page': pno})
+                blk = {'type': 'figure', 'text': m[4], 'page': pno}
+                blocks_out.append(blk)
+                # caption/figtext 关联：连续 img 追加进同一领地（合成图场景），
+                # 图题挂给领地全体。★ 只加字段不改 text —— srcHash 不变，
+                # 旧文档已翻好的译文不会因此失效。
+                if territory is None:
+                    territory = []
+                territory.append(blk)
                 continue
             txt, typ = m[4], m[5]
             # ---- 图/表内部文字：跟着原图/表格原样保留，不送模型 ----
@@ -903,6 +973,9 @@ def _extract_pdf_pymupdf(data):
                 txt = _normalize_heading(txt)
             lines.append(txt)
             blocks_out.append({'type': typ, 'text': txt, 'page': pno})
+            # ---- caption / figtext 关联（2026-11-15，状态机见 _link_fig）----
+            if territory:
+                territory = _link_fig(territory, typ, txt)
         pages_text.append('\n'.join(lines))
 
     _mark_refs_and_appendix(blocks_out)
