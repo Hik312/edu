@@ -84,6 +84,10 @@ class JsonAlgoStore(AlgoStore):
         tmp = self.FILES[kind] + '.tmp'
         with open(tmp, 'w', encoding='utf-8') as f:
             json.dump(data, f, ensure_ascii=False, indent=1)
+            # 与 store/base.write_json 同口径：replace 前先把内容钉到磁盘，
+            # 事件流丢了是拟合不出参数的，这里不能省 fsync。
+            f.flush()
+            os.fsync(f.fileno())
         os.replace(tmp, self.FILES[kind])          # 原子换，写一半断电不毁原文件
 
     # ---------------- 事件流 ----------------

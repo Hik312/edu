@@ -352,7 +352,21 @@ const pyFiles = [
   // 入口（零依赖版 server.py 已于 2026-09-26 移除，只剩 FastAPI 这一条线）
   "back_study/run.py",
   // 核心模块（数据层 / 导入 / 大模型 / 网络探测 / 鉴权 / 文件解析）
-  "back_study/core/db.py",
+  // ★ 数据层 2026-11-15 从单文件 core/db.py 拆成了 core/db/ 包（12 个域文件），
+  //   清单跟着改成逐文件列出 —— 教训同上面注释说的：包里再加新文件要回这里补。
+  "back_study/core/db/__init__.py",
+  "back_study/core/db/base.py",
+  "back_study/core/db/builtin.py",
+  "back_study/core/db/cards.py",
+  "back_study/core/db/catalog.py",
+  "back_study/core/db/profiles.py",
+  "back_study/core/db/plan.py",
+  "back_study/core/db/graph.py",
+  "back_study/core/db/notes.py",
+  "back_study/core/db/docs.py",
+  "back_study/core/db/progress.py",
+  "back_study/core/db/bkt.py",
+  "back_study/core/db/users.py",
   "back_study/core/importer.py",
   "back_study/core/llm.py",
   "back_study/core/netinfo.py",
@@ -434,6 +448,8 @@ const pyFiles = [
   "back_study/algo/fsrs.py",
   "back_study/algo/hlr.py",
   "back_study/algo/bkt.py",
+  "back_study/algo/fsrs_fit.py",
+  "back_study/algo/loadbalance.py",
   "back_study/algo/eval.py",
   "back_study/algo/demo.py",
   // 缓存层（Redis 优先 / 内存降级，2026-09-29 加）

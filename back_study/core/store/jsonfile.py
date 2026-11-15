@@ -62,6 +62,15 @@ class JsonFileStore(Store):
             'notes': os.path.join(self.dir, 'notes.json'),
             'documents': os.path.join(self.dir, 'documents.json'),
             'users': os.path.join(self.dir, 'users.json'),
+            # ★ 2026-11-15 补：translations / glossary / meta 三个键一直漏在
+            #   这张表里，而 trans_all/trans_put（:249 起）、glossary_*（:278 起）、
+            #   get_meta/set_meta（:321 起）都在用 —— JSON 后端下 `_read(kind)`
+            #   直接 `self.file[kind]` 抛 KeyError，译文/术语表/kbtree 元数据
+            #   三条链路全断。MySQL 后端有真的表所以没炸，等于这个洞被
+            #   「本机配了 MySQL」掩盖了。补齐后 JSON 后端行为才对齐 mysql。
+            'translations': os.path.join(self.dir, 'translations.json'),
+            'glossary': os.path.join(self.dir, 'glossary.json'),
+            'meta': os.path.join(self.dir, 'meta.json'),
         }
 
     # ---------------- 读 ----------------

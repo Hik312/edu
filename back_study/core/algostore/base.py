@@ -72,25 +72,9 @@ class AlgoStore(object):
         raise NotImplementedError
 
     # ---------------- 学习时长会话（个人中心埋点）----------------
-    SESSION_KEYS = ('id', 'user_id', 'card_id', 'duration_seconds',
-                    'level', 'ts', 'session_id')
-
-    def sessions_of(self, user_id, card_id=None, limit=500):
-        """某人的学习时长记录，按时间正序。
-
-        `limit` 语义与 events_of 一致：只取最近 limit 条再正序返回；
-        `limit <= 0` / `None` = 不截断。
-        """
-        raise NotImplementedError
-
-    def sessions_append(self, sess):
-        """追加一条学习时长记录，返回写进去的那条（带 id）。"""
-        raise NotImplementedError
-
-    def sessions_count(self, user_id=None):
-        raise NotImplementedError
-
-    # ---------------- 学习时长会话（个人中心埋点）----------------
+    # ★ 2026-11-15 删掉了一整段重复定义：这个块（SESSION_KEYS + 三个方法）
+    #   原来一字不差地出现了两次，Python 后者覆盖前者，pyflakes 的
+    #   redefinition 提示把它揪了出来。内容完全相同，删除零行为变化。
     SESSION_KEYS = ('id', 'user_id', 'card_id', 'duration_seconds',
                     'level', 'ts', 'session_id')
 

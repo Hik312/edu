@@ -12,12 +12,15 @@
 可插拔的意义：v1 用关键词先把端到端问答跑通；哪天想上语义检索，
 `ollama pull nomic-embed-text` 后设 AGENT_RETRIEVER=vector（或不改，hybrid 自动启用向量）。
 """
+import contextvars
 import json
 import os
+import threading
 import time
 
 from .. import config as C
 import db
+from store.base import write_json       # 原子写盘（tmp + fsync + os.replace）
 from . import rerank as rerank_module   # 重排（cross-encoder 精排）
 from . import retr_cache      # 检索结果缓存（Redis；库指纹变了自动失效）
 from . import tools
@@ -46,10 +49,15 @@ def _card_text(c):
 
 
 # ---------- 卡片集合指纹 + 缓存 ----------
-_FP_CACHE = {'fp': None, 'cards': None}
+# （2026-11-15 删掉了死变量 _FP_CACHE：定义后全仓从未读写，pyflakes 都嫌它碍眼。）
 _CARD_CACHE = {'fp': None, 'map': None}
 #: 'at' = 这次尝试的时间戳，用于失败后的冷却判断（见 _get_index）
 _VEC_CACHE = {'fp': None, 'index': None, 'at': 0.0}
+#: 向量索引的重建互斥锁。没有它，两个线程同时发现指纹变了会**各自**去
+#: 调一次 7~8 秒的 Ollama 全库重建，再各自写一次 embeddings.json ——
+#: 文件写入现在有 write_json 兜底不会写坏，但双倍耗时和双倍显存占用
+#: 实实在在。锁只圈重建段，关键词路径不受影响。
+_VEC_LOCK = threading.Lock()
 
 #: 重建失败后的冷却时间（秒）。模型没拉/没起时，不要每个请求都去试一次 ——
 #: 一次 7~8 秒，QPS 一上来就是灾难。冷却期内直接返回 None（降级）。
@@ -60,14 +68,22 @@ _EMBED_FILE = os.path.join(_EMBED_DIR, 'embeddings.json')
 
 
 def _fingerprint():
-    """卡片集合指纹。带 v2 前缀标记。
+    """卡片集合指纹。带 v3 前缀标记。
 
     v2 = 2026-10-03 补上 nomic-embed-text 的文档/查询前缀（见 _embed 注释）。
-    索引内容变了而 card id 集合没变，指纹必须变，否则磁盘上那份**没有前缀的
-    旧索引**会被当成有效缓存继续加载 —— 改前缀这件事就白改了。
-    以后再动 embedding 输入（比如换模型）也照样 +v3、+v4。
+    v3 = 2026-11-15 指纹从「只含 card id 集合」升级为「模型 + id 集合 + 内容摘要」。
+      原来有两个洞：
+      1. **卡片正文改了但没增删卡**（verify 联网校验后 apply_card_patch 修正
+         一张卡是最典型场景），指纹不变 → 磁盘上的旧向量继续被当成有效索引，
+         检索命中的一直是修正前的内容；
+      2. **换 EMBED_MODEL** 指纹也不变，会把 A 模型的向量当 B 模型的用。
+      内容摘要复用 retr_cache.library_fingerprint()：对检索相关字段做 md5，
+      带 30s 短缓存（改卡后最多 30s 才触发重建，与检索缓存的取舍一致），
+      字段口径见它的 _FP_FIELDS。
+    以后再动 embedding 输入（比如换前缀规则）也照样 +v4。
     """
-    return 'v2|' + '|'.join(sorted(c.get('id', '') for c in _all_cards()))
+    ids = '|'.join(sorted(c.get('id', '') for c in _all_cards()))
+    return 'v3|%s|%s|%s' % (C.EMBED_MODEL, ids, retr_cache.library_fingerprint())
 
 
 def _card_map():
@@ -149,21 +165,27 @@ def _get_index():
         if time.time() - _VEC_CACHE['at'] < _VEC_RETRY_COOLDOWN:
             return None                     # 冷却中，别再白等一次重建
     index = None
-    if os.path.exists(_EMBED_FILE):
-        try:
-            data = json.load(open(_EMBED_FILE, encoding='utf-8'))
-            if data.get('fp') == fp and data.get('vecs'):
-                index = data
-        except Exception:
-            index = None
-    if index is None:
-        index = _build_index()
-        if index is not None:
+    with _VEC_LOCK:
+        # 双检：拿锁的这段时间可能别的线程已经把索引建好放进缓存了。
+        if _VEC_CACHE['fp'] == fp and _VEC_CACHE['index'] is not None:
+            return _VEC_CACHE['index']
+        if os.path.exists(_EMBED_FILE):
             try:
-                os.makedirs(_EMBED_DIR, exist_ok=True)
-                json.dump(index, open(_EMBED_FILE, 'w', encoding='utf-8'))
+                data = json.load(open(_EMBED_FILE, encoding='utf-8'))
+                if data.get('fp') == fp and data.get('vecs'):
+                    index = data
             except Exception:
-                pass
+                index = None
+        if index is None:
+            index = _build_index()
+            if index is not None:
+                try:
+                    # 原来是裸 json.dump(open(..., 'w'))：无 tmp、无锁、非原子 ——
+                    # 这份文件 5MB+，两个线程交替写就是交错字节。write_json 是
+                    # tmp + fsync + os.replace，和卡片库存储同一套口径。
+                    write_json(_EMBED_FILE, index, ensure_dir=_EMBED_DIR)
+                except Exception:
+                    pass
     # ★ 失败也缓存住（下面这行 2026-10-09 加的）。
     #   原来 `if _VEC_CACHE['index'] is not None` 的守卫让「重建失败 → None」
     #   变成**每次调用都重试**：一次 527 张的重建要 7~8 秒，
@@ -301,12 +323,29 @@ def get_retriever():
     return HybridRetriever()
 
 
+#: 检索元信息的**每请求**存放处（2026-11-15 从模块级 dict 改成 ContextVar）。
+#:
+#: ★ 为什么不能再用模块级 dict：retrieve() 有两个并发入口 —— flow 模式的
+#:   节点（qa/nodes.py:123）和 react 模式的工具（qa/runtime.py 的
+#:   _react_ground），都跑在 FastAPI 线程池 / asyncio.to_thread 里。
+#:   两个请求并发时，后完成的 `.update()` 会覆盖前一个的元信息：
+#:   A 请求的降级原因会出现在 B 请求的响应里（串台）。历史上 last_meta()
+#:   没接线所以没暴露，接线那天就是 bug 现形日 —— 提前修掉。
+#:
+#:   照 qa/tools.py 的 _current_user 用 ContextVar。**set 时整个换新 dict、
+#:   绝不原地 .update()**：ContextVar 的 default 是所有上下文共享的同一个
+#:   对象，谁原地改它就污染所有还没 set 的上下文。
+_META_CV = contextvars.ContextVar(
+    'qa_retr_meta',
+    default={'stage': 'none', 'reranked': False, 'costMs': 0, 'degrade': []})
+
+
 def last_meta():
-    """最近一次检索的**元信息**（降级必须看得见）。
+    """**当前请求**最近一次检索的元信息（降级必须看得见）。
 
     为什么不放进 SearchHit：SearchHit 有 __slots__，加字段会影响
     所有构造点；而「这次检索有没有重排/走的是哪条路」属于**运行状态**，
-    不是命中本身的属性，用模块级 dict 存最省事。
+    不是命中本身的属性。存放机制见 _META_CV 的注释。
 
     键：
       stage    实际走到的阶段：rrf / rerank / keyword-only / vector-only
@@ -314,11 +353,10 @@ def last_meta():
       costMs   本次检索总耗时
       degrade  降级原因列表（空列表= 没降级）
     """
-    return dict(_LAST_META)
-
-
-_LAST_META = {'stage': 'none', 'reranked': False, 'costMs': 0,
-              'degrade': []}
+    m = _META_CV.get()
+    # degrade 列表也要拷 —— 浅拷 dict 的话它还是共享引用，串台会从这里漏回来
+    return {'stage': m['stage'], 'reranked': m['reranked'],
+            'costMs': m['costMs'], 'degrade': list(m['degrade'])}
 
 
 def retrieve(query, k=None):
@@ -354,19 +392,23 @@ def retrieve(query, k=None):
         if out:
             # ★ 命中缓存 = 整条检索（含重排）都省了，所以**不标降级**。
             #   缓存里存的是重排后的 id 顺序和分数，重排结果已在其中。
-            _LAST_META.update(stage='cache', reranked=True,
-                              costMs=round((time.time() - t0) * 1000),
-                              degrade=[])
+            _set_meta(stage='cache', reranked=True,
+                      costMs=round((time.time() - t0) * 1000), degrade=[])
             return out
         # 缓存里的卡全没了（库被大改）→ 落到下面重算，顺便让旧条目自然过期
 
     hits, stage = _recall_with_meta(query, k)
-    _LAST_META.update(stage=stage,
-                      reranked=(stage == 'rerank'),
-                      costMs=round((time.time() - t0) * 1000),
-                      degrade=degrade_list())
+    _set_meta(stage=stage, reranked=(stage == 'rerank'),
+              costMs=round((time.time() - t0) * 1000),
+              degrade=degrade_list())
     retr_cache.put(query, k, hits)   # 写失败只打日志，不影响检索
     return hits
+
+
+def _set_meta(stage, reranked, costMs, degrade):
+    """写当前请求的检索元信息。**整个换新 dict**，原因见 _META_CV 的注释。"""
+    _META_CV.set({'stage': stage, 'reranked': reranked,
+                  'costMs': costMs, 'degrade': list(degrade)})
 
 
 def degrade_list():

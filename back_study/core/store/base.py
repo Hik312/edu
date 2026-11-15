@@ -208,6 +208,13 @@ def write_json(path, obj, ensure_dir=None):
     tmp = path + '.tmp'
     with open(tmp, 'w', encoding='utf-8') as f:
         json.dump(obj, f, ensure_ascii=False, indent=2)
+        # 2026-11-15 补 fsync：os.replace 只保证「替换这个动作是原子的」，
+        # 不保证 tmp 的内容真的落了盘 —— 掉电时可能 replace 成功了、
+        # 内容却是空的/半截（写回缓存作怪）。flush + fsync 先把内容钉到
+        # 磁盘再 replace。代价是每次写多一次盘寻，而这里的写都是人工操作
+        # 量级（标记一张卡 / 存一条笔记），换得起。
+        f.flush()
+        os.fsync(f.fileno())
     os.replace(tmp, path)                       # 原子替换：写一半崩溃不留坏文件
 
 

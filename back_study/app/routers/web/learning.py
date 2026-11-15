@@ -98,30 +98,17 @@ def review_due(limit: int = Query(50, ge=1, le=500),
                user=Depends(current_user)):
     # 形参叫 include_all、查询串仍叫 ?all=1：alias 保住了对外契约，
     # 又不至于在函数体里盖掉内置的 all()
-    if pick == '1':
-        # 自选模式：清单就是队列。仍走 due_list(include_all=True) 拿全量再按 id 收窄，
-        # 这样 level/nextAt/overdue 字段口径和普通队列完全一致，前端不用分两套渲染。
-        # 清单为空 → 回空 total=0，让前端能区分「没挑」和「挑了但都刷完了」。
-        ids = set(db.get_today_pick(user.get('id')))
-        items = [x for x in db.due_list(include_all=True, user_id=user.get('id'))
-                 if x['card']['id'] in ids]
-        # 顺序交给 due_list 的排序（先 level1/2 再 level0，同级按 overdue），
-        # 不按清单写入顺序 —— 用户挑卡时是按页面顺序点的，没有轻重语义。
-    else:
-        items = db.due_list(domain=domain or None, include_all=(include_all == '1'),
-                           user_id=user.get('id'))
-        if dirs:
-            # 方向筛必须在截断**之前**：先按方向过滤全量到期卡，再取 limit。
-            # 顺序反了就是先拿满 limit 再丢，方向卡会被排在后面的基本卡挤出队列。
-            kws = db.direction_kws([d.strip() for d in dirs.split(',') if d.strip()])
-            if kws:                    # 传了查不到的方向 id → 当没筛，别返回空队列
-                items = [x for x in items if db.card_hit(x['card'], kws)]
-    # BKT 优先级排序必须在截断**之前**：否则只对「已经取到的前 limit 张」排序，
-    # 等于没排 —— 真正掌握度低的卡已经被 limit 截掉了。默认 by=level 时这段不执行，
-    # 返回顺序和以前逐字一致（check.js 拿旧顺序做断言）。
-    if by == 'bkt':
-        items = db.sort_by_mastery(items, user.get('id'))
-    items = items[:limit]
+    #
+    # ★ 2026-11-15 拆包：pick 收窄 / dirs 筛选 / BKT 重排 / 截断全部收进了
+    # `db.review_queue`，与小程序端 /api/mini/review/queue 共用同一份实现
+    # （原来两边逐行重复，改口径时容易只改一边）。这里只留 web 端的
+    # 默认值（limit 50）和响应映射；顺序契约（筛/排都必须在截断之前）
+    # 见 db.review_queue 的 docstring。
+    dirs_l = [d.strip() for d in dirs.split(',') if d.strip()] if dirs else None
+    items, _dt = db.review_queue(
+        user_id=user.get('id'), limit=limit,
+        domain=domain or None, dirs=dirs_l,
+        include_all=(include_all == '1'), pick=(pick == '1'), by=by)
     queue = [{'id': x['card']['id'], 'title': x['card'].get('title'),
               'domain': x['card'].get('domain'), 'oneLine': x['card'].get('oneLine'),
               'level': x['level'],
@@ -143,6 +130,22 @@ def review_due(limit: int = Query(50, ge=1, le=500),
 def stats(user=Depends(current_user)):
     """总卡数、今日待复习、掌握分布 —— 首页那几个数字。"""
     return {'ok': True, 'stats': db.stats(user.get('id'))}
+
+
+@router.post('/review/fit-fsrs', summary='用我的复习记录拟合 FSRS 个性化权重')
+def fit_fsrs(user=Depends(current_user)):
+    """照 fit-bkt 的思路给 FSRS 也接上个性化：把当前用户的事件流喂给
+    algo/fsrs_fit（SPSA+Adam 拟合 21 个权重），拟合成功就存档，之后
+    `set_level` 调度时自动带上这组权重（fsrs_params）。
+
+    数据不够 400 条 / 全对一个答案时 `fitted=false` + 原因 —— 权重不落库，
+    调度继续用 FSRS-6 默认值，**宁缺毋滥**。响应里带 bceBefore/bceAfter：
+    拟合后比拟合前低多少，就是个性化的净收益，直接展示给用户。
+    """
+    weights, info = db.fit_fsrs(user.get('id'))
+    return {'ok': True, 'fitted': bool(info.get('fitted')),
+            'info': info,
+            'weights': [round(w, 6) for w in weights] if info.get('fitted') else None}
 
 
 @router.get('/mastery', summary='BKT 掌握度（每张卡 + 汇总）')

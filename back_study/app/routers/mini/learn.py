@@ -54,15 +54,9 @@ def _plan_limit(user):
 
 
 def _filter_dirs(items, dirs):
-    """按学习方向筛队列。口径与 web 端 /api/review/due?dirs= 逐字一致：
-    筛在**截断之前**（先拿满 limit 再丢，方向卡会被后面的基本卡挤出队列）；
-    传了查不到的方向 id → 当没筛（别返回空队列）。"""
-    if not dirs:
-        return items
-    kws = db.direction_kws([d.strip() for d in dirs.split(',') if d.strip()])
-    if not kws:
-        return items
-    return [x for x in items if db.card_hit(x['card'], kws)]
+    """★ 2026-11-15 弃用：方向筛选收进了 `db.review_queue`（与 web 端共用
+    同一份实现）。这个函数暂时保留只为提示后来人，别再往里加逻辑。"""
+    raise NotImplementedError('方向筛选已收进 db.review_queue，mini 路由不再单独实现')
 
 
 @router.get('/home', summary='首页聚合（统计 + 分类树 + 方向 + 今日清单）')
@@ -165,37 +159,22 @@ def review_queue(limit: int = Query(0, ge=0, le=100,
                  by: str = Query('level',
                                  description='level=按自评档位排（默认）| bkt=按 BKT 掌握度低的优先'),
                  user=Depends(current_user)):
-    # dueTotal 的口径 = 全库到期数（不带 domain/dirs/include_all）。这份全量
-    # 列表同时当下面各分支的筛选底稿 —— 以前它是在结尾为一个 len() 单独再查
-    # 一遍全库的（一次请求 2 次 due_list），纯浪费。
-    due_all = db.due_list(user_id=user.get('id'))
-    due_total = len(due_all)
-    if pick == '1':
-        # 口径和 /api/review/due?pick=1 一致：due_list 全量排序后按清单 id 收窄，
-        # 字段/顺序与普通队列同一套渲染，前端不用分两套。
-        # 自选清单允许含「还没到期」的卡，所以这路仍要 include_all=True 的
-        # 另一份列表 —— 两次查的东西不同，不算重复调用。
-        ids = set(db.get_today_pick(user.get('id')))
-        items = [x for x in db.due_list(include_all=True, user_id=user.get('id'))
-                 if x['card']['id'] in ids]
-    else:
-        # domain 过滤的谓词与 due_list 内部逐字一致（c.get('domain') != domain
-        # 就跳过），挪到本层筛只为复用 due_all，口径不变。
-        items = due_all if not domain else [
-            x for x in due_all if x['card'].get('domain') == domain]
-        items = _filter_dirs(items, dirs)
+    # ★ 2026-11-15 拆包：pick 收窄 / domain / dirs 筛选 / BKT 重排 / 截断
+    # 全部收进 `db.review_queue`（与 web 端 /api/review/due 共用同一份实现），
+    # 这里只留「mini 特有的参数默认值」和「响应字段映射」。
     # limit 不传（0）就用这个人的每日目标，而不是模块级常量 ——
     # 否则用户在 web 端设的目标在小程序不生效。
     # all=1 则忽略每日目标，把到期的全给（上限仍受 le=100 约束）。
+    # 注意 mini 的 all=1 只放宽 limit，**不带 include_all**（不给没到期的卡）。
     if all == '1':
         lim = limit or 100
     else:
         lim = limit or _plan_limit(user)
-    # 和 web 端 /api/review/due?by=bkt 同一套：先按 BKT 掌握度重排再截断，
-    # 默认 by=level 时整段跳过、顺序与以前完全一致。
-    if by == 'bkt':
-        items = db.sort_by_mastery(items, user.get('id'))
-    items = items[:lim]
+    dirs_l = [d.strip() for d in dirs.split(',') if d.strip()] if dirs else None
+    items, due_total = db.review_queue(
+        user_id=user.get('id'), limit=lim, domain=domain or None,
+        dirs=dirs_l, include_all=False, pick=(pick == '1'), by=by,
+        with_due_total=True)
     queue = [{'id': x['card']['id'], 'title': x['card'].get('title'),
               'oneLine': x['card'].get('oneLine'),
               'domain': x['card'].get('domain'),
@@ -205,6 +184,7 @@ def review_queue(limit: int = Query(0, ge=0, le=100,
               'overdue': None if x['overdue'] == db.OVERDUE_NEVER else x['overdue']}
              for x in items]
     if by == 'bkt':
+        # 只在按 BKT 排时附上 p：默认队列不该出现「p: null」这种半截数据
         for row, x in zip(queue, items):
             row['p'] = x.get('p')
     # ★ 「今天还有多少张没刷」——小程序原来只回 total=len(queue)（这一页给了几张），
