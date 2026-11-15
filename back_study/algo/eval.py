@@ -159,6 +159,62 @@ def calibration(samples, bins=5):
     return out
 
 
+# ---------- srs-benchmark 口径的 RMSE(bins)（2026-11-15 对齐） ----------
+def _bin_grid(x, base, growth):
+    """srs-benchmark 的对数网格取整：bin = round(base·growth^floor(ln x/ln growth))。
+
+    三条特征轴各有一组 (base, growth)：间隔 2.48/2.57、复习数 1.52/1.58、
+    遗忘数 1.4/1.48（数值逐字取自 srs-benchmark / awesome-fsrs wiki）。
+    x<=0 落 0 号格。不 import 第三方 —— 分箱只是几行对数运算。
+    """
+    if x is None or x <= 0:
+        return 0
+    try:
+        k = math.floor(math.log(x) / math.log(growth))
+        return round(base * (growth ** k))
+    except (ValueError, OverflowError):
+        return 0
+
+
+def rmse_bins(pairs):
+    """RMSE(bins)：srs-benchmark 现行的主指标（旧的「RMSE(b-log retention)」
+    已改名演进为它）。
+
+    pairs : `(p, y, delta_t[, n_reviews[, n_lapses]])`
+        p/y 同 log_loss；后三个是分箱特征，缺省 None 时该轴全部落同一箱
+        （真实日志一时拿不到计数器也能用，只是分箱粗一点）。
+
+    按 (间隔格, 复习数格, 遗忘数格) 联合分箱；每箱内算「平均预测留存 vs
+    实际留存率」之差的平方，按箱内样本数加权：
+
+        RMSE = sqrt( Σ w_i·(p̄_i − ȳ_i)² / Σ w_i )     范围 0–1，越低越好
+
+    为什么不直接算逐样本 MSE：逐样本口径会惩罚「说了 0.95 结果忘」的样本
+    远多于「说了 0.2 结果忘了」——但后者才是真正的失准。分箱口径量的是
+    **每一类处境下的系统性偏差**，这才是排期算法真正该负责的东西。
+    """
+    bins = {}
+    for tup in pairs:
+        p, y = tup[0], tup[1]
+        dt = tup[2] if len(tup) > 2 else None
+        nr = tup[3] if len(tup) > 3 else None
+        nl = tup[4] if len(tup) > 4 else None
+        key = (_bin_grid(dt, 2.48, 2.57),
+               _bin_grid(nr, 1.52, 1.58),
+               _bin_grid(nl, 1.4, 1.48))
+        acc = bins.setdefault(key, [0.0, 0.0, 0])
+        acc[0] += _clamp(p, EPS, 1 - EPS)
+        acc[1] += y
+        acc[2] += 1
+    if not bins:
+        return None
+    sw = sp = 0.0
+    for ps, ys, n in bins.values():
+        sw += n
+        sp += n * (ps / n - ys / n) ** 2
+    return math.sqrt(sp / sw)
+
+
 # ---------- 仿真：造一个可控的「真实世界」 ----------
 def _truth_rate(t, h, slip=SLIP, guess=GUESS):
     """t 天后真实答对概率。半衰期模型 + 手滑/蒙对。"""
@@ -222,7 +278,9 @@ def simulate(algo, n_cards=300, horizon=365, seed=7,
             pred = predict(algo.name, prev, actual_t)
             reviews.append({'card': cid, 't': actual_t, 'correct': correct,
                             'rate': rate, 'day': day, 'level': level,
-                            'predicted': pred, 'hTrue': h_true})
+                            'predicted': pred, 'hTrue': h_true,
+                            # RMSE(bins) 的分箱特征：本次复习**之前**的累计数
+                            'nReviews': n, 'nLapses': lapses})
             if correct == 0 and actual_t > 0:
                 lapses += 1
             last_review = day
@@ -240,24 +298,35 @@ def simulate(algo, n_cards=300, horizon=365, seed=7,
 def evaluate(algo_name, log, get_algo=None):
     """给一份已有的 review log 打分。
 
-    log: [{prev, t, correct, level}, ...]，prev 是那次复习前的进度记录。
-    真实数据接入时（`/api/review/events` + progress 历史）走这条路；
-    现在的仿真里也可以复用 —— 见 `compare()`。
+    log: [{prev, t, correct, level[, nReviews][, nLapses]}, ...]，
+    prev 是那次复习前的进度记录。真实数据接入时（`/api/review/events` +
+    progress 历史）走这条路；现在的仿真里也可以复用 —— 见 `compare()`。
+
+    ★ 2026-11-15 对齐 srs-benchmark：输出加 `rmseBins`（现行主指标，
+    口径见 rmse_bins）。log 条目可选带 nReviews/nLapses 计数器
+    （scripts/eval_real.py 回放事件流时会带上），不带就退化成单箱。
 
     get_algo: 可选，注入算法实例（测试用；默认按名字从注册表取）。
     """
     from . import get as _get
     algo = get_algo() if get_algo else _get(algo_name)
-    samples = [(predict(algo_name, r.get('prev'), r.get('t', 0)), int(r['correct']))
-               for r in log if predict(algo_name, r.get('prev'), r.get('t', 0)) is not None]
+    samples = []
+    for r in log:
+        p = predict(algo_name, r.get('prev'), r.get('t', 0))
+        if p is None:
+            continue
+        samples.append((p, int(r['correct']), r.get('t', 0),
+                        r.get('nReviews'), r.get('nLapses')))
+    prob_samples = [(s[0], s[1]) for s in samples]
     return {
         'algo': algo_name,
         'predictsRetention': algo_name in _PREDICTORS,
         'n': len(log),
         'nScored': len(samples),
-        'logLoss': log_loss(samples),
-        'brier': brier(samples),
-        'auc': auc(samples),
+        'logLoss': log_loss(prob_samples),
+        'brier': brier(prob_samples),
+        'auc': auc(prob_samples),
+        'rmseBins': rmse_bins(samples) if samples else None,
     }
 
 
@@ -269,7 +338,10 @@ def _metrics(algo, sim):
     ret = [c['retention'] for c in cards]
     avg_ret = sum(ret) / len(ret) if ret else 0.0
     mastered = sum(1 for x in ret if x >= MASTERED_AT)
-    samples = [(r['predicted'], r['correct']) for r in reviews if r['predicted'] is not None]
+    samples = [(r['predicted'], r['correct'], r['t'], r.get('nReviews'),
+                r.get('nLapses'))
+               for r in reviews if r['predicted'] is not None]
+    prob_samples = [(s[0], s[1]) for s in samples]
     return {
         'algo': algo.name,
         'totalReviews': n_rev,
@@ -282,8 +354,9 @@ def _metrics(algo, sim):
         'mastered': mastered,
         'masteredRate': round(mastered / len(cards), 4) if cards else 0.0,
         'predictsRetention': algo.name in _PREDICTORS,
-        'logLoss': log_loss(samples),
-        'auc': auc(samples),
+        'logLoss': log_loss(prob_samples),
+        'auc': auc(prob_samples),
+        'rmseBins': rmse_bins(samples),
     }
 
 
@@ -313,13 +386,15 @@ def report(algos=None, n_cards=300, horizon=365, seed=7):
     data = compare(algos, n_cards, horizon, seed)
     if not data:
         return '（没有可评测的算法 —— bkt 不排期，已跳过）'
-    head = ('算法', '复习次数', '次/卡', '遗忘次数', '期末留存', '掌握卡数', '效率', 'AUC')
+    head = ('算法', '复习次数', '次/卡', '遗忘次数', '期末留存', '掌握卡数',
+            '效率', 'AUC', 'RMSE(bins)')
     rows = [head]
     for name, m in data.items():
         auc_s = '%.3f' % m['auc'] if m['auc'] is not None else '—'
+        rm_s = '%.4f' % m['rmseBins'] if m.get('rmseBins') is not None else '—'
         rows.append((name, str(m['totalReviews']), str(m['reviewsPerCard']),
                      str(m['lapses']), '%.1f%%' % (m['finalRetention'] * 100),
-                     str(m['mastered']), '%.3f' % m['efficiency'], auc_s))
+                     str(m['mastered']), '%.3f' % m['efficiency'], auc_s, rm_s))
     w = [max(len(str(r[i])) for r in rows) for i in range(len(head))]
     line = '  '.join('-' * x for x in w)
     out = ['  '.join(str(rows[0][i]).ljust(w[i]) for i in range(len(head))), line]
@@ -328,4 +403,5 @@ def report(algos=None, n_cards=300, horizon=365, seed=7):
     out.append('')
     out.append('（— = 该算法不做留存概率预测：SM-2 无概率模型，'
                'BKT 的 p 是掌握度非留存率。这是算法能力边界，不是缺数据。）')
+    out.append('（RMSE(bins) 为 srs-benchmark 现行主指标口径，越低越好。）')
     return '\n'.join(out)

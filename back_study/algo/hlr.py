@@ -117,7 +117,7 @@ class HLR(Algo):
         """半衰期 → 间隔：解 2^(-iv/h)=target。h=20 → 3 天。"""
         return max(1, int(round(_clamp(float(h), H_MIN, H_MAX) * K)))
 
-    def schedule(self, prev, level, today=None):
+    def schedule(self, prev, level, today=None, w=None):  # w: 个性化权重参数，本算法不用，见 algo/base.py 契约
         day = today or self._today()
         h_prev = self.half_life(prev)
 

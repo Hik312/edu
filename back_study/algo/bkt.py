@@ -227,7 +227,7 @@ class BKT(Algo):
         p = _clamp(float(p))
         return max(1, int(round(1 + self.MAX_INTERVAL * p * p)))
 
-    def schedule(self, prev, level, today=None):
+    def schedule(self, prev, level, today=None, w=None):  # w: 个性化权重参数，本算法不用，见 algo/base.py 契约
         # ★ ef 在 BKT 里是掌握度，但 prev 可能是 SM-2 留下来的（2.5 这种），
         #   也可能是 FSRS 的难度 D（1~10）。越界一律夹回 [0,1]，
         #   否则 p=2.5 会让后续所有计算失去意义，而且不报错。

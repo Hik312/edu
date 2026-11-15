@@ -38,7 +38,7 @@ class SM2(Algo):
     EF_MIN = 1.3
     EF_MAX = 2.6
 
-    def schedule(self, prev, level, today=None):
+    def schedule(self, prev, level, today=None, w=None):  # w: 个性化权重参数，本算法不用，见 algo/base.py 契约
         p = prev or {}
         # 三个状态都从旧记录里恢复，缺了就用「从没复习过」的初值。
         ef = _num(p, 'ef', 2.5)

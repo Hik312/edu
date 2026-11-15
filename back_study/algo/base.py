@@ -105,12 +105,16 @@ class Algo(object):
     #: 否则看 progress.json 的人根本不知道 2.6 是难度还是概率。
     ef_note = 'ef 字段的含义（子类覆盖）'
 
-    def schedule(self, prev, level, today=None):
+    def schedule(self, prev, level, today=None, w=None):
         """算这张卡下一次什么时候复习。
 
         prev   : 上一次的进度记录 dict，可能是 None
         level  : 本次评级，见 LEVEL_* 三个常量
         today  : 仅测试用，注入「今天」；不传就用系统日期
+        w      : 个性化参数（2026-11-15 加）。FSRS 用它接 fit-fsrs 拟合出的
+                 21 权重；None = 用算法自己的默认参数。其它算法忽略这个
+                 参数（签名统一带上是为了 db.schedule() 的转发不用做类型判断
+                 —— 什么时候该传 w 是 db 层的事，算法层只管收）。
         返回   : 只含 REC_KEYS 六个键的 dict
         """
         raise NotImplementedError

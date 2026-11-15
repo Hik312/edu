@@ -23,6 +23,12 @@ PyJWT>=2.8
 # 手动跑：.venv/Scripts/python.exe -m pyflakes back_study/core back_study/app
 pyflakes>=3.2
 
+# ---- 测试（2026-11-15 加）----
+# algo 层、report 层、图算法、FSRS-6 黄金值的单元测试。
+# check.js 是端到端冒烟（HTTP + 双存储对拍），pytest 是白盒单测 —— 两层互补。
+# 跑法：cd back_study && .venv/Scripts/python.exe -m pytest tests -q
+pytest>=8
+
 # ---- 可选增强，都不是必须 ----
 #
 # 不装任何一项服务照样起（自动回退到 data/store/*.json），只是对应能力没有。
