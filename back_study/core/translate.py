@@ -387,8 +387,8 @@ def segments_from_blocks(blocks):
         txt = (b.get('text') or '').strip()
         if not txt:
             continue
-        if typ in ('equation', 'bibliography', 'figure',
-                   'figtext', 'table', 'appendix'):
+        if typ in ('equation', 'bibliography', 'figure', 'figtext', 'table',
+                   'appendix', 'title'):
             item = {'i': i, 'text': txt, 'translate': False, 'type': typ}
             # ★ figure 段附加 docparse 关联好的 caption / figtext（2026-11-15）：
             #   VLM 解读（mode=vlm）要拿它们当提示词素材。

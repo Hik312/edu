@@ -116,6 +116,24 @@ function figLines(zh) {
   return String(zh || '').split('\n').map(s => s.trim()).filter(Boolean)
 }
 
+/** 解读文本 → 结构化三段（2026-11-15 用户反馈：标注对照要用**表格**形式，
+ *  bullets 散文式对照读起来不知道谁对谁）。
+ *  VLM 输出固定三段：【图】题 / `- 英文 → 中文` 标注对照 / 解读：……
+ *  返回 { title, table: [[en, zh]...], summary }。 */
+function figParts(zh) {
+  const lines = figLines(zh)
+  const out = { title: '', table: [], summary: '' }
+  for (const ln of lines) {
+    if (ln.startsWith('【图】')) { out.title = ln.replace(/^【图】/, '').trim(); continue }
+    if (ln.startsWith('解读')) { out.summary = ln.replace(/^解读[:：]?/, '').trim(); continue }
+    const m = ln.match(/^[-•·]\s*(.+?)\s*→\s*(.+)$/)
+    if (m) { out.table.push([m[1].trim(), m[2].trim()]); continue }
+    // 非标准行归入对照表第一列，不丢内容
+    if (out.table.length || (ln.includes('→'))) out.table.push([ln, ''])
+  }
+  return out
+}
+
 /** 有多少张图还没解读（工具条按钮上的角标）。 */
 const vlmPending = computed(() =>
   rows.value.filter(r => r.type === 'figure' && !figInterpreted(r)).length)
@@ -509,8 +527,20 @@ async function describe(p) {
                     <span class="fig-cap-src">{{ r.src.replace(MEDIA_NAME_RE, '').trim() }}</span>
                   </div>
                   <div v-if="figInterpreted(r)" class="fig-card">
-                    <div v-for="(ln, li) in figLines(r.zh)" :key="li"
-                         class="fig-line" :class="{ 'fig-title': li === 0 }">{{ ln }}</div>
+                    <div v-if="figParts(r.zh).title" class="fig-line fig-title">
+                      【图】{{ figParts(r.zh).title }}
+                    </div>
+                    <table v-if="figParts(r.zh).table.length" class="fig-table">
+                      <tbody>
+                        <tr v-for="(row, ri) in figParts(r.zh).table" :key="ri">
+                          <td class="mono">{{ row[0] }}</td>
+                          <td>{{ row[1] }}</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                    <div v-if="figParts(r.zh).summary" class="fig-line fig-summary">
+                      解读：{{ figParts(r.zh).summary }}
+                    </div>
                   </div>
                 </div>
               </template>
@@ -931,6 +961,31 @@ async function describe(p) {
   font-weight: 700;
   color: #3f8f6d;
   font-size: 13px;
+}
+.fig-line.fig-summary {
+  margin-top: 2px;
+}
+/* 标注对照两列表格：英文原文 / 中文译法，谁对谁一目了然 */
+.fig-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 2px 0;
+}
+.fig-table td {
+  padding: 3px 8px;
+  border-bottom: 1px solid var(--line);
+  font-size: 12px;
+  line-height: 1.5;
+  vertical-align: top;
+}
+.fig-table td:first-child {
+  color: var(--mu);
+  width: 46%;
+  word-break: normal;
+  overflow-wrap: anywhere;
+}
+.fig-table tr:last-child td {
+  border-bottom: none;
 }
 
 /* 术语表 */

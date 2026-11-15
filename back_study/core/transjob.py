@@ -224,7 +224,7 @@ def translate_one(seg, segs, terms, model=None, verify=True, timeout=300,
             if row:
                 return row
         label = {'equation': '公式', 'bibliography': '参考文献',
-                 'figure': '图片', 'figtext': '图内文字',
+                 'figure': '图片', 'figtext': '图内文字', 'title': '论文标题',
                  'table': '表格', 'appendix': '附录'}.get(typ, '原文')
         return {'zh': seg['text'], 'status': 'ok', 'score': 1.0,
                 'missing': [], 'model': '', 'keep': True,

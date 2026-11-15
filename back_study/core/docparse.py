@@ -330,6 +330,12 @@ def _classify_block(txt):
         return 'skip'
     if re.fullmatch(r'\d{1,6}', t):
         return 'skip'                                   # 页码行
+    # arXiv 侧边水印（每页一条，竖排有时被横抽出来）——纯噪声
+    if re.match(r'^arXiv:\d{4}\.\d{4,5}', t):
+        return 'skip'
+    # 首页脚注（通讯作者邮箱 / 仓库链接，编号顶格）——混进正文极难看
+    if re.match(r'^\d{1,2}\s*(Corresponding|email|http|[a-z]+@)', t, re.I):
+        return 'skip'
     if re.match(r'^(figure|fig\.?|table|tab\.?|algorithm|listing|plate|diagram|eq\.?|equation)\b',
                 t, re.I):
         return 'caption'
@@ -339,7 +345,15 @@ def _classify_block(txt):
         return 'bibliography'
     math = set('βλ∫∑√≈≤≥×→±∂µπθαγδεσφψωΦΨΩ≠≡∈∉⊆⊂∪∩∀∃∇∞')
     if any(c in math for c in t) and len(t) < 260:
-        return 'equation'
+        # ★ 字母密度守卫（2026-11-15）：含 ±/µ 等符号且字母占比高的是
+        #   **作者行**（"Jieyu Zhang±, ..."），不是公式 —— 作者署名里的
+        #   机构上标让它含集合内符号。公式行字母占比低（符号+短变量），
+        #   作者行是密集英文（>55%）。误判成 equation 的后果：作者行被
+        #   「保留原文」且丢掉 heading/正文语义。
+        letters = sum(c.isalpha() for c in t) / max(1, len(t))
+        if letters <= 0.55:
+            return 'equation'
+        return 'body'
     if re.match(r'^\d+(\.\d+)*\s*[/．.．]?\s*\S', t) and len(t) < 82:
         return 'heading'
     if re.match(r'^(abstract|introduction|related work|conclusion|references|'
@@ -384,32 +398,45 @@ def _link_fig(territory, typ, txt):
 
     领地从第一个 img 开始，到题注/长正文/标题结束：
       img*(开/追加) → 零碎块（收进全体 figtext）→ 图题（挂全体并闭合）
-    返回新的 territory（None = 领地结束）。规则：
+    返回 `(新 territory, action)`。action 告诉调用方这个块怎么处置：
 
+      'figtext'  几何命中的图内文字 → 已收进领地全体 figtext（**不独立成段**）
+      'label'    短标签（几何阈值漏判成 body 的图内文字）→ 同上
+      'caption'  图题 → 已挂领地全体，领地闭合（块照常独立成段、照常翻译）
+      'tab'      表题 → 领地闭合（块照常成段）
+      'pass'     长正文/标题/公式 → 领地闭合（块照常成段）
+
+    规则细节：
       1. **前缀优先**：图题/表题按前缀认（Figure N / 图 N / Table N / 表 N），
          而不是按块的 type —— `_mark_refs_and_appendix` 会把附录区的
          caption 整体重打成 'appendix'，按 type 判就全漏了。
          Table 题注不挂图（张冠李戴防线），只把领地闭合。
       2. figtext（几何判定命中的图内文字）照旧挂。
       3. **短标签容忍**：图内零碎标签（"Month"、"Example Agent Chat"）大量
-         被 `_overlap_ratio>=0.55` 几何阈值漏判成 body/table，会把领地提前
-         关掉 —— 短且不成句的块视为标签：收进 figtext、领地继续开着。
+         被 `_overlap_ratio>=0.55` 几何阈值漏判成 body/table —— 短且不成句
+         的块视为标签收进 figtext。**它们不该独立出现在正文流里**
+         （2026-11-15 用户反馈：对照页一半是「图内文字·保留原文」碎片，
+         读的时候不知道图长什么样）——调用方按 action 剔除。
       4. 其余（长正文/标题/公式/参考文献）→ 领地结束。
     """
     if not territory:
-        return None
+        return None, 'pass'
     if _FIG_CAPTION_RE.match(txt):
         for blk in territory:
             if not blk.get('caption'):
                 blk['caption'] = txt
-        return None                            # 一个领地吃一个图题
+        return None, 'caption'                 # 一个领地吃一个图题
     if _TAB_CAPTION_RE.match(txt):
-        return None                            # 表题：领地到此为止
-    if typ == 'figtext' or _looks_like_label(txt):
+        return None, 'tab'                     # 表题：领地到此为止
+    if typ == 'figtext':
         for blk in territory:
             blk.setdefault('figtext', []).append(txt)
-        return territory
-    return None                                # 长正文/标题/公式：领地结束
+        return territory, 'figtext'
+    if _looks_like_label(txt):
+        for blk in territory:
+            blk.setdefault('figtext', []).append(txt)
+        return territory, 'label'
+    return None, 'pass'                        # 长正文/标题/公式：领地结束
 
 
 def _normalize_heading(t):
@@ -470,6 +497,28 @@ def _looks_like_refs_start(blocks, i):
         if _CITE_FEAT.search(b.get('text') or ''):
             hits += 1
     return hits >= 2
+
+
+def _mark_paper_title(blocks):
+    """页 0 的第一个 body 块若为**论文标题** → 改 type='title'（保留原文不译）。
+
+    论文标题专名密集（"AutoGen: Enabling Next-Gen LLM Applications via
+    Multi-Agent Conversation"），8B 模型翻标题质量差且无必要 —— 学术阅读
+    惯例标题保留原文。判定：页 0 第一个 body 块 + 后 6 块窗口内有
+    作者/机构特征（University / † / ∗ / ± / Research...）。
+
+    ★ 判定窗口为什么是「后 6 块」：标题块下面紧跟着作者行、机构行
+      （实测 AutoGen 页 0：标题 → 作者×4 → 机构×2）。窗口里有作者特征
+      就说明这个 body 块是标题而不是正文 —— 正文块后面跟的是更多正文。
+    """
+    author_re = re.compile(r'University|Institute|Research|Corresponding|@[a-z]|†|∗|±|‡', re.I)
+    for i, b in enumerate(blocks[:12]):
+        if b.get('type') == 'body' and b.get('page', 0) == 0:
+            win = ' '.join((blocks[j].get('text') or '')
+                           for j in range(i, min(i + 6, len(blocks))))
+            if author_re.search(win) and len(b.get('text') or '') < 200:
+                b['type'] = 'title'
+            return
 
 
 def _mark_refs_and_appendix(blocks):
@@ -962,13 +1011,32 @@ def _extract_pdf_pymupdf(data):
                     typ = 'table'
             if typ == 'heading':
                 txt = _normalize_heading(txt)
+
+            # ---- 图内文字：**不进正文流**（2026-11-15 用户反馈）----
+            #   信息已并入 figure 块的 figtext 字段 + VLM 解读卡；
+            #   独立成段的表现是对照页一半是「图内文字·保留原文」碎片，
+            #   读的人反而看不到图。领地开 → 挂全体；领地没开（渲染失败
+            #   的簇 / 图 token 在后）→ 直接丢弃，游离的图内文字没有上下文。
+            if typ == 'figtext':
+                if territory:
+                    territory, _ = _link_fig(territory, 'figtext', txt)
+                continue
+
+            # ---- 领地内的其它块：短标签并入 figure 块；图题挂领地 ----
+            if territory is not None:
+                territory, action = _link_fig(territory, typ, txt)
+                if action == 'label':
+                    continue                 # 已并入 figure 块 figtext，不成段
+                if action == 'caption':
+                    lines.append(txt)
+                    blocks_out.append({'type': 'caption', 'text': txt, 'page': pno})
+                    continue                 # 图题照常成段、照常翻译
+
             lines.append(txt)
             blocks_out.append({'type': typ, 'text': txt, 'page': pno})
-            # ---- caption / figtext 关联（2026-11-15，状态机见 _link_fig）----
-            if territory:
-                territory = _link_fig(territory, typ, txt)
         pages_text.append('\n'.join(lines))
 
+    _mark_paper_title(blocks_out)
     _mark_refs_and_appendix(blocks_out)
     return {'text': '\n'.join(pages_text),
             'media': [{'name': m['name'], 'mime': m['mime'], 'data': m['data']}
