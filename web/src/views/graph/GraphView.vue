@@ -70,6 +70,7 @@ import EChart from '@/components/EChart.vue'
 import {
   catalog as fetchCatalog,
   graph as fetchGraph,
+  graphCommunitySummary as fetchCommSummary,
   graphInsight as fetchInsight,
   graphPath as fetchPath,
   graphRank as fetchRank,
@@ -97,6 +98,10 @@ const insight = ref(null)
 const rankOf = ref({})
 /** 个性化 PageRank 推荐。种子 = 当前用户「不会」的卡。 */
 const reco = ref(null)
+/** AI 社区摘要（2026-11-15）：每个 louvain 社区一段「这是一块什么知识」。
+ *  available=false 是状态不是故障（AI 没开/模型失手），渲染 msg 即可。 */
+const commSummary = ref(null)
+const commSummaryBusy = ref(false)
 /** 路径高亮：从 A 点到 B 点的最短 prereq 链（节点 id 序列）。 */
 const pathNodes = ref([])
 const pathEdges = ref([])
@@ -319,6 +324,24 @@ async function loadInsight() {
   }
 }
 
+/** AI 社区摘要。refresh=true 是显式按钮（同步跑本地模型，几十秒）；
+ *  首次进页面静默拉一次 —— 有缓存时毫秒级返回，没缓存时后台生成，
+ *  不阻塞图谱本身的加载（所以不 await，见调用处）。 */
+async function loadCommSummary(refresh = false) {
+  if (commSummaryBusy.value) return
+  commSummaryBusy.value = true
+  const p = refresh ? { refresh: '1' } : {}
+  if (subId.value) p.subject = subId.value
+  else if (catId.value) p.category = catId.value
+  try {
+    commSummary.value = await fetchCommSummary(p)
+  } catch {
+    commSummary.value = { ok: false, available: false, items: [], msg: '摘要服务连不上' }
+  } finally {
+    commSummaryBusy.value = false
+  }
+}
+
 function pickCat(id) {
   catId.value = id
   subId.value = '' // 换了分类就把上一个分类的科目清掉，否则筛出空图
@@ -433,6 +456,8 @@ onMounted(async () => {
   subId.value = s0 || ''
   // 洞察由 loadGraph 内部触发（必须跟图同口径），这里不再单独拉。
   await loadGraph()
+  // AI 社区摘要：静默拉一次（有缓存毫秒级；没缓存后台生成，不阻塞看图）
+  loadCommSummary(false)
   try {
     const c = await fetchCatalog()
     catList.value = c.catalog || []
@@ -1023,6 +1048,40 @@ function cardTitle(cid) {
         </ul>
       </section>
 
+      <!-- AI 社区摘要（2026-11-15）：给每个分块写一句「这是一块什么知识」。
+           GraphRAG 的「社区检测 → 分层摘要」在客户端的落地 ——
+           算法半边（louvain）在图例里，这里补摘要半边。 -->
+      <section class="panel">
+        <header class="panel-head">
+          <h3>社区摘要</h3>
+          <button class="mini-btn" :disabled="commSummaryBusy"
+                  @click="loadCommSummary(true)">
+            {{ commSummaryBusy ? '生成中…' : (commSummary?.items?.length ? '重新生成' : '生成') }}
+          </button>
+        </header>
+        <p v-if="commSummaryBusy" class="tip top">
+          本地模型在逐块读图谱（几十秒），可以继续看图
+        </p>
+        <template v-else-if="commSummary?.available && commSummary?.items?.length">
+          <ul class="sum-list">
+            <li v-for="s in commSummary.items" :key="s.index">
+              <button class="sum-row" :class="{ dim: !s.title }"
+                      :title="(s.title ? s.title + ' · ' : '') + s.size + ' 个节点，点击在图上筛出该社区'"
+                      @click="commFilter = commFilter === s.index - 1 ? null : s.index - 1">
+                <span class="dot-swatch"
+                      :style="{ background: s.size >= 6 ? (commColor.map[s.index - 1] || INK) : INK }" />
+                <span class="sum-txt">
+                  <b>{{ s.title || '（该社区未生成摘要）' }}</b>
+                  <i v-if="s.desc">{{ s.desc }}</i>
+                </span>
+              </button>
+            </li>
+          </ul>
+          <p class="tip">点条目可在图上筛出该社区{{ commSummary.generatedAt ? ' · ' + commSummary.generatedAt + ' 生成' : '' }}</p>
+        </template>
+        <p v-else class="tip">{{ commSummary?.msg || '还没生成过摘要' }}</p>
+      </section>
+
       <!-- 个性化推荐：PPR 从「不会的」往外推 -->
       <section class="panel">
         <header class="panel-head"><h3>该学什么</h3></header>
@@ -1282,7 +1341,73 @@ function cardTitle(cid) {
   font-size: 11px;
 }
 
-/* ---- 榜单 / 推荐 ---- */
+/* ---- 榜单 / 推荐 / 社区摘要 ---- */
+.mini-btn {
+  flex: none;
+  padding: 3px 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--mu);
+  font-size: 12px;
+  cursor: pointer;
+  transition: color 0.14s, border-color 0.14s;
+}
+.mini-btn:hover:not(:disabled) {
+  color: var(--ac);
+  border-color: var(--ac);
+}
+.mini-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+.sum-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 8px 0 0;
+}
+.sum-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  width: 100%;
+  padding: 5px 7px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--tx);
+  font-size: var(--fs-sm);
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.14s;
+}
+.sum-row:hover {
+  background: var(--ac-glow);
+}
+.sum-row.dim {
+  opacity: 0.55;
+}
+.sum-row .dot-swatch {
+  flex: none;
+  margin-top: 5px;
+}
+.sum-txt {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.sum-txt b {
+  font-weight: 600;
+  color: var(--tx);
+}
+.sum-txt i {
+  font-style: normal;
+  font-size: 12px;
+  color: var(--mu);
+  line-height: 1.5;
+}
 .rank-list,
 .reco-list {
   list-style: none;

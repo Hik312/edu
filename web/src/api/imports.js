@@ -54,3 +54,29 @@ export function dropDraft(did) {
 export function clearDrafts() {
   return client.delete('/drafts')
 }
+
+/** ===== 题库导入（2026-11-15）：确定性解析，不走 AI =====
+ *  两步走：preview 解析预览 → 勾选后 commit 入草稿。
+ *  资料清单与格式适配建议见 docs/资料来源.md。
+ */
+
+/** 解析预览（不落库）。
+ * @param {Object} body 见 `app/schemas.py:ImportQaIn`
+ * @param {string} body.text    题库原文（多文件在客户端拼接后传一份）
+ * @param {string} [body.fmt]   'md-qa'（默认）| 'anki-txt' | 'obsidian-sr'
+ * @param {number} [body.qLevel] md-qa：第几级标题算题面，默认 3
+ * @param {string} [body.deck]  卡片组名
+ * @param {string} [body.source] 资料来源（溯源/署名）
+ * @returns {Promise<{ok:boolean, fmt:string, cards:Array, skipped:Array, count:number}>}
+ */
+export function importQaPreview(body) {
+  return client.post('/import/qa', body)
+}
+
+/** 勾选的卡批量存为草稿。服务端**重新解析**再按 id 过滤 —— 只信 id。
+ * @param {Object} body 同 preview，外加 body.ids 勾选的卡 id 列表
+ * @returns {Promise<{ok:boolean, count:number, missing:number}>}
+ */
+export function importQaCommit(body) {
+  return client.post('/import/qa/commit', body)
+}

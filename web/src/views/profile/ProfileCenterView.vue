@@ -30,7 +30,9 @@ import {
   getProfileOverview,
   getMistakeBook,
   getForgettingCurve,
+  getReviewHeatmap,
   getStudyTime,
+  getTrueRetention,
   batchReportReviewSessions
 } from '@/api/profile'
 import { levelColor, colorOf, INK, SEQ, chartBase } from '@/config/theme'
@@ -57,6 +59,15 @@ const MISTAKE_PERIODS = [
   { value: 'month', label: '本月' },
   { value: 'all', label: '全部' }
 ]
+
+// ---- 记忆保持率（True Retention）与复习热力图（2026-11-15 加） ----
+const retention = ref(null)
+const retentionLoading = ref(false)
+const RET_RANGES = ['today', 'month', 'year', 'all']
+const RET_RANGE_LABEL = { today: '今天', month: '本月', year: '今年', all: '全部' }
+const heatYear = ref(new Date().getFullYear())
+const heatmap = ref(null)
+const heatmapLoading = ref(false)
 
 // ---- 遗忘曲线 ----
 const curveDays = ref(30)
@@ -208,17 +219,49 @@ async function loadStudyTime() {
   }
 }
 
+async function loadRetention() {
+  retentionLoading.value = true
+  try {
+    const r = await getTrueRetention()
+    retention.value = r.data || null
+  } catch {
+    retention.value = null
+  } finally {
+    retentionLoading.value = false
+  }
+}
+
+async function loadHeatmap() {
+  heatmapLoading.value = true
+  try {
+    const r = await getReviewHeatmap({ year: heatYear.value })
+    heatmap.value = r.data || null
+  } catch {
+    heatmap.value = null
+  } finally {
+    heatmapLoading.value = false
+  }
+}
+
+function shiftYear(delta) {
+  heatYear.value = Math.max(2000, Math.min(2100, heatYear.value + delta))
+  loadHeatmap()
+}
+
 function onTabChange() {
   if (activeTab.value === 'overview' && !overview.value && !overviewLoading.value) loadOverview()
   if (activeTab.value === 'mistakes' && !mistakes.value && !mistakeLoading.value) loadMistakes()
   if (activeTab.value === 'curve' && !curve.value && !curveLoading.value) loadCurve()
   if (activeTab.value === 'time' && !studyTime.value && !timeLoading.value) loadStudyTime()
+  if (activeTab.value === 'retention' && !retention.value && !retentionLoading.value) loadRetention()
   if (activeTab.value === 'profile') syncProfileForm()
 }
 
 onMounted(() => {
   flushTrackQueue()
   loadOverview()
+  // 概览上的复习热力图：随页一起拉（张数口径，轻量聚合）
+  loadHeatmap()
 })
 
 onUnmounted(() => {
@@ -253,6 +296,69 @@ const overviewMetrics = computed(() => {
     },
     { key: 'streakDays', label: '连续学习', value: (d.streakDays ?? 0) + ' 天', color: '#a8553f' }
   ]
+})
+
+// ===========================================================================
+// 记忆保持率（True Retention）+ 复习热力图（2026-11-15 加）
+// ===========================================================================
+
+/** 保持率表的三行：young / mature / total。 */
+const retentionRows = [
+  { key: 'young', label: '新卡（间隔 <21 天）' },
+  { key: 'mature', label: '成熟卡（间隔 ≥21 天）' },
+  { key: 'total', label: '合计' }
+]
+
+/** 单元格文本：有样本 → 「94.2% (41/44)」；没样本 → 「—」。 */
+function fmtCell(key, rng) {
+  const c = retention.value?.[rng]?.[key]
+  if (!c || !c.total) return '—'
+  return Math.round((c.rate || 0) * 100) + '% (' + c.correct + '/' + c.total + ')'
+}
+
+/** 成熟卡记得率高 → 绿（好），低于新卡 → 赭黄（该警惕）。 */
+function cellColor(key, rng) {
+  const c = retention.value?.[rng]?.[key]
+  if (!c || !c.total || c.rate == null) return null
+  if (key === 'mature') return c.rate >= 0.85 ? INK.known : (c.rate >= 0.7 ? '#c08a2e' : INK.weak)
+  if (key === 'young') return c.rate >= 0.75 ? '#3f8f6d' : INK.fuzzy
+  return null
+}
+
+/** ECharts 日历热力图。颜色从纸色渐进到墨绿（与全站牛皮纸协调）。
+ *  没有数据的日子补成 calendar 上缺席（ECharts 自己画空格）。 */
+const HEAT_RAMP = ['#e8e2cf', '#c9d8a4', '#8fb573', '#5d8a54', '#2f5d3a']
+const heatOption = computed(() => {
+  const days = heatmap.value?.days || []
+  const year = String(heatYear.value)
+  const max = Math.max(1, ...days.map(d => d.count))
+  return {
+    tooltip: {
+      formatter: (p) => {
+        const v = Array.isArray(p.value) ? p.value : [null, 0]
+        return `${v[0]}：刷了 ${v[1]} 张`
+      }
+    },
+    visualMap: {
+      min: 0, max, show: false,
+      inRange: { color: HEAT_RAMP }
+    },
+    calendar: {
+      range: year,
+      cellSize: ['auto', 13],
+      left: 36, right: 8, top: 14,
+      splitLine: { show: false },
+      itemStyle: { color: 'rgba(0,0,0,0.04)', borderWidth: 2, borderColor: 'transparent' },
+      dayLabel: { color: '#8a8473', fontSize: 10 },
+      monthLabel: { color: '#8a8473', fontSize: 10 },
+      yearLabel: { show: false }
+    },
+    series: [{
+      type: 'heatmap',
+      coordinateSystem: 'calendar',
+      data: days.map(d => [d.date, d.count])
+    }]
+  }
 })
 
 // ===========================================================================
@@ -695,6 +801,27 @@ function openCard(cardId) {
               </div>
             </div>
 
+            <!-- 复习热力图（张数口径，2026-11-15 加）。学习时长 tab 的热力图
+                 是分钟数（sessions 埋点），两个口径互补：刷 200 张秒过卡和
+                 精读 3 章论文在分钟口径下完全不成比例，张数才看得出刷了多少。 -->
+            <div class="panel rise">
+              <header class="panel-head">
+                <h3>复习热力</h3>
+                <span class="hint">
+                  {{ heatmap?.total ?? '—' }} 张 / {{ heatmap?.activeDays ?? '—' }} 天 ·
+                  连续 {{ heatmap?.streak?.current ?? 0 }} 天（最长 {{ heatmap?.streak?.max ?? 0 }}）
+                </span>
+              </header>
+              <div class="heat-toolbar">
+                <button class="yr-btn" @click="shiftYear(-1)">‹</button>
+                <span class="mono yr">{{ heatYear }}</span>
+                <button class="yr-btn" :disabled="heatYear >= new Date().getFullYear()"
+                        @click="shiftYear(1)">›</button>
+              </div>
+              <EChart v-if="heatOption" :option="heatOption" height="150" />
+              <div v-else class="empty-block">还没有复习记录</div>
+            </div>
+
             <!-- 最近一次复习摘要 -->
             <div v-if="overview.lastSession" class="panel rise">
               <header class="panel-head">
@@ -1002,6 +1129,51 @@ function openCard(cardId) {
               </tbody>
             </table>
           </div>
+        </section>
+      </el-tab-pane>
+
+      <!-- ========== 记忆保持率（True Retention，2026-11-15 加） ========== -->
+      <el-tab-pane label="记忆保持率" name="retention">
+        <section v-loading="retentionLoading" class="tab-body">
+          <template v-if="retention">
+            <p class="tip-block">
+              Anki 口径的 True Retention：把「刚学完就测」和「隔了三周再看」分开算 ——
+              间隔排到 <b>21 天以上</b>再答对，才是复习系统真正的成绩。
+              「模糊」在这里算记得（FSRS 问的是记不记得，与错题本的「掌握没」口径不同）。
+            </p>
+            <div class="panel">
+              <header class="panel-head">
+                <h3>记得率</h3>
+                <span class="hint">单元格：记得率（记得 / 总次数）</span>
+              </header>
+              <table class="tbl">
+                <thead>
+                  <tr>
+                    <th>口径</th>
+                    <th>今天</th>
+                    <th>本月</th>
+                    <th>今年</th>
+                    <th>全部</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="row in retentionRows" :key="row.key">
+                    <td>{{ row.label }}</td>
+                    <td v-for="rng in RET_RANGES" :key="rng" class="mono"
+                        :style="{ color: cellColor(row.key, rng) }">
+                      {{ fmtCell(row.key, rng) }}
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <p class="tip-block warn">
+              成熟度按卡当前间隔近似（事件流里没存当时的间隔）：最近把卡推过
+              21 天线的人，早前的成功复习也会被算成 mature —— 方向温和，
+              但不是精确的历史口径，看趋势别抠小数。
+            </p>
+          </template>
+          <div v-else-if="!retentionLoading" class="empty-block">还没有复习记录</div>
         </section>
       </el-tab-pane>
 
@@ -1419,6 +1591,55 @@ export default {
   border: 1px dashed var(--line2);
   border-radius: var(--radius);
   background: var(--panel2);
+}
+
+/* ===== True Retention 说明块 / 复习热力图工具条（2026-11-15 加） ===== */
+.tip-block {
+  padding: 10px 14px;
+  border: 1px solid var(--line2);
+  border-radius: var(--radius);
+  background: var(--panel2);
+  color: var(--mu);
+  font-size: 12.5px;
+  line-height: 1.7;
+}
+.tip-block.warn {
+  border-left: 3px solid #c08a2e;
+}
+.tip-block b {
+  color: var(--tx);
+}
+.heat-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  margin: 4px 0 2px;
+}
+.heat-toolbar .yr {
+  font-size: 13px;
+  color: var(--mu);
+  min-width: 44px;
+  text-align: center;
+}
+.yr-btn {
+  width: 26px;
+  height: 24px;
+  border: 1px solid var(--line2);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--mu);
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+}
+.yr-btn:hover:not(:disabled) {
+  color: var(--ac);
+  border-color: var(--ac);
+}
+.yr-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
 }
 .empty-sm {
   padding: 20px;

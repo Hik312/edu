@@ -80,6 +80,26 @@ class ImportTextIn(Loose):
     topicPath: Optional[List[str]] = None
 
 
+class ImportQaIn(Loose):
+    """题库导入（2026-11-15）：确定性解析，不走 AI —— 资料本身就是对的，
+    解析环节的任务是忠实搬运，任何「聪明」都是风险。"""
+    text: str = Field(..., description='题库原文（md 问答 / Anki txt / Obsidian SR）')
+    fmt: str = Field('md-qa', description='md-qa | anki-txt | obsidian-sr')
+    qLevel: Optional[int] = Field(None, ge=1, le=6,
+                                  description='md-qa：第几级标题算题面，默认 3（### 是题、## 是章节）')
+    maxChars: Optional[int] = Field(None, ge=200, le=20000, description='单卡答案上限，默认 2000')
+    domain: Optional[str] = None
+    category: Optional[str] = None
+    subject: Optional[str] = None
+    topicPath: Optional[List[str]] = None
+    deck: Optional[str] = Field(None, description='卡片组名（同文档导入的 deck 口径）')
+    source: Optional[str] = Field(None, description='资料来源（仓库名/文件名，溯源与署名用）')
+    ids: Optional[List[str]] = Field(
+        None, max_length=1000, description='commit 时才用：只入库 dry-run 返回的这些 id。'
+        '服务端会**重新解析**再按 id 过滤 —— 解析是确定性的，同一份文本必得同一批卡，'
+        '所以不用信任客户端传回的卡片内容，只信 id。')
+
+
 class DocImportIn(Loose):
     text: Optional[str] = Field(None, description='纯文本内容（与 dataB64 二选一）')
     dataB64: Optional[str] = Field(None, description='文件 base64（md/txt/pdf）')

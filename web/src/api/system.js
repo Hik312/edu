@@ -104,6 +104,21 @@ export function graphInsight(params) {
   return client.get('/graph/insight', { params })
 }
 
+/** 社区摘要：AI 给每个 louvain 社区写一段「这是一块什么知识」。
+ * @param {Object} [params]
+ * @param {string} [params.category]
+ * @param {string} [params.subject]
+ * @param {string} [params.refresh] '=1' 强制重新生成（跑本地模型，几十秒）
+ * @returns {Promise<{ok:boolean, available:boolean, cached?:boolean,
+ *                    items:Array<{index,size,members,title,desc}>,
+ *                    generatedAt?:string, msg?:string}>}
+ *  available=false 是**状态不是故障**（AI 未启用/模型没吐对 JSON），
+ *  拿 msg 渲一行提示，别当错误弹。
+ */
+export function graphCommunitySummary(params) {
+  return client.get('/graph/community-summary', { params, timeout: 240000 })
+}
+
 /** 图推荐：以「我不会的卡」为种子的个性化 PageRank，每条带推荐理由。
  * @param {Object} [params]
  * @param {number} [params.limit] 1~30，默认 8

@@ -566,3 +566,257 @@ def publish(did):
     # card-<id> 目录。直接改列表，语义 = 这张卡搬去正式卡库了。
     db.save_drafts([d for d in list_drafts() if d.get('id') != did])
     return {'ok': True, 'card': copy}
+
+
+# ---------- 题库导入（2026-11-15）：确定性解析，不走 AI ----------
+#
+# ★ 为什么这一条链路刻意**不用大模型**：用户的初衷是「找到好资料 → 上传 →
+#   解析**正确** → 背」。GitHub 上的八股/考研仓库（JavaGuide、CS-Notes、
+#   政治笔记）本身就是人写好的问答，解析环节唯一的任务是把「标题=题面、
+#   正文=答案」忠实搬过来 —— AI 在这里的任何「聪明」都是风险（漏切、改写、
+#   幻觉），规则解析才是可验证的。资料清单与各仓库的格式适配建议见
+#   docs/资料来源.md。
+#
+# 三种格式一个内核（题面 + 答案行），适配器只负责认出「题在哪、答案到哪」：
+#   md-qa      JavaGuide / CS-Notes 形态：`^#{qLevel}` 标题即题面，正文到同级标题
+#   anki-txt   Anki 导出的制表符分隔（正面<TAB>背面）
+#   obsidian-sr Obsidian SR：`问::答` 单行 / 问+`?`+答 多行 / `#flashcards`
+#
+# 入库仍走草稿缓冲区（save_drafts → 人工补 scene → publish）：
+# 「AI 生成 → 人工审核 → 入库」的管线哲学，这里只是「资料 → 人工审核 → 入库」。
+
+#: 答案默认截断（字符）。八股答案几百到一两千字，2000 保住可背性；
+#: 超长说明这条不适合当卡，截断并如实标记。
+QA_MAX_CHARS = 2000
+#: 跳过的章节标题（参考资料/目录/致谢不是知识点）。
+_QA_SKIP_RE = re.compile(
+    r'^(参考|参考文献|参考资料|references?|目录|contents?|table of contents'
+    r'|致谢|附录|appendix|扩展阅读|延伸阅读)\s*[:：]?\s*$', re.I)
+_YAML_FM_RE = re.compile(r'^---\s*$')
+_MD_HEAD_RE = re.compile(r'^(#{1,6})\s+(.+?)\s*#*\s*$')
+
+
+def _qa_id(text, i):
+    """题库导入的草稿 id：qa-<内容指纹>-<序号>。同一份文件重复导入 →
+    同 id → save_drafts 的 upsert 语义把它覆盖成一份，不会翻倍。"""
+    import hashlib as _h
+    base = _h.md5(text.encode('utf-8')).hexdigest()[:8]
+    return 'qa-%s-%d' % (base, i)
+
+
+def _qa_card(q, answer_lines, opts, i, source_text, meta=None):
+    """题面 + 答案行 → 一张草稿卡（形状与 parse_local 的产出完全一致）。"""
+    answer_lines = [l for l in answer_lines if l.strip()]
+    chars = sum(len(l) for l in answer_lines)
+    truncated = False
+    if chars > QA_MAX_CHARS and opts.get('maxChars', QA_MAX_CHARS):
+        limit = int(opts.get('maxChars', QA_MAX_CHARS))
+        kept, used = [], 0
+        for l in answer_lines:
+            if used + len(l) > limit:
+                truncated = True
+                break
+            kept.append(l)
+            used += len(l)
+        answer_lines = kept
+    mech = [clean_bullet(l) if is_bullet(l) else l for l in answer_lines]
+    mech = [(ORD[k] + ' ' + s) if k < len(ORD) else ('%d. %s' % (k + 1, s))
+            for k, s in enumerate(mech)]
+    first = next((clean_bullet(l) for l in answer_lines if not is_bullet(l)),
+                 answer_lines[0] if answer_lines else '')
+    card = {
+        'id': _qa_id(source_text, i),
+        'domain': opts.get('domain') or '待归类',
+        'category': opts.get('category') or '',
+        'subject': opts.get('subject') or '',
+        'topicPath': list(opts.get('topicPath') or ['题库导入']),
+        'title': cut(q, 80),
+        'oneLine': cut(first, 60),
+        'mechanism': mech or ['（该题没有可识别的答案内容，需手工补充）'],
+        'keywords': pick_keywords(q, ' '.join(answer_lines)),
+        'scene': ['（待补充：在你做过的项目里这条用在哪）'],
+        'interviewQ': ['（待补充：面试官会怎么追问这条）'],
+        '_draft': True,
+        '_from': 'qa',
+        'source': (opts.get('source') or '')[:120],
+    }
+    if opts.get('deck'):
+        card['deck'] = opts['deck']
+        card['deckId'] = opts['deck']
+    if truncated:
+        card['_truncated'] = True
+    if meta:
+        card.update({k: v for k, v in meta.items() if v})
+    return card
+
+
+def _strip_yaml_front_matter(lines):
+    """剥 YAML front matter（--- 包头，JavaGuide 的 md 都带 title/date）。"""
+    if lines and _YAML_FM_RE.match(lines[0]):
+        for i in range(1, len(lines)):
+            if _YAML_FM_RE.match(lines[i]):
+                return lines[i + 1:]
+        return []
+    return lines
+
+
+def _parse_md_qa(text, opts):
+    """markdown 问答式：`#{qLevel}` 标题 = 题面，正文到同级/更高级标题为止。
+
+    qLevel 默认 3（### 是题、## 是章节 —— JavaGuide/CS-Notes 的实测结构）。
+    更深的标题（####）不新开题，其内容并入当前答案（那是答案里的细分）。
+    代码块用 fence_mask 挡住 —— 块内的 `## 注释` 不是标题。
+    """
+    q_level = int(opts.get('qLevel') or 3)
+    lines = [l.rstrip() for l in text.replace('\r\n', '\n').split('\n')]
+    lines = _strip_yaml_front_matter(lines)
+    fence = _fence_mask(lines)
+    cards, skipped = [], []
+    cur_q, cur_body, cur_line_no = None, [], -1
+    total_lines = len(lines)
+
+    def flush(i):
+        nonlocal cur_q, cur_body, cur_line_no
+        if cur_q is not None:
+            body = [l for l in cur_body if l.strip()]
+            if body:
+                cards.append(_qa_card(cur_q, cur_body, opts, len(cards),
+                                      text, meta={'_line': cur_line_no}))
+            else:
+                skipped.append({'title': cut(cur_q, 60), 'reason': '题面下没有内容'})
+        cur_q, cur_body, cur_line_no = None, [], i
+
+    for i, line in enumerate(lines):
+        m = None if fence[i] else _MD_HEAD_RE.match(line.strip())
+        if not m:
+            if cur_q is not None:
+                cur_body.append(line)
+            continue
+        level = len(m.group(1))
+        title = m.group(2).strip()
+        if level < q_level:
+            flush(i)                        # 更高级标题 = 章节，当前题收尾
+            continue
+        if level > q_level:
+            if cur_q is not None:           # 更深标题 = 答案内部的小节，并入答案
+                cur_body.append(line)
+            continue
+        # 正好 qLevel：一道新题
+        flush(i)
+        if _QA_SKIP_RE.match(title):
+            cur_q = None                    # 参考/目录节整个跳过
+            cur_body = []
+            continue
+        cur_q, cur_body, cur_line_no = title, [], i
+    flush(total_lines)
+    return cards, skipped
+
+
+def _strip_html(s):
+    """Anki 导出常带 HTML（<br>、<b>、&nbsp;）。做保守清洗：换行还原、
+    标签剥掉、常见实体还原 —— 宁可多留纯文本，不可误删内容。"""
+    import html as _html
+    s = re.sub(r'(?i)<br\s*/?>', '\n', s or '')
+    s = re.sub(r'(?i)</(div|p|li|tr)>', '\n', s)
+    s = re.sub(r'<[^>]+>', '', s)
+    s = _html.unescape(s)
+    return s.strip()
+
+
+def _parse_anki_txt(text, opts):
+    """Anki 导出的制表符分隔：正面<TAB>背面，# 开头是导出头/注释。"""
+    cards, skipped = [], []
+    for raw in text.replace('\r\n', '\n').split('\n'):
+        line = raw.rstrip()
+        if not line.strip() or line.lstrip().startswith('#'):
+            continue
+        parts = line.split('\t')
+        if len(parts) < 2 or not parts[0].strip():
+            skipped.append({'title': cut(parts[0] if parts else line, 40),
+                            'reason': '没有制表符分隔（不是 Anki txt 导出格式）'})
+            continue
+        q = _strip_html(parts[0])
+        a = _strip_html('\n'.join(parts[1:]))
+        if not q:
+            continue
+        cards.append(_qa_card(q, a.split('\n'), opts, len(cards), text,
+                              meta={'_anki': True}))
+    return cards, skipped
+
+
+def _parse_obsidian_sr(text, opts):
+    """Obsidian Spaced Repetition：`问::答` 单行；多行卡 = 问 + 单独一行 `?` + 答。
+
+    :: 切在最左出现处（Obsidian SR 的约定，嵌套 `:::` 属于答案的一部分）。
+    `#flashcards` 标签行只当标记，不当内容。
+    """
+    lines = [l.rstrip() for l in text.replace('\r\n', '\n').split('\n')]
+    cards, skipped = [], []
+    i, n = 0, len(lines)
+    while i < n:
+        line = lines[i].strip()
+        if not line:
+            i += 1
+            continue
+        # markdown 标题（# 开头且不是 #flashcards 标签）跳过 —— 章节名不是卡
+        if line != '#flashcards' and not line.startswith('#flashcards') \
+                and _MD_HEAD_RE.match(line):
+            i += 1
+            continue
+        if line.startswith('#flashcards'):
+            i += 1
+            continue
+        if '::' in line and not _MD_HEAD_RE.match(line):
+            q, a = line.split('::', 1)      # 最左 :: —— Obsidian SR 约定
+            cards.append(_qa_card(q.strip(), a.strip().split('\n'),
+                                  opts, len(cards), text))
+            i += 1
+            continue
+        # 多行卡：本题行 + '?' + 答案行（到空行或下一个标题为止）
+        q = line
+        j = i + 1
+        while j < n and not lines[j].strip():
+            j += 1
+        if j < n and lines[j].strip() == '?':
+            ans, k = [], j + 1
+            while k < n and lines[k].strip() and not _MD_HEAD_RE.match(lines[k].strip()):
+                ans.append(lines[k])
+                k += 1
+            if q and ans:
+                cards.append(_qa_card(q, ans, opts, len(cards), text))
+            else:
+                skipped.append({'title': cut(q, 40), 'reason': '多行卡缺问句或答案'})
+            i = k
+            continue
+        i += 1
+    return cards, skipped
+
+
+_QA_FORMATS = ('md-qa', 'anki-txt', 'obsidian-sr')
+
+
+def parse_qa(text, fmt='md-qa', opts=None):
+    """题库导入统一入口。返回 `{'fmt', 'cards', 'skipped'}`。
+
+    cards 是**草稿**（_draft:True，含 scene 占位）—— 直接 save_drafts
+    即可进缓冲区，审核补齐后走既有 publish 入库。**不走 AI**：
+    见本节头注释，规则解析才是可验证的「解析正确」。
+
+    fmt:
+      md-qa       `#{qLevel}` 标题即题（qLevel 默认 3，JavaGuide/CS-Notes 结构）
+      anki-txt    Anki txt 导出（制表符分隔）
+      obsidian-sr Obsidian SR（问::答 / 问+?+答）
+    opts 透传 parse_local 的字段（domain/category/subject/topicPath），
+    另有 deck（卡片组）、source（资料来源，溯源字段）、qLevel、maxChars。
+    """
+    opts = dict(opts or {})
+    fmt = (fmt or 'md-qa').strip().lower()
+    if fmt not in _QA_FORMATS:
+        raise ValueError('不认识的题库格式：%s（可选：%s）' % (fmt, ' / '.join(_QA_FORMATS)))
+    if fmt == 'md-qa':
+        cards, skipped = _parse_md_qa(text, opts)
+    elif fmt == 'anki-txt':
+        cards, skipped = _parse_anki_txt(text, opts)
+    else:
+        cards, skipped = _parse_obsidian_sr(text, opts)
+    return {'fmt': fmt, 'cards': cards, 'skipped': skipped}

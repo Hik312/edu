@@ -323,6 +323,12 @@ def study_time(sessions, cards_by_id=None, period='week', today=None):
         sec = _clean_seconds(s.get('duration_seconds'))
         if sec <= 0:
             continue
+        # ★ 2026-11-15 补上 MIN_SESSION_SECONDS 这道闸：模块头注释一直写着
+        #   「低于 2 秒的多半是误触/切页面，直接不计」，但代码从来没实现过 ——
+        #   pytest 一写就露馅。1 秒的「会话」成千上万条混进去，
+        #   日均分钟和 totalSessions 全被稀释成噪声。
+        if sec < MIN_SESSION_SECONDS:
+            continue
         day = _day(s.get('ts'))
         if start and day and day < start:
             continue
@@ -377,3 +383,148 @@ def _clean_seconds(v):
     if x != x or x < 0:      # x != x 排掉 NaN
         return 0
     return min(x, float(MAX_SESSION_SECONDS))
+
+# ---------- True Retention（Anki 口径记忆保持率）+ 复习热力图（2026-11-15 加） ----------
+
+#: Anki 的「成熟卡」线：这张卡的间隔排到 ≥21 天，说明之前连续记住了它 ——
+#: 这之后再答对，才算「真记住了」。新卡答对是「刚学完当然记得」，不算功劳。
+MATURE_AT_DAYS = 21
+
+#: True Retention 的四个时间窗。today=今天、month=本月、year=今年、all=全部。
+_RET_RANGES = ('today', 'month', 'year', 'all')
+
+
+def _in_range(day, rng, today):
+    if rng == 'today':
+        return day == today
+    if rng == 'month':
+        return day[:7] == today[:7]
+    if rng == 'year':
+        return day[:4] == today[:4]
+    return True
+
+
+def _rate_cell():
+    return {'correct': 0, 'total': 0, 'rate': None}
+
+
+def true_retention(events, progress=None, today=None):
+    """Anki 的 True Retention：按 young/mature 分开算「答对率」。
+
+    和「正确率」的区别（为什么要做这一页）：正确率把「刚学完就测」和
+    「隔了三周再看」混在一起，新卡拉高整体数字，谁都看不出记忆的真实成色。
+    Anki 把线画在 21 天：间隔排到 21 天以上再答对，才是复习系统真正的成绩。
+
+    events   : 复习事件流（card_id / level / at），口径同 mistake_book。
+    progress : {card_id: 进度dict}。**成熟度按卡当前的 interval 近似** ——
+               事件流里没存「那次复习时的间隔」，要历史口径就得把 interval
+               也写进事件（那是存储层三处的改动）。近似的影响：最近把卡
+               从「生」推过 21 天线的人，他早前的成功复习也会被算成 mature。
+               方向偏差恒定且温和，比起「算不出这一页」是净收益。
+    today    : 注入「今天」（测试用）。
+
+    返回 {'today'/'month'/'year'/'all': {'young':{correct,total,rate},
+          'mature':{...}, 'total':{...}}}。y 的口径与 srs-benchmark 一致：
+          level 1（不会）= 忘，level 2/3 = 记得（FSRS 问的是「记不记得」，
+          与 BKT 的「掌握没」是两个问题）。
+    """
+    progress = progress or {}
+    today = today or today_of()
+    # 先定每张卡的成熟度（只跟 interval 有关，逐事件重复算浪费）
+    mature = {}
+    for cid, p in progress.items():
+        try:
+            mature[cid] = int((p or {}).get('interval') or 0) >= MATURE_AT_DAYS
+        except (TypeError, ValueError):
+            mature[cid] = False
+    cells = {rng: {'young': _rate_cell(), 'mature': _rate_cell(),
+                   'total': _rate_cell()} for rng in _RET_RANGES}
+    for ev in events or []:
+        try:
+            lvl = int(ev.get('level') or 0)
+        except (TypeError, ValueError):
+            continue
+        if lvl not in (LEVEL_AGAIN, LEVEL_HARD, LEVEL_GOOD):
+            continue
+        day = _day(ev.get('at'))
+        if not day:
+            continue
+        y = 0 if lvl == LEVEL_AGAIN else 1
+        cid = ev.get('card_id') or ev.get('cid')
+        is_m = mature.get(cid, False)
+        for rng in _RET_RANGES:
+            if _in_range(day, rng, today):
+                for key in (('mature', 'total') if is_m else ('young', 'total')):
+                    c = cells[rng][key]
+                    c['total'] += 1
+                    c['correct'] += y
+    for rng in _RET_RANGES:
+        for c in cells[rng].values():
+            if c['total']:
+                c['rate'] = round(c['correct'] / c['total'], 4)
+    return cells
+
+
+def review_heatmap(events, year=None, today=None):
+    """一年里「每天复习了多少张」—— GitHub 风格热力图的数据半边。
+
+    与 study_time 的 heatmap 的分工：那个是**分钟数**（sessions 埋点，
+    量「学了多久」），这个是**张数**（事件流，量「刷了几张」）。
+    两个都留着：刷 200 张秒过的卡和精读 3 章论文，时长口径下完全不成比例，
+    张数口径才能看出「今天真的刷了多少」。
+
+    events : 复习事件流（口径同 mistake_book，不筛用户 —— 调用方已按人取）。
+    year   : 年份；None = 今天所在年份。
+
+    返回 {'year', 'days': [{'date','count','weak','good'}], 'total',
+          'activeDays', 'streak': {'current','max'}}。
+    streak = 连续有复习的天数：current 从今天（或昨天，今天还没刷时）往回数；
+    max 是全年最长连击。算法 O(n)：排序后线性扫。
+    """
+    today = today or today_of()
+    year = int(year or today[:4])
+    per_day = {}
+    for ev in events or []:
+        try:
+            lvl = int(ev.get('level') or 0)
+        except (TypeError, ValueError):
+            continue
+        if lvl not in (LEVEL_AGAIN, LEVEL_HARD, LEVEL_GOOD):
+            continue
+        day = _day(ev.get('at'))
+        if not day or day[:4] != str(year):
+            continue
+        b = per_day.setdefault(day, {'count': 0, 'weak': 0, 'good': 0})
+        b['count'] += 1
+        if lvl == LEVEL_AGAIN:
+            b['weak'] += 1
+        elif lvl == LEVEL_GOOD:
+            b['good'] += 1
+    days = [{'date': d, 'count': v['count'], 'weak': v['weak'],
+             'good': v['good']} for d, v in sorted(per_day.items())]
+    # streak：把全年活跃日排好，线性扫一遍最长连击；
+    # current 从「今天或最近一个 ≤ 今天的活跃日」往回数 —— 今天还没刷不算断
+    active = sorted(per_day.keys())
+    best = cur = 0
+    prev_d = None
+    for d in active:
+        cur = cur + 1 if (prev_d and _shift_days(prev_d, 1) == d) else 1
+        best = max(best, cur)
+        prev_d = d
+    streak_now = 0
+    probe = today
+    dset = set(active)
+    while probe in dset:
+        streak_now += 1
+        probe = _shift_days(probe, -1)
+    return {'year': year, 'days': days,
+            'total': sum(v['count'] for v in per_day.values()),
+            'activeDays': len(active),
+            'streak': {'current': streak_now, 'max': best}}
+
+
+def today_of():
+    """本文件刻意不 import db（保持零依赖可独立跑），这里补一个「今天」。
+    与 db.today_str 同格式，报表按天聚合不需要时钟精度。"""
+    from datetime import date
+    return date.today().strftime('%Y-%m-%d')

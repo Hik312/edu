@@ -102,7 +102,18 @@ def algo_status():
     判据仍是「响应里有没有个人数据」→ 这是纯配置，**不要登录**。
     """
     return {'ok': True, 'current': algo.get().describe(),
-            'options': algo.describe_all()}
+            'options': algo.describe_all(),
+            # Load Balance 开关状态（algo/loadbalance.py，默认关）——
+            # 改变了排期行为的配置必须看得见，跟算法本身同一原则
+            'loadBalance': _loadbalance_cfg()}
+
+
+def _loadbalance_cfg():
+    try:
+        import algo.loadbalance as loadbalance
+        return loadbalance.config()
+    except Exception as e:
+        return {'enabled': False, 'window': 0, 'cap': None, 'error': str(e)[:120]}
 
 
 @router.get('/roles', summary='目标岗位列表')
@@ -207,6 +218,30 @@ def graph_insight(category: Optional[str] = Query(None),
     口径与 /graph 保持一致，不给「图是公共的、所以这个公开」的借口。
     """
     return db.graph_insight(category=category or None, subject=subject or None)
+
+
+@router.get('/graph/community-summary', summary='社区摘要（AI 生成的「这是一块什么知识」）')
+def graph_community_summary(category: Optional[str] = Query(None),
+                            subject: Optional[str] = Query(None),
+                            refresh: str = Query(
+                                '', description='=1 强制重新生成（跑本地模型，几十秒量级）'),
+                            user=Depends(current_user)):
+    """对 louvain 分出的每个社区，用本地 LLM 写一段「这块知识讲什么」。
+
+    要登录：社区成员里的卡片 id 与个人图谱页共用同一份上下文（口径随 /graph）。
+
+    ★ AI 未启用 / 模型没吐对 JSON：200 + available:false + msg —— 摘要挂了
+      不该让图谱页崩，前端拿 msg 渲一行提示即可。refresh=1 是显式按钮行为
+      （同步等几十秒），普通 GET 永远只读缓存，命中即回、毫秒级。
+    """
+    try:
+        return db.community_summary(category=category or None,
+                                    subject=subject or None,
+                                    refresh=(refresh == '1'))
+    except Exception as e:
+        # Ollama 超时 / 没起 / 云端断网：可见的降级状态，不当 500 抛给前端
+        return {'ok': False, 'available': False, 'items': [],
+                'msg': '摘要生成失败：%s' % str(e)[:160]}
 
 
 @router.get('/graph/recommend', summary='图推荐（个性化 PageRank）')

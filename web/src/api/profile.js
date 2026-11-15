@@ -86,3 +86,25 @@ export function reportReviewSession(payload) {
 export function batchReportReviewSessions(sessions) {
   return client.post('/profile/review-sessions/batch', { sessions })
 }
+
+/** True Retention（Anki 口径记忆保持率，2026-11-15 加）。
+ * young（间隔 <21 天）/ mature（≥21 天）分开算「记得率」，四档时间窗。
+ * @returns {Promise<{ok:boolean, data:Object}>}
+ * data: { [today|month|year|all]: {
+ *   young:  {correct, total, rate},   // rate 为 null 表示这个窗口还没有样本
+ *   mature: {correct, total, rate},
+ *   total:  {correct, total, rate} } } */
+export function getTrueRetention() {
+  return client.get('/profile/true-retention')
+}
+
+/** 复习热力图：一年里「每天刷了几张」（学习时长热力图量的是分钟，互补）。
+ * @param {Object} [params]
+ * @param {number} [params.year] 不传 = 今年
+ * @returns {Promise<{ok:boolean, data:Object}>}
+ * data: { year:number, days: Array<{date,count,weak,good}>,
+ *         total:number, activeDays:number,
+ *         streak: {current:number, max:number} } */
+export function getReviewHeatmap(params) {
+  return client.get('/profile/review-heatmap', { params })
+}

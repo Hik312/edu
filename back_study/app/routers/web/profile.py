@@ -298,6 +298,42 @@ def profile_study_time(period: str = Query('week'),
     return {'ok': True, 'data': data}
 
 
+# ---------- 4.5 记忆保持率 / 复习热力图（2026-11-15 加，与 study-time 同模式） ----------
+
+@router.get('/true-retention', summary='True Retention（Anki 口径记忆保持率）')
+def profile_true_retention(user=Depends(current_user)):
+    """young / mature（间隔 ≥21 天）分开算「记得率」，四档时间窗。
+
+    和「正确率」的区别：正确率把「刚学完就测」和「隔三周再看」混在一起，
+    新卡拉高数字。这一页是复习系统真正的成绩单。
+    成熟度按卡**当前** interval 近似（局限见 R.true_retention 的 docstring）。
+    """
+    uid = user.get('id')
+    events = db.events_of(uid, limit=db.EVENTS_ALL)
+    prog = db.get_progress(uid)
+    data = R.true_retention(events, prog, _today())
+    return {'ok': True, 'data': data}
+
+
+@router.get('/review-heatmap', summary='复习热力图（一年里每天刷了几张）')
+def profile_review_heatmap(year: Optional[int] = Query(
+        None, ge=2000, le=2100, description='不传 = 今天所在年份'),
+        user=Depends(current_user)):
+    """每日复习**张数**（study-time 的热力图是**分钟数**，两个口径互补）。
+
+    事件流挂掉不该让个人中心 500：照 _sessions_of 的降级模式，按空处理。
+    """
+    uid = user.get('id')
+    try:
+        events = db.events_of(uid, limit=db.EVENTS_ALL)
+    except Exception as e:
+        import sys
+        sys.stderr.write('[profile] 读复习事件失败（热力图按空处理）：%s\n' % e)
+        events = []
+    data = R.review_heatmap(events, year=year, today=_today())
+    return {'ok': True, 'data': data}
+
+
 # ---------- 5/6. 埋点上报 ----------
 
 class SessionIn(BaseModel):

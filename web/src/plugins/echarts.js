@@ -6,6 +6,7 @@
  * ## 已注册的能力（按需，够用就停）
  *
  *   BarChart / LineChart / PieChart    柱、折、饼 —— 分布与趋势
+ *   HeatmapChart                       热力图（复习热力日历，2026-11-15 加）
  *   RadarChart                         掌握度雷达
  *   GaugeChart                         完成度仪表
  *   ScatterChart / EffectScatterChart  相关性、带动效的重点点
@@ -25,6 +26,7 @@ import * as echarts from 'echarts/core'
 import {
   BarChart,
   EffectScatterChart,
+  HeatmapChart,
   GaugeChart,
   GraphChart,
   LineChart,
@@ -58,6 +60,7 @@ import { CanvasRenderer } from 'echarts/renderers'
 
 echarts.use([
   BarChart,
+  HeatmapChart,
   LineChart,
   PieChart,
   RadarChart,

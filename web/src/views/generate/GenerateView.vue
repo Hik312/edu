@@ -21,6 +21,8 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   clearDrafts,
   dropDraft,
+  importQaCommit,
+  importQaPreview,
   importText,
   listDrafts,
   patchDraft,
@@ -46,6 +48,89 @@ const drafts = ref([])
 /** 正在编辑的草稿 id。同时只展开一条 —— 全展开会让页面变成一堆表单。 */
 const editing = ref('')
 const busy = ref({})
+
+// ---- 题库导入模式（2026-11-15）：确定性解析现成问答资料，不走 AI ----
+const qaMode = ref(false)
+const qaFmt = ref('md-qa')
+const qaQLevel = ref(3)
+const qaDeck = ref('')
+const qaSource = ref('')
+const qaText = ref('')
+const qaBusy = ref(false)
+const qaPreview = ref(null)        // { cards, skipped } —— dry-run 的返回
+const qaSel = ref([])              // 勾选的卡 id
+const allSelected = computed(() =>
+  qaPreview.value ? qaSel.value.length === qaPreview.value.cards.length && qaSel.value.length > 0 : false)
+
+function switchMode(on) {
+  qaMode.value = on
+  if (!on) qaPreview.value = null  // 切走就清预览，别让两个模式的按钮互相串台
+}
+
+/** 多文件按选择顺序拼成一份文本（解析器按整体内容切题，文件边界插入标题注释，
+ *  md-qa 下文件里的 ### 仍会被正常认出）。来源栏自动填上文件名（可改）。 */
+function onQaFiles(ev) {
+  const files = Array.from(ev.target.files || [])
+  if (!files.length) return
+  Promise.all(files.map(f => f.text().then(t => `<!-- file: ${f.name} -->\n${t}`)))
+    .then(parts => {
+      qaText.value = parts.join('\n\n')
+      const names = files.map(f => f.name.replace(/\.(md|markdown|txt)$/i, '')).join(', ')
+      if (!qaSource.value.trim()) qaSource.value = names.slice(0, 100)
+    })
+  ev.target.value = ''             // 允许重新选同一批文件（clear input）
+}
+
+async function onQaPreview() {
+  qaBusy.value = true
+  qaPreview.value = null
+  qaSel.value = []
+  try {
+    const r = await importQaPreview({
+      text: qaText.value,
+      fmt: qaFmt.value,
+      qLevel: qaFmt.value === 'md-qa' ? qaQLevel.value : undefined,
+      deck: qaDeck.value.trim() || undefined,
+      source: qaSource.value.trim() || undefined
+    })
+    qaPreview.value = { cards: r.cards || [], skipped: r.skipped || [] }
+    if (!qaPreview.value.cards.length) {
+      ElMessage.warning('一张都没解析出来 —— 检查格式/标题级选择（详见跳过原因）')
+    }
+  } catch (e) {
+    ElMessage.error(e?.msg || e?.message || '解析失败')
+  } finally {
+    qaBusy.value = false
+  }
+}
+
+async function onQaCommit() {
+  if (!qaSel.value.length) return
+  qaBusy.value = true
+  try {
+    const r = await importQaCommit({
+      text: qaText.value,
+      fmt: qaFmt.value,
+      qLevel: qaFmt.value === 'md-qa' ? qaQLevel.value : undefined,
+      deck: qaDeck.value.trim() || undefined,
+      source: qaSource.value.trim() || undefined,
+      ids: qaSel.value
+    })
+    ElMessage.success(`已存入 ${r.count} 张草稿${r.missing ? `（${r.missing} 张 id 对不上，已跳过）` : ''}`)
+    qaPreview.value = null
+    qaSel.value = []
+    qaText.value = ''
+    await fetchDrafts()
+  } catch (e) {
+    ElMessage.error(e?.msg || e?.message || '入库失败')
+  } finally {
+    qaBusy.value = false
+  }
+}
+
+function toggleSelAll() {
+  qaSel.value = allSelected.value ? [] : qaPreview.value.cards.map(c => c.id)
+}
 
 const llm = ref({ ok: false, provider: '', msg: '' })
 
@@ -317,13 +402,20 @@ async function onClear() {
 
 <template>
   <div class="gen">
-    <!-- ===== 左：输入 ===== -->
+    <!-- ===== 左：输入（双模式：智能切分 / 题库导入） ===== -->
     <section class="panel">
       <header class="panel-head">
-        <h3>粘贴文本</h3>
-        <span class="hint">按空行分段</span>
+        <h3>{{ qaMode ? '题库导入' : '粘贴文本' }}</h3>
+        <span class="hint">{{ qaMode ? '确定性解析，不走 AI' : '按空行分段' }}</span>
+        <!-- 模式切换：题库导入是给「现成的问答资料」（JavaGuide/Anki 导出）走的
+             确定性管线；原来的 AI/规则切分适合散乱笔记。两条链路互不干扰。 -->
+        <div class="mode-sw">
+          <button class="mode-btn" :class="{ on: !qaMode }" @click="switchMode(false)">智能切分</button>
+          <button class="mode-btn" :class="{ on: qaMode }" @click="switchMode(true)">题库导入</button>
+        </div>
       </header>
 
+      <template v-if="!qaMode">
       <el-input
         v-model="text"
         type="textarea"
@@ -349,6 +441,100 @@ async function onClear() {
         <svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h10M4 18h13" /></svg>
         {{ splitting ? '切分中…' : '切成草稿' }}
       </button>
+      </template>
+
+      <!-- ===== 题库导入模式（2026-11-15） ===== -->
+      <template v-else>
+        <p class="qa-tip">
+          适合<b>现成的问答资料</b>：JavaGuide / CS-Notes（<code>###</code> 问句标题）、
+          Anki 导出 txt、Obsidian <code>#flashcards</code>。
+          解析是纯规则、可预览、不调用 AI —— 资料本身就是对的，解析只负责忠实搬运。
+          资料清单见 <code>docs/资料来源.md</code>。
+        </p>
+
+        <div class="qa-row">
+          <span class="qa-label">格式</span>
+          <el-radio-group v-model="qaFmt" size="small">
+            <el-radio-button value="md-qa">Markdown 问答</el-radio-button>
+            <el-radio-button value="anki-txt">Anki txt</el-radio-button>
+            <el-radio-button value="obsidian-sr">Obsidian SR</el-radio-button>
+          </el-radio-group>
+        </div>
+
+        <div v-if="qaFmt === 'md-qa'" class="qa-row">
+          <span class="qa-label">题面标题级</span>
+          <el-radio-group v-model="qaQLevel" size="small">
+            <el-radio-button :value="2">## 是题</el-radio-button>
+            <el-radio-button :value="3">### 是题</el-radio-button>
+            <el-radio-button :value="4">#### 是题</el-radio-button>
+          </el-radio-group>
+          <span class="qa-note">JavaGuide / CS-Notes 用「### 是题」</span>
+        </div>
+
+        <div class="qa-row">
+          <span class="qa-label">资料来源</span>
+          <el-input v-model="qaSource" size="small" style="flex: 1"
+                    placeholder="仓库名/文件名（可选，做溯源与署名，如 JavaGuide）" />
+        </div>
+        <div class="qa-row">
+          <span class="qa-label">卡片组</span>
+          <el-input v-model="qaDeck" size="small" style="flex: 1"
+                    placeholder="可选，如「八股-操作系统」（草稿带组名，方便一起审核）" />
+        </div>
+
+        <div class="qa-row">
+          <span class="qa-label">文件</span>
+          <input type="file" multiple accept=".md,.txt,.markdown"
+                 class="qa-file" @change="onQaFiles" />
+          <span class="qa-note">可多选，按顺序拼接；也可以直接粘贴</span>
+        </div>
+
+        <el-input
+          v-model="qaText"
+          type="textarea"
+          :rows="8"
+          resize="vertical"
+          placeholder="粘贴题库原文，或选上面的文件。Markdown 问答按标题级切题：题面 = 标题，正文 = 答案。"
+        />
+
+        <button class="btn btn-primary block" style="margin-top: 12px"
+                :disabled="qaBusy || qaText.trim().length < 10" @click="onQaPreview">
+          {{ qaBusy ? '解析中…' : '解析预览' }}
+        </button>
+
+        <!-- 预览表：逐卡勾选。skipped 的原因直接摆出来 —— 「解析正确」的另一半
+             是「解析错了要看得见」。 -->
+        <div v-if="qaPreview" class="qa-preview">
+          <div class="row-between" style="margin: 12px 0 6px">
+            <span class="muted">
+              解析出 <b>{{ qaPreview.cards.length }}</b> 张
+              <template v-if="qaPreview.skipped.length">
+                · 跳过 {{ qaPreview.skipped.length }} 张
+              </template>
+            </span>
+            <button class="btn btn-bare" @click="toggleSelAll">
+              {{ allSelected ? '全不选' : '全选' }}
+            </button>
+          </div>
+          <div v-if="qaPreview.skipped.length" class="qa-skipped">
+            <div v-for="s in qaPreview.skipped" :key="s.title" class="qa-skip-row">
+              <b>{{ s.title }}</b> — {{ s.reason }}
+            </div>
+          </div>
+          <div class="qa-table">
+            <label v-for="c in qaPreview.cards" :key="c.id" class="qa-card-row">
+              <input v-model="qaSel" type="checkbox" :value="c.id" />
+              <span class="qa-q">{{ c.title }}</span>
+              <span class="qa-a">{{ c.oneLine }}</span>
+              <span v-if="c._truncated" class="chip">截断</span>
+            </label>
+          </div>
+          <button class="btn btn-primary block" style="margin-top: 10px"
+                  :disabled="qaBusy || !qaSel.length" @click="onQaCommit">
+            {{ qaBusy ? '入库中…' : `把选中的 ${qaSel.length} 张存为草稿` }}
+          </button>
+        </div>
+      </template>
     </section>
 
     <!-- ===== 右：草稿 ===== -->
@@ -395,6 +581,8 @@ async function onClear() {
               <span class="chip">{{ d.domain || '待归类' }}</span>
               <span v-if="d._from === 'llm'" class="chip accent">AI 抽词</span>
               <span v-if="d._from === 'agent-cards'" class="chip accent">Agent 出卡</span>
+              <span v-if="d._from === 'qa'" class="chip accent"
+                    :title="d.source ? '来自 ' + d.source : '题库导入'">题库</span>
               <!-- 卡片组：这份草稿来自哪份上传的文档 -->
               <span v-if="d.deck" class="chip" :title="`来自《${d.deck}》`">《{{ d.deck }}》</span>
             </div>
@@ -711,5 +899,112 @@ async function onClear() {
   .gen {
     grid-template-columns: 1fr;
   }
+}
+/* ===== 题库导入（2026-11-15） ===== */
+.mode-sw {
+  margin-left: auto;
+  display: flex;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  overflow: hidden;
+}
+.mode-btn {
+  border: none;
+  background: transparent;
+  padding: 4px 12px;
+  font-size: 12.5px;
+  color: var(--mu);
+  cursor: pointer;
+}
+.mode-btn.on {
+  background: var(--ac-glow, rgba(47, 111, 165, 0.12));
+  color: var(--ac);
+  font-weight: 600;
+}
+.qa-tip {
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel2, rgba(0, 0, 0, 0.02));
+  color: var(--mu);
+  font-size: 12.5px;
+  line-height: 1.7;
+}
+.qa-tip b { color: var(--tx); }
+.qa-tip code {
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.05);
+  font-size: 11.5px;
+}
+.qa-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+  flex-wrap: wrap;
+}
+.qa-label {
+  flex: none;
+  width: 68px;
+  font-size: 12.5px;
+  color: var(--mu);
+}
+.qa-note {
+  font-size: 11.5px;
+  color: var(--dim);
+}
+.qa-file {
+  font-size: 12px;
+  color: var(--mu);
+}
+.qa-preview {
+  margin-top: 4px;
+}
+.qa-skipped {
+  margin: 6px 0;
+  padding: 8px 10px;
+  border: 1px dashed var(--line);
+  border-radius: 8px;
+  max-height: 110px;
+  overflow: auto;
+}
+.qa-skip-row {
+  font-size: 12px;
+  color: var(--dim);
+  line-height: 1.7;
+}
+.qa-skip-row b { color: var(--mu); }
+.qa-table {
+  max-height: 300px;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+.qa-card-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--line);
+  font-size: 12.5px;
+  cursor: pointer;
+}
+.qa-card-row:last-child { border-bottom: none; }
+.qa-card-row:hover { background: var(--ac-glow, rgba(47, 111, 165, 0.08)); }
+.qa-q {
+  flex: 0 0 42%;
+  color: var(--tx);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.qa-a {
+  flex: 1;
+  color: var(--mu);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 </style>

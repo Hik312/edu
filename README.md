@@ -75,6 +75,18 @@ node back_study/scripts/check.js
 解释器用 `PYFAST` 指定。**找不到装齐 fastapi / uvicorn / PyJWT 的 Python 会直接判失败**，
 不再静默跳过 —— 以前缺 fastapi 还有零依赖版能兜底，现在没有兜底了，跳过就等于假绿。
 
+再补一层**白盒单测**（2026-11-15 加，pytest；check.js 是端到端冒烟，两层互补）：
+
+```bash
+cd back_study && .venv/Scripts/python.exe -m pytest tests -q
+```
+
+覆盖：四算法契约（REC_KEYS 六键 / MAX_INTERVAL 夹取 / 脏数据容错）、
+FSRS-6 黄金值（与 py-fsrs v6.3.3 对照过的公式行为）、
+FSRS 拟合（数据门槛 / 合成数据方向恢复）、图算法（PageRank 归一 /
+Louvain 确定性 / 路径方向）、报表聚合（错题本口径 / True Retention）、
+Load Balance（只推迟不提前 / 确定性 / 不动优先）、题库解析（三格式 / 截断 / 指纹 id）。
+
 ---
 
 ## 后端：单实现（FastAPI）
@@ -387,20 +399,43 @@ study/
 
 ---
 
-## 复习间隔（当前默认 FSRS）
+## 复习间隔（当前默认 FSRS-6）
 
 调度算法在 `back_study/algo/`，换算法改 `config.local.json` 的 `ALGO` 一行。
-**当前默认是 FSRS**，SM-2 只是代码里的回落值（配置缺失时才用）。
+**当前默认是 FSRS-6**（2026-11-15 从 4.5 升级，权重/公式逐字对照
+py-fsrs v6.3.3；21 权重，新增同日复习分支与可训练衰减指数），SM-2 只是
+代码里的回落值（配置缺失时才用）。
 
 | 算法 | 回答什么 | 特点 |
 |---|---|---|
-| **FSRS-4.5** | 什么时候再看 | 记忆稳定性模型，有留存概率预测。**当前默认** |
+| **FSRS-6** | 什么时候再看 | 记忆稳定性模型，有留存概率预测。**当前默认**。复习记录攒够 400 条后可用 `POST /api/review/fit-fsrs` 拟合**个性化 21 权重**（SPSA+Adam，纯标准库实现） |
 | **SM-2** | 什么时候再看 | 纯规则，零数据可用。SM-2 简化版：会→间隔 1/3/×记忆因子；模糊→砍半；不会→归零 |
 | **HLR** | 什么时候再看 | 半衰期回归，评测里期末留存最高 |
 | **BKT** | 到底掌握没 | 贝叶斯知识追踪，输出掌握度 p。**不排期**，用来排优先级 |
 
-> ⚠️ 评测（`algo/eval.py`）里三者 AUC 都在 **0.51 ≈ 随机** —— 那是**仿真**评测的
-> 能力边界（ground truth 是自己造的遗忘曲线）。引用时必须主动说这是局限。
+**四算法对拍的数字**（仿真口径：300 张卡 365 天、同一条遗忘曲线同一个种子；
+`python back_study/algo/demo.py --eval` 可复现）：
+
+| 算法 | 复习次数 | 次/卡 | 期末留存 | 掌握卡数 | AUC | RMSE(bins) |
+|---|---|---|---|---|---|---|
+| sm2 | 11783 | 39.28 | 56.4% | 120 | — | — |
+| fsrs | 13721 | 45.74 | 63.0% | **177** | 0.526 | 0.1752 |
+| hlr | 14317 | 47.72 | **66.5%** | 192 | 0.507 | 0.1223 |
+
+- RMSE(bins) 为 **srs-benchmark 现行主指标口径**（对数网格三特征分箱），
+  `algo/eval.py` 与官方指标对齐；log-loss/AUC/校准曲线都齐。
+- 「—」是能力边界不是缺数据：SM-2 无概率模型，BKT 的 p 是掌握度非留存率。
+- 真实日志评测（非仿真）：`python back_study/scripts/eval_real.py`
+  —— 用你自己的复习事件流对四算法算 log-loss / RMSE(bins) / AUC。
+- ⚠️ 仿真评测的 ground truth 是自造遗忘曲线，引用时必须主动说这是局限。
+
+> ⚠️ 早期评测（FSRS-4.5 时代）里 AUC ≈ 0.51 ≈ 随机，是**仿真**的能力边界
+> （拖延分布太窄导致遗忘样本太少）；现行版本加宽了拖延分布（`_delay`），
+> AUC 有区分度但仍偏低 —— 结论只在「相对比较」意义上成立。
+
+**Load Balance**（默认关，`config.local.json` 的 `"LoadBalance": {"enabled": true, "window": 2}`）：
+到期卡在同日过载时自动推迟到相邻闲日，避免「今天 300 张、明天 0 张」。
+确定性实现（无随机源，不破坏双存储逐位对照），创意来自 fsrs4anki-helper。
 
 **这套规则在 `back_study/algo/` 和前端展示层各有一份约定，改要一起改**，
 否则会出现「网页说明天复习、后端说后天」。
@@ -438,6 +473,21 @@ curl -X POST localhost:8080/api/import -H "Content-Type: application/json" \
 不带 `useLLM` 就走本地启发式（按标题行切段，连续编号行识别为步骤），零成本。
 产出是**草稿**，落在 `data/store/drafts.json`；草稿的 `scene` 是占位符，
 补齐 2 条真实场景才能入库 —— 硬规矩，防止半自动的脏数据污染卡库。
+
+### 一·五、题库导入：现成的问答资料直接背（2026-11-15）
+
+**生成**页新增「题库导入」模式，专门吃 GitHub 上**已经写好的问答资料**：
+JavaGuide / CS-Notes（`###` 问句标题）、Anki 导出 txt、Obsidian SR。
+**确定性规则解析，不走 AI** —— 资料本身是对的，解析环节的任务是忠实搬运，
+可预览、可勾选、跳过项带原因。哪有资料、什么 License、怎么导，见
+**[docs/资料来源.md](docs/资料来源.md)**（含考研 408 / 政治的可用清单）。
+
+```bash
+# 预览（不落库）→ 勾选 → 提交，两步走
+curl -X POST localhost:8080/api/import/qa -H "Authorization: Bearer $T" \
+  -H "Content-Type: application/json" \
+  -d '{"text":"### 什么是操作系统？\n管理软硬件资源的程序。","fmt":"md-qa","source":"JavaGuide"}'
+```
 
 ### 二、整份文档 → 逐章精读（一句话 / 类比 / 重点 / 原理拆解）
 
