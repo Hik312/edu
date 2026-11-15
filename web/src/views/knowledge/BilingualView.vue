@@ -150,14 +150,19 @@ async function load() {
   checkRunning()
 }
 
-watch(() => props.docId, () => { stopPoll(); load() }, { immediate: true })
-
 /* ---------------- 翻译任务状态（2026-11-15）：刷新不丢、可停止 ----------------
  * ★ 以前刷新页面后 running=false，用户再点一次就起了第二个并行翻译线程
  *   （后端没注册表，谁都不知道在跑）。现在：load() 后查 status，
  *   服务端说在跑 → running=true + 3s 轮询接管进度；run 端点 409（已有任务）
  *   也转入同一条接管路径。轮询期间 progress 条由 status 驱动，
- *   任务结束自动 load() 拉全量。 */
+ *   任务结束自动 load() 拉全量。
+ *
+ * ★★ 声明顺序教训（2026-11-15 浏览器验证抓出）：watch(immediate) 必须放在
+ *   `let pollTimer` **之后** —— immediate 回调在 setup 期间同步执行，
+ *   回调里 stopPoll() 碰到还没初始化的 pollTimer 就是 TDZ ReferenceError，
+ *   被 Vue 的 errorHandler 静默吞掉 → **挂载时的 load() 一次都不跑**，
+ *   面板永远空态；而切文档的后续触发（setup 已完成）正常，恰好掩盖了它。
+ *   后端日志（对照页 mount 后零 /translate 请求）是唯一可靠证据。 */
 let pollTimer = null
 const runInfo = ref({ running: false, startedAt: null, cancelRequested: false })
 const vlmInfo = ref({ vlm: false, vlmModel: '' })
@@ -215,6 +220,9 @@ async function onStop() {
 }
 
 onUnmounted(stopPoll)
+
+// ★ watch 必须在 pollTimer 声明之后（见上面的声明顺序教训）
+watch(() => props.docId, () => { stopPoll(); load() }, { immediate: true })
 
 /* ---------------- 翻译 ---------------- */
 const lastMode = ref('run')

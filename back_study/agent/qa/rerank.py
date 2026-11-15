@@ -44,9 +44,11 @@ import time
 from .. import config as C
 
 # ---------- 配置 ----------
-#: 模型本地路径。放D 盘是因为 C 盘紧张（实测整个模型 2.2GB）。
-#: 也可以用环境变量 AGENT_RERANK_MODEL 指向别的路径。
-DEFAULT_MODEL_PATH = r'D:\models\bge-reranker-v2-m3'
+#: 模型本地路径。**配置化**（2026-11-15）：以前硬编码 D 盘绝对路径，
+#: 换机器直接挂（评测遗留项）。解析顺序：环境变量 AGENT_RERANK_PATH
+#: > config.local.json 的 "Rerank":{"path":...} > 旧默认值。
+#: 本机放 D 盘是因为 C 盘紧张（实测整个模型 2.2GB）。
+DEFAULT_MODEL_PATH = C.RERANK_PATH
 
 #: feed 给 cross-encoder 的单条文本上限（**字符**）。
 #:

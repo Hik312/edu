@@ -1240,7 +1240,7 @@ function aiOf(c) {
               <button
                 v-if="!headSlim && canShowOriginal"
                 class="btn btn-ghost"
-                @click="biOpen = !biOpen; if (biOpen) { showExtract = false; aiOpen = false }"
+                @click="setBiOpen(!biOpen); if (biOpen) { showExtract = false; aiOpen = false }"
               >
                 {{ biOpen ? '收起译文' : '论文对照' }}
               </button>

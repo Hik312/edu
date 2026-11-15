@@ -5,7 +5,7 @@
 /api/mini 下：小程序不 import web 包的路由，两端策略以后分岔互不影响，
 账号数据（db.verify_login）仍是同一份，不会出现两套账号。
 """
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
 import db
@@ -35,11 +35,20 @@ def _issue(user):
 
 
 @router.post('/login', summary='小程序登录')
-def login(body: LoginIn):
+def login(body: LoginIn, request: Request):
+    # ★ 登录限速与 web 端同口径（2026-11-15）：两端共用 security 里的
+    #   计数器，爆破者从哪一端打都一样被限。
+    blocked, remain = security.login_blocked(body.username,
+                                             request.client.host if request.client else '')
+    if blocked:
+        raise HTTPException(400, '尝试次数过多，请 %d 秒后再试' % remain)
     user, err = db.verify_login(body.username, body.password)
     if err:
+        security.record_login_failure(body.username,
+                                      request.client.host if request.client else '')
         # 凭据错用 400（和 web 端同一约定）；401 只留给「token 失效」
         raise HTTPException(400, err)
+    security.clear_login_failures(body.username)
     return _issue(user)
 
 

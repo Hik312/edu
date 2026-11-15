@@ -24,11 +24,13 @@
 """
 
 import hashlib
+import json
 import hmac
 import os
 import re
 import secrets
 import sys
+import threading
 import time
 
 try:
@@ -192,3 +194,77 @@ def check_password(pw: str):
         # 相当于白送一个 DoS 入口
         return False, '密码最多 64 位'
     return True, pw
+
+# ---------------------------------------------------------------- 登录限速
+# ★ 2026-11-15 加（评测遗留项）：此前登录接口可无限爆破 —— JWT 有效期 7 天，
+#   拿到 token 就是长期凭据，而 PBKDF2 12 万轮反而让每次尝试的服务端成本
+#   更高（爆破者并发打进来 = 白送 DoS）。限速策略：
+#   - 双键计数：按用户名（防定向爆破单账号）+ 按客户端 IP（防换用户名扫库），
+#     任一超限即拒；
+#   - 窗口 10 分钟、上限 10 次失败；成功登录清零该用户名的失败记录；
+#   - 计数存 Redis（cache.get()，多 worker 一致），Redis 不可用降级进程内
+#     dict —— 单机部署下语义不变，只是跨进程不共享（可接受，见 cache.py）。
+LOGIN_WINDOW = 600          # 秒
+LOGIN_MAX_FAILS = 10
+
+_fail_mem = {}              # 进程内降级桶 {key: [timestamps]}
+_login_lock = threading.Lock()
+
+
+def _login_key(kind, ident):
+    return 'login:fail:%s:%s' % (kind, str(ident or '').strip().lower())
+
+
+def _login_failures(key, now):
+    """读某个 key 的失败时间戳列表（Redis 或进程内），顺手清掉窗口外的。"""
+    try:
+        import cache as _cache
+        raw = _cache.get().get(key)
+        if raw:
+            return [t for t in json.loads(raw) if now - t < LOGIN_WINDOW]
+    except Exception:
+        pass
+    return [t for t in _fail_mem.get(key, []) if now - t < LOGIN_WINDOW]
+
+
+def _remember_fail(key, now):
+    stamps = _login_failures(key, now)
+    stamps.append(now)
+    _fail_mem[key] = stamps               # 双写：Redis 挂了内存桶还能接住
+    try:
+        import cache as _cache
+        _cache.get().set(key, json.dumps(stamps), ttl=LOGIN_WINDOW + 60)
+    except Exception:
+        pass
+
+
+def login_blocked(username, ip=''):
+    """这次登录尝试是否应被拒绝。返回 (blocked, 剩余秒数)。"""
+    now = time.time()
+    with _login_lock:
+        for kind, ident in (('user', username), ('ip', ip)):
+            key = _login_key(kind, ident)
+            fails = _login_failures(key, now)
+            if len(fails) >= LOGIN_MAX_FAILS:
+                remain = int(LOGIN_WINDOW - (now - fails[0])) + 1
+                return True, max(remain, 1)
+    return False, 0
+
+
+def record_login_failure(username, ip=''):
+    now = time.time()
+    with _login_lock:
+        for kind, ident in (('user', username), ('ip', ip)):
+            _remember_fail(_login_key(kind, ident), now)
+
+
+def clear_login_failures(username):
+    """登录成功后清用户名维度的计数（IP 维度保留 —— 防同一个 IP 上
+    「试很多账号各试 9 次」绕过窗口）。"""
+    with _login_lock:
+        _fail_mem.pop(_login_key('user', username), None)
+        try:
+            import cache as _cache
+            _cache.get().delete(_login_key('user', username))
+        except Exception:
+            pass

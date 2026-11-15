@@ -74,3 +74,4 @@ back_study/scripts/probe_layout.py
 docs/*
 !docs/开发者文档.md
 !docs/技术架构.md
+.smoke_tmp_*

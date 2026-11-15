@@ -107,3 +107,25 @@ RERANK_CANDIDATES = int(_env('AGENT_RERANK_CANDIDATES', 12))
 # 按实测 12 对约 1700ms，留 1.5 倍余量取 2500；
 # 机器被别的进程占用时会变慢，超时保护就是为那种情况准备的。
 RERANK_TIMEOUT_MS = int(_env('AGENT_RERANK_TIMEOUT_MS', 2500))
+
+
+# ---- 重排模型路径（2026-11-15 配置化）----
+# 以前硬编码 r'D:\models\bge-reranker-v2-m3' —— 换机器直接挂（评测遗留项）。
+# 解析顺序与 ALGO/STORE 同款：环境变量 > config.local.json 的 "Rerank":{"path":...} > 默认。
+def _rerank_path_default():
+    try:
+        import json
+        p = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                         'config.local.json')
+        with open(p, 'r', encoding='utf-8') as f:
+            seg = (json.load(f).get('Rerank') or {})
+        v = str(seg.get('path') or '').strip()
+        if v:
+            return v
+    except Exception:
+        pass
+    return r'D:\models\bge-reranker-v2-m3'
+
+
+RERANK_PATH = os.environ.get('AGENT_RERANK_PATH', '').strip() or _rerank_path_default()
+

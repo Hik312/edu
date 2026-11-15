@@ -818,7 +818,7 @@ function openCard(cardId) {
                 <button class="yr-btn" :disabled="heatYear >= new Date().getFullYear()"
                         @click="shiftYear(1)">›</button>
               </div>
-              <EChart v-if="heatOption" :option="heatOption" height="150" />
+              <EChart v-if="heatOption" :option="heatOption" height="150px" />
               <div v-else class="empty-block">还没有复习记录</div>
             </div>
 

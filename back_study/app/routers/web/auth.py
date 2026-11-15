@@ -7,7 +7,7 @@
 「登录已过期」。所以「凭据不对」用 400，「token 失效」才用 401 ——
 让拦截器只在真正掉线时出手。
 """
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
 import db
@@ -54,11 +54,21 @@ def register(body: RegisterIn):
 
 
 @router.post('/login', summary='登录')
-def login(body: LoginIn):
+def login(body: LoginIn, request: Request):
+    # ★ 登录限速（2026-11-15）：按用户名 + 按 IP 双键计数，10 分钟窗口
+    #   内 10 次失败即拒。之前可无限爆破 —— JWT 有效期 7 天，爆破成功
+    #   就是长期凭据；策略实现在 core/security.py。
+    blocked, remain = security.login_blocked(body.username,
+                                             request.client.host if request.client else '')
+    if blocked:
+        raise HTTPException(400, '尝试次数过多，请 %d 秒后再试' % remain)
     user, err = db.verify_login(body.username, body.password)
     if err:
+        security.record_login_failure(body.username,
+                                      request.client.host if request.client else '')
         # 400 不是 401，理由见模块开头
         raise HTTPException(400, err)
+    security.clear_login_failures(body.username)
     return _issue(user)
 
 

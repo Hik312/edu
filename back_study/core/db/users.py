@@ -10,9 +10,26 @@ user_id，也就是「谁都能登，但数据还是大家共用一份」。这�
 比暂时不隔离糟糕得多。
 （此注释已成历史：progress / notes 现已按 user_id 隔离，2026-10-03。）
 """
+import time
+
 import security                                            # core/security.py
 
 from .base import backend
+
+# ---------- user_get 微缓存（2026-11-15，评测遗留项） ----------
+# deps.current_user 每个请求都 user_get 一次 —— MySQL 后端下就是每请求
+# 一条 SELECT。用户数据几乎不变（改昵称是月级操作），30s TTL 的进程内
+# 缓存能把这条查询从热路径上拿掉。**所有用户写路径（user_put）都会
+# 失效缓存** —— 昵称改完最迟下一请求就生效，不会有 30s 的旧值窗口。
+_USER_CACHE = {}                        # uid -> (ts, user 或 None)
+_USER_TTL = 30.0
+
+
+def _user_cache_invalidate(uid=None):
+    if uid is None:
+        _USER_CACHE.clear()
+    else:
+        _USER_CACHE.pop(str(uid), None)
 
 
 def public_user(u):
@@ -37,7 +54,14 @@ def user_all():
 
 
 def user_get(uid):
-    return backend().user_get(uid)
+    key = str(uid)
+    now = time.time()
+    hit = _USER_CACHE.get(key)
+    if hit and now - hit[0] < _USER_TTL:
+        return hit[1]
+    u = backend().user_get(uid)
+    _USER_CACHE[key] = (now, u)
+    return u
 
 
 def user_by_name(username):
@@ -80,6 +104,7 @@ def create_user(username, password, display_name=''):
         'openid': None,
     }
     uid = backend().user_put(rec)
+    _user_cache_invalidate(uid)
     return public_user(backend().user_get(uid)), None
 
 
@@ -99,6 +124,7 @@ def update_user_profile(uid, display_name=''):
     rec = dict(u)   # 含 passwordHash，原样写回（user_put 是整条替换）
     rec['displayName'] = (display_name or '').strip()[:32] or rec.get('username') or ''
     nid = backend().user_put(rec)
+    _user_cache_invalidate(nid)
     return public_user(backend().user_get(nid)), None
 
 
