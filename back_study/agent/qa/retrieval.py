@@ -82,8 +82,9 @@ def _fingerprint():
       字段口径见它的 _FP_FIELDS。
     以后再动 embedding 输入（比如换前缀规则）也照样 +v4。
     """
+    import llm as _llm
     ids = '|'.join(sorted(c.get('id', '') for c in _all_cards()))
-    return 'v3|%s|%s|%s' % (C.EMBED_MODEL, ids, retr_cache.library_fingerprint())
+    return 'v3|%s|%s|%s' % (_llm.embed_model(), ids, retr_cache.library_fingerprint())
 
 
 def _card_map():
@@ -96,42 +97,15 @@ def _card_map():
     return m
 
 
-# ---------- embedding（懒 import llm，避免顶层耦合） ----------
-#: nomic-embed-text 的**检索前缀**，文档侧和查询侧必须不同。
-#:
-#: 这个模型是拿 Matryoshka + 检索任务微调过的，官方用法硬性要求：
-#: 建索引时每条文本前缀 `search_document: `，查询时前缀 `search_query: `。
-#:
-#: 为什么这在**本项目**里尤其要紧（症状→病因的完整链条）：
-#: 原来 `_embed()` 两边共用、且**不加前缀**。查询被编码进了文档空间，
-#: 余弦相似度整体失真 —— 表现就是所有卡的分数全挤在 0.67 附近、
-#: top5 之间差不到 0.05，看起来"向量检索开了但没效果"。
-#: 前缀一加，同样查询的分数会散开，检索才真的开始按语义排序。
-#:
-#: 代价是索引内容变了 → 指纹必须跟着变（见 _fingerprint 的 v2），
-#: 否则旧的坏索引会被当成有效缓存继续用，改了等于没改。
-DOC_PREFIX = 'search_document: '
-QUERY_PREFIX = 'search_query: '
-
-
+# ---------- embedding（统一走 core/llm.embed，Ollama / 云端同口径） ----------
 def _embed(texts, kind='document'):
-    """调本地 Ollama /api/embed。模型不可用返回 None（调用方据此退化）。
+    """批量向量化。模型不可用返回 None（调用方据此退化）。
 
-    kind: 'document' 建索引用；'query' 检索用。**两边前缀不同**，别合并。
+    kind: 'document' 建索引用；'query' 检索用。nomic 前缀等通道差异
+    都在 llm.embed 里处理，这里不再各写一份。
     """
-    if not texts:
-        return []
-    pfx = QUERY_PREFIX if kind == 'query' else DOC_PREFIX
-    try:
-        import llm as _llm
-        j = _llm._post(_llm.OLLAMA + '/api/embed',
-                       {'model': C.EMBED_MODEL,
-                        'input': [pfx + t for t in texts]}, None, timeout=60)
-        embs = j.get('embeddings') if isinstance(j, dict) else None
-        return embs or None
-    except Exception:
-        # 模型没拉 / Ollama 没起：退化信号，不是故障
-        return None
+    import llm as _llm
+    return _llm.embed(texts, kind)
 
 
 def _cosine(a, b):
@@ -151,7 +125,8 @@ def _build_index():
     vecs = _embed(texts)
     if vecs is None:
         return None
-    return {'fp': _fingerprint(), 'model': C.EMBED_MODEL,
+    import llm as _llm
+    return {'fp': _fingerprint(), 'model': _llm.embed_model(),
             'vecs': {c.get('id'): v for c, v in zip(cards, vecs)}}
 
 

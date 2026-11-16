@@ -7,8 +7,12 @@
 # 版本下限的由来：
 #   fastapi 0.110 起 response_model 与 Annotated 依赖注入才稳定，再低会有弃用警告
 #   uvicorn 0.27 起才默认支持 --host 写多个地址时的行为修正
-fastapi>=0.110
-uvicorn>=0.27
+#
+# ★ 2026-11-16 改成**钉死版本**：服务器上 pip 装出过 fastapi 旧 + starlette 1.x 新
+#   的组合，起服务直接崩（Router.__init__() got an unexpected keyword 'on_startup'）。
+#   下限式约束（>=）挡不住这种漂移，部署环境必须和本机验证过的版本一致。
+fastapi==0.141.1
+uvicorn==0.53.0
 
 # 鉴权。JWT 的签发/验签**不要手写** —— 手写版必须自己校验 header 里的 alg，
 # 漏了就是 alg:none 伪造 token 的入口（JWT 的经典漏洞）。PyJWT 从接口上
@@ -50,7 +54,9 @@ pymysql>=1.1
 psycopg[binary]>=3.1
 #
 #    Redis —— 掌握度缓存 / 降级标记（core/cache.py，RedisCache）。
-redis>=4.5
+#    下限 5.0：cache.py 传了 protocol 参数，redis-py 4.x 会 TypeError
+#    （服务器实测踩过，降级走进程内缓存不影响功能，但缓存就白配了）。
+redis>=5.0
 
 # 3) AI Agent 层（back_study/agent/）：装了才能跑多步 agent / 工具调用 / MCP 外部工具。
 #    不装完全不影响开服务 —— agent 模块把所有 langchain 的 import 都写在
@@ -62,6 +68,9 @@ redis>=4.5
 langgraph>=1.0
 langchain>=1.0
 langchain-ollama>=0.3
+# 云端通道（LLM_PROVIDER=cloud）：agent 层走 OpenAI 兼容接口时需要。
+# 只跑本地 Ollama 可以不装。
+langchain-openai>=0.3
 
 #    MCP（Model Context Protocol）—— agent 通过标准协议接**外部工具**。
 #    mcp.py 是客户端桥接层（起 stdio 子进程 → 把工具包成 langchain 工具），

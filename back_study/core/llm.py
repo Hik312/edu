@@ -24,6 +24,10 @@ OLLAMA = (os.environ.get('OLLAMA_HOST') or 'http://127.0.0.1:11434').rstrip('/')
 CLOUD_BASE = (os.environ.get('LLM_BASE_URL') or 'https://api.deepseek.com').rstrip('/')
 CLOUD_KEY = os.environ.get('LLM_API_KEY') or ''
 CLOUD_MODEL = os.environ.get('LLM_MODEL') or 'deepseek-chat'
+# 云端 embedding / 视觉模型默认值（OpenAI 兼容协议，SiliconFlow 可直接用）。
+# 换服务商或换模型只改环境变量：LLM_EMBED_MODEL / LLM_VLM_MODEL。
+CLOUD_EMBED_MODEL = os.environ.get('LLM_EMBED_MODEL') or 'BAAI/bge-m3'
+CLOUD_VLM_MODEL = os.environ.get('LLM_VLM_MODEL') or 'Qwen/Qwen2.5-VL-7B-Instruct'
 
 # 服务器上根本不想跑 AI（没显卡 / 没装 Ollama / 不想付云上的钱）时设 AI=off。
 # 关掉的只是「AI 精读」这一块：背卡、复习、导入分章、文档阅读全都不受影响 ——
@@ -144,7 +148,7 @@ def status():
             return {'ok': False, 'provider': 'cloud', 'base': CLOUD_BASE, 'model': '',
                     'models': [], 'msg': '云端模式要设 LLM_API_KEY'}
         return {'ok': True, 'provider': 'cloud', 'base': CLOUD_BASE,
-                'model': CLOUD_MODEL, 'models': [],
+                'model': CLOUD_MODEL, 'models': [], 'vlm': vlm_model(),
                 'msg': '云端接口 %s · %s' % (CLOUD_BASE, CLOUD_MODEL)}
     models = list_models()
     if not models:
@@ -190,12 +194,27 @@ def vlm_model():
     → 按 tags 里 capabilities 含 vision 的挑第一个。
     Ollama 的视觉模型叫 qwen2.5vl（没有中间横杠），拉的时候别打错。"""
     env = (os.environ.get('LLM_VLM_MODEL') or '').strip()
+    if provider() == 'cloud':
+        return env or CLOUD_VLM_MODEL
     if env:
         return env
     for m in _tags():
         if 'vision' in (m.get('capabilities') or []):
             return m.get('name') or ''
     return ''
+
+
+def _vlm_cloud(img_b64, prompt, model, timeout, max_tokens):
+    """OpenAI 兼容的 vision 调用：图片走 data URL，文本走 content 数组。"""
+    payload = {'model': model,
+               'messages': [{'role': 'user', 'content': [
+                   {'type': 'text', 'text': prompt},
+                   {'type': 'image_url',
+                    'image_url': {'url': 'data:image/png;base64,' + img_b64}}]}],
+               'temperature': 0.2, 'max_tokens': max_tokens}
+    j = _post(CLOUD_BASE + '/v1/chat/completions', payload,
+              {'Authorization': 'Bearer ' + CLOUD_KEY}, timeout)
+    return _drop_think(j['choices'][0]['message']['content'])
 
 
 def vlm_caption(img_b64, context='', model=None, timeout=300):
@@ -212,6 +231,16 @@ def vlm_caption(img_b64, context='', model=None, timeout=300):
     if context:
         prompt += '（它出现在「%s」的正文里）' % str(context)[:60]
     prompt += '，60 字以内，只输出这一句，不要任何解释、不要标点开头。'
+    if provider() == 'cloud':
+        try:
+            raw = _vlm_cloud(img_b64, prompt, model, timeout, 200)
+        except urllib.error.HTTPError as e:
+            if e.code == 404:
+                raise RuntimeError('no_vlm')
+            raise RuntimeError('llm_http:%s' % e.code)
+        cap = (raw or '').strip()
+        cap = re.sub(r'^["\'「」]|["\'「」]$', '', cap).strip()
+        return cap[:80]
     payload = {'model': model, 'prompt': prompt, 'images': [img_b64],
                'stream': False,
                'options': {'temperature': 0.2, 'num_predict': 200}}
@@ -264,6 +293,13 @@ def figure_interpret(img_b64, caption='', figtext=None, model=None, timeout=150)
         t = str(t or '').strip()
         if t:
             lines.append('图内文字：%s' % t[:80])
+    if provider() == 'cloud':
+        try:
+            out = _vlm_cloud(img_b64, '\n'.join(lines), model, timeout, 500)
+        except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError, OSError):
+            return None                       # 模型不可用/超时：降级，不是故障
+        out = (out or '').strip()
+        return out[:1200] or None
     payload = {'model': model, 'prompt': '\n'.join(lines), 'images': [img_b64],
                'stream': False,
                'options': {'temperature': 0.2, 'num_predict': 500}}
@@ -275,6 +311,54 @@ def figure_interpret(img_b64, caption='', figtext=None, model=None, timeout=150)
     if not out:
         return None
     return out[:1200]
+
+
+# ---------- embedding（双通道统一入口） ----------
+# nomic-embed-text 的检索前缀：建索引 `search_document: `、查询 `search_query: `，
+# 官方硬性要求，两边共用会让余弦相似度整体失真（分数全挤在 0.67 附近）。
+# 前缀只属于 nomic 系模型；云端 bge-m3 等不需要，加了反而污染输入。
+DOC_PREFIX = 'search_document: '
+QUERY_PREFIX = 'search_query: '
+
+
+def embed_model():
+    """当前通道的 embedding 模型名。检索指纹必须用它：
+    换通道 / 换模型而指纹不变，会把 A 模型的向量当 B 模型的用。"""
+    env = (os.environ.get('AGENT_EMBED_MODEL') or '').strip()
+    if provider() == 'cloud':
+        return env or CLOUD_EMBED_MODEL
+    return env or 'nomic-embed-text'
+
+
+def embed(texts, kind='document', model=None, timeout=60):
+    """批量向量化：cloud 走 /v1/embeddings，否则 Ollama /api/embed。
+    不可用返回 None（调用方据此降级），不抛异常。"""
+    if not texts:
+        return []
+    p = provider()
+    if p == 'off':
+        return None
+    if p == 'cloud':
+        try:
+            j = _post(CLOUD_BASE + '/v1/embeddings',
+                      {'model': model or embed_model(), 'input': list(texts)},
+                      {'Authorization': 'Bearer ' + CLOUD_KEY}, timeout)
+            data = sorted(j.get('data') or [], key=lambda d: d.get('index', 0))
+            embs = [d.get('embedding') for d in data]
+            return embs if embs and all(embs) else None
+        except Exception:
+            return None
+    name = model or embed_model()
+    pfx = (QUERY_PREFIX if kind == 'query' else DOC_PREFIX) \
+        if name.startswith('nomic') else ''
+    try:
+        j = _post(OLLAMA + '/api/embed',
+                  {'model': name, 'input': [pfx + t for t in texts]}, None, timeout)
+        embs = j.get('embeddings') if isinstance(j, dict) else None
+        return embs or None
+    except Exception:
+        # 模型没拉 / Ollama 没起：退化信号，不是故障
+        return None
 
 
 # ---------- 调用 + 解析 ----------

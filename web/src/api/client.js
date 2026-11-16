@@ -21,8 +21,10 @@ export function setToken(t) {
   else localStorage.removeItem(TOKEN_KEY)
 }
 
+// 部署到静态托管（如 Qoder Sites）时后端不在同源：构建期用 VITE_API_BASE
+// 指向公网后端（例 https://api.example.com/api）；本地开发保持同源 /api。
 const client = axios.create({
-  baseURL: '/api',
+  baseURL: import.meta.env.VITE_API_BASE || '/api',
   timeout: 20000
 })
 

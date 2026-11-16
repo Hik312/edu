@@ -1,5 +1,7 @@
 # 本机配置：含数据库密码，绝不入库
 back_study/config.local.json
+# 服务器环境变量：含云端 API key，绝不入库（模板见 back_study/deploy/env.example）
+back_study/.env
 
 # Python
 __pycache__/
@@ -76,6 +78,9 @@ docs/*
 !docs/技术架构.md
 .smoke_tmp_*
 .smoke_*.json
+
+# 上传服务器用的后端打包产物（含本地卡片/进度数据，绝不入库）
+edupath-backend.tar.gz
 
 # ---- 本地工具与资料（2026-11-15 盘点补齐）----
 # ZCode / 其它 AI 编码工具的会话配置

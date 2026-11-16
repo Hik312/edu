@@ -31,10 +31,23 @@ def _require():
     return ChatOllama
 
 
-def pick():
-    """挑一个本机可用的模型名。没装 Ollama / 没拉模型就返回空字符串。
+def _require_cloud():
+    """延迟导入 langchain_openai —— 分层理由同 _require()。"""
+    try:
+        from langchain_openai import ChatOpenAI
+    except ImportError:
+        raise RuntimeError(
+            '缺 langchain-openai。装一次就够：\n'
+            '  pip install langchain-openai'
+        )
+    return ChatOpenAI
 
-    和 core/llm.pick_model() 同源：LLM_MODEL 环境变量优先，其次按 PREFER 顺序。"""
+
+def pick():
+    """挑一个当前通道可用的模型名。云端返回配置的云端模型；
+    本地没装 Ollama / 没拉模型就返回空字符串。"""
+    if _llm.provider() == 'cloud':
+        return _llm.CLOUD_MODEL
     try:
         return _llm.pick_model()
     except Exception:
@@ -42,9 +55,30 @@ def pick():
 
 
 def chat(model=None, temperature=None, num_ctx=None, num_predict=None, **kw):
-    """造一个 ChatOllama。所有节点 / agent 都从这里拿模型，不要各自 new。
+    """造一个聊天模型。所有节点 / agent 都从这里拿模型，不要各自 new。
 
-    **kw 透传给 ChatOllama（keep_alive、format='json' 之类）。"""
+    通道跟 core/llm.provider()：cloud 走 OpenAI 兼容接口（ChatOpenAI），
+    否则 ChatOllama。**kw 透传给模型构造器（keep_alive、format='json' 之类）。"""
+    if _llm.provider() == 'cloud':
+        ChatOpenAI = _require_cloud()
+        # httpx2 会把 NO_PROXY 里的 IPv6 字面量（[::1]，Windows 代理软件常见
+        # 残留）当 URL 解析，构造客户端直接抛 Invalid port ':1]'（实测）。
+        # 云端 API 是直连地址、不需要系统代理，显式交一个 trust_env=False 的
+        # 客户端，顺带避开这类环境坑。_compat 是 langchain-openai 指定的
+        # 「给 SDK 传 http_client 时」的 httpx 入口，保证和 SDK 用的是同一个库。
+        from langchain_openai._compat import httpx as _httpx
+        opts = dict(
+            model=model or _llm.CLOUD_MODEL,
+            base_url=_llm.CLOUD_BASE + '/v1',
+            api_key=_llm.CLOUD_KEY,
+            temperature=C.TEMPERATURE if temperature is None else temperature,
+            max_tokens=num_predict or C.NUM_PREDICT,
+            # num_ctx 是 Ollama 侧概念，云端上下文由服务商管理，忽略。
+            http_client=_httpx.Client(trust_env=False),
+            http_async_client=_httpx.AsyncClient(trust_env=False),
+        )
+        opts.update(kw)
+        return ChatOpenAI(**opts)
     ChatOllama = _require()
     name = model or pick()
     if not name:

@@ -13,7 +13,6 @@ import sys
 import db
 import importer
 import llm
-from .. import config as C
 
 #: 判重阈值（余弦）。0.9 ≈ 基本是同一句话才拦；调低会把「同主题不同考点」误杀。
 DUP_SIM = float(os.environ.get('AGENT_DUP_SIM') or 0.9)
@@ -27,14 +26,8 @@ def _text(c):
 
 
 def _embed(texts):
-    """批量向量化。不可用返回 None（调用方据此放行）。"""
-    try:
-        j = llm._post(llm.OLLAMA + '/api/embed',
-                      {'model': C.EMBED_MODEL, 'input': texts}, None, timeout=60)
-        embs = j.get('embeddings') if isinstance(j, dict) else None
-        return embs or None
-    except Exception:
-        return None
+    """批量向量化（Ollama / 云端统一通道）。不可用返回 None（调用方据此放行）。"""
+    return llm.embed(texts)
 
 
 def _cosine(a, b):

@@ -75,9 +75,6 @@ RETRIEVER = os.environ.get('AGENT_RETRIEVER', 'hybrid')
 # 向量权重（融合时向量分占多少，关键词分占 1-它）。0.7 = 向量为主。
 VECTOR_WEIGHT = _env('AGENT_VECTOR_WEIGHT', 0.7)
 
-# 本地 Ollama 的 embedding 模型名。没拉这个模型时 VectorRetriever 自动退化（返回空）。
-EMBED_MODEL = os.environ.get('AGENT_EMBED_MODEL', 'nomic-embed-text')
-
 # ---- RRF 融合（混合检索用）----
 # ★ 为什么把 min-max 加权换成 RRF（2026-10-09）：
 #   min-max 是「分数线性插值」，但两路的分数量纲根本不同 ——

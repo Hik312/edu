@@ -65,18 +65,72 @@ AI       本地模型 qwen3:8b（离线、免费）
   两种做法都会把手机引到死路。现在真实内网段加分、这些特殊段扣分，实测真实地址
   `10.71.215.180` 稳定排第一，虚拟网卡沉底但保留（万一你确实要在虚拟网络里用）。
 
-### 形态 2：丢到云服务器（电脑要休息 / 想让别人也访问）
+### 形态 2：云服务器后端 + Qoder Sites 前端（公网 / 参赛提交）
 
-云服务器（1 核 2G 那种）**跑不动 7B 模型**：没显卡、内存也紧。两条路：
+前端是静态托管（Qoder Sites），后端在自己的云服务器上，AI 走云端 API。
+三块各司其职：Sites 只发静态文件、跑不了 Python；1 核 2G 服务器跑不动 7B 模型。
 
-```bash
-# 路线 A：直接关掉 AI。最省事，平台其余功能全在
-AI=off python3 back_study/run.py 8080
-
-# 路线 B：走云端 API 换质量（比本地 7B 好，按量付费）
-LLM_PROVIDER=cloud LLM_API_KEY=sk-xxx python3 back_study/run.py 8080
+```
+浏览器 → Qoder Sites（web/dist 静态）
+       → https://api.你的域名/api → nginx → 127.0.0.1:8081 FastAPI → MySQL
+                                            → 硅基流动云端 API（对话/向量/视觉）
 ```
 
+一键产物在 `back_study/deploy/`：systemd unit、`start_backend.sh`（真正 source
+环境变量的入口）、nginx 配置、env 模板、setup.sh。
+
+1. 服务器安全组**只放 80/443**；域名解析到服务器公网 IP（港澳台/海外节点免备案）。
+2. 代码上服务器：git clone 仓库 + **单独 scp 本机 `study/data/`** ——
+   卡片数据在 .gitignore 里，clone 下来是空库，setup.sh 会检查并拦下。
+3. `bash back_study/deploy/setup.sh api.你的域名`
+   （装依赖 → venv → systemd → nginx → certbot HTTPS，全自动）。
+4. 编辑 `<仓库根>/app.env`：填 `LLM_API_KEY`（硅基流动控制台取）和
+   `CORS_ORIGINS`（第 6 步拿到的 Sites 地址），`systemctl restart edupath`。
+   密钥只进这一个文件（chmod 600），不进仓库、不进命令行历史。
+   ⚠️ 变量**必须**写在这份文件里：systemd 的 `EnvironmentFile` 不跑 shell
+   （引号、行内注释、变量展开静默失效），宝塔面板「环境变量」那栏压根不进守护进程
+   —— 两种都表现为「配置写了、服务读到的是默认值」，且不报错。
+5. 预置管理员：`.venv/bin/python scripts/make_admin.py <用户名> -`
+   （密码交互输入）。模板里 `ADMIN_FIRST=0`：路人先注册只拿普通用户，
+   不会像单机形态那样首个注册者自动成 admin。
+6. 前端构建并发布：`web/` 下
+   `VITE_API_BASE=https://api.你的域名/api npm run build`，
+   把 `web/dist` 发布到 Qoder Sites；拿到的 Sites 地址回填第 4 步的
+   `CORS_ORIGINS` 再重启一次后端。
+
+验证：`curl https://api.你的域名/api/health` 返回 ok;浏览器开 Sites 地址
+注册登录、背卡复习、文档问答（流式回答应逐段出字，不是整段砸出来）。
+
+产物里已经处理掉的坑：
+
+- nginx `proxy_buffering off`：不关的话 SSE 流式变成「转圈几十秒整段砸出来」。
+- `client_max_body_size 16m`：与后端请求体闸门对齐，否则大 PDF 先吃 nginx 的 413。
+- `proxy_read_timeout 300s`：云端精读一章可能跑一两分钟，默认 60s 会半路掐断。
+- 后端只绑 127.0.0.1：公网入口只有 nginx 一个，服务端口不直接暴露。
+- CORS 白名单：不写 Sites 地址，浏览器直接拦跨域请求（表现为全站接口报错）。
+
+**本仓库线上这一套（宝塔 + 阿里云轻量，2026-11-16 起在跑）和上面步骤的差别：**
+
+- 代码在 `/www/wwwroot/python/`（仓库根）+ `/www/wwwroot/python/back_study/`，
+  venv 用宝塔建的 `edupath`：`/www/server/pyporject_evn/edupath/bin/python`
+  （`pyporject_evn` 是宝塔自己拼错的，照抄）。数据在同级 `/www/wwwroot/python/data/`。
+- **端口 8081，不是 8080**：这台机器 8080 被一个旧 Java 项目占着（`*:8080`），别去动它。
+- HTTPS 用宝塔签发的 Let's Encrypt + 「网站 → 反代」，不是 certbot；
+  入口 `https://edu.312783.xyz/api`。
+- 进程由 **systemd `edupath` 单元**管（`deploy/edupath.service` + `deploy/start_backend.sh`
+  两份文件的实际内容）。宝塔「网站 → Python项目」的启动/重启按钮在这台机器上
+  **点了不拉起进程**（状态一直「未启动」、项目日志字节数不变），120 秒守护也不重启
+  被外部 kill 的进程，「开机启动」默认还没勾 —— 所以别把它当进程管理器。
+  改完配置统一 `systemctl restart edupath`；自愈已实测（`pkill` 后约 7 秒 health 回 200）。
+- 主存储是 **MySQL**（库 `study`、账号 `study`，只监听 127.0.0.1）。踩过的坑：
+  `core/store/schema.sql` 头部硬编码 `CREATE DATABASE study_cards ... USE study_cards`，
+  而宝塔建的库名是 `study`、业务账号没有建库权限 → 直接 `mysql <` 会 ERROR 1044。
+  导进已有库要把这两段剥掉：
+  `sed -E '/CREATE DATABASE/,/;$/d; /^USE /d' schema.sql | mysql -u study -p'密码' study`。
+  之后 `python back_study/scripts/dbseed.py --sync` 灌内置卡、`--import-json` 迁存量数据。
+
+AI 仍是两条路，改 `app.env` 即可：**路线 A** `AI=off` 直接关掉精读（最省事，
+其余功能全在）；**路线 B** 云端 API（env 模板默认，比本地 7B 质量好、按量付费）。
 关掉 AI 时前端不会留个死按钮，而是把那一栏换成说明文字 —— 见下面「四种状态」。
 
 ### 形态 3：纯静态，连服务器都不要
@@ -109,6 +163,8 @@ LLM_PROVIDER=cloud LLM_API_KEY=sk-xxx python3 back_study/run.py 8080
 
 **判断标准很简单**：只有你一台机器、一个设备在写 → JSON 就够了，别给自己加运维负担。
 一旦出现「多台设备同时在写进度」「卡片涨到几千张」—— 上 MySQL。
+（参赛这一套选了 MySQL：公网谁能注册谁就能写，进度/笔记/自定义卡落库比拷目录好备份，
+也免得 `data/store/` 被当成 .gitignore 里的数据漏在服务器本地。）
 
 ### 上的步骤
 
@@ -196,8 +252,13 @@ enrich      HTTP 502  →  「没找到可用模型。跑 `ollama pull qwen2.5:7
 | `OLLAMA_HOST` | Ollama 地址（可指向另一台机器） | `http://192.168.1.5:11434` |
 | `LLM_PROVIDER` | `cloud` 时走云端 | `cloud` |
 | `LLM_API_KEY` | 云端密钥 | `sk-xxx` |
-| `LLM_BASE_URL` | 云端接口地址 | `https://api.deepseek.com` |
-| `LLM_MODEL` | 指定模型名 | `deepseek-chat` |
+| `LLM_BASE_URL` | 云端接口地址（代码自动补 `/v1`） | `https://api.siliconflow.cn` |
+| `LLM_MODEL` | 云端对话模型名 | `deepseek-ai/DeepSeek-V3.2` |
+| `LLM_EMBED_MODEL` | 云端 embedding 模型名 | `BAAI/bge-m3` |
+| `LLM_VLM_MODEL` | 云端视觉模型名（图表解读） | `Qwen/Qwen2.5-VL-7B-Instruct` |
+| `ADMIN_FIRST` | `0` 关掉「首个注册者自动成 admin」（公开部署必设） | `0` |
+| `CORS_ORIGINS` | 前端来源白名单，逗号分隔（公开部署必设） | `https://xx.qoder.site` |
+| `VITE_API_BASE` | **前端构建期**变量：后端 API 地址，静态托管时必填 | `https://api.xx.com/api` |
 
 存储配置优先级：**环境变量 > `back_study/config.local.json` > 默认值**。
 AI 优先级：`AI=off` > 云端（需 `LLM_PROVIDER=cloud` + key）> Ollama。
