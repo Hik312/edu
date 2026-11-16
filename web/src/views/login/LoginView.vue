@@ -177,7 +177,7 @@ async function submit() {
           </form>
 
           <div class="foot">
-            <span class="hint">数据存本机，不联网</span>
+            <span class="hint">数据存在你自己的账号里，注册不要邮箱手机号</span>
           </div>
         </div>
       </section>
