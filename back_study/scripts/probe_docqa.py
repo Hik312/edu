@@ -6,6 +6,8 @@
 会自己注册一个临时账号、问一句、打印收到的帧，最后清场。
 """
 import json
+import os
+import secrets
 import sys
 import time
 import urllib.error
@@ -13,7 +15,8 @@ import urllib.request
 
 BASE = 'http://127.0.0.1:8099'
 USER = 'pqa%d' % (int(time.time()) % 1000000)
-PASS = 'Probe12345!'
+# 口令不写死：这个目录要公开，写死的口令等于公开的账号。每次跑新建一次性探针号，随机即可。
+PASS = os.environ.get('EDUPATH_PROBE_PASS') or ('Pz' + secrets.token_urlsafe(9) + 'x1')
 
 
 def call(path, body=None, tok=None, raw=False, timeout=600):

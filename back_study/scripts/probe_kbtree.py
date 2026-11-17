@@ -7,6 +7,8 @@
 跑：./.venv/Scripts/python.exe scripts/probe_kbtree.py
 """
 import json
+import os
+import secrets
 import sys
 import time
 import urllib.request
@@ -18,7 +20,8 @@ BASE = 'http://127.0.0.1:8080/api'
 #   最终报出来的是「登录失败」—— 和真实故障毫无关系，纯属噪音。
 #   探针账号本来就要每次新建（树是账号级单例），随机名正好符合语义。
 USER = 'kbp%d' % (time.time() % 1000000)
-PWD = 'kbprobe03x'
+# 口令同理不写死：仓库公开后，固定口令就是公开凭据。
+PWD = os.environ.get('EDUPATH_PROBE_PASS') or ('Pk' + secrets.token_urlsafe(9) + 'x1')
 
 
 def call(path, body=None, method=None, token=None):
