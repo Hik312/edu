@@ -86,9 +86,11 @@ Page({
     this.load(true);
   },
 
-  // BKT 掌握度汇总（只回 summary，不回 400 张卡明细）。
-  // 单独一个请求而不是塞进 /api/mini/home：它在 web 端、别的客户端也能用，
-  // 而且它是「派生数据」——算法库挂了/没数据时它可以失败，首页其余部分照常。
+  // BKT 掌握度汇总（只回 summary，不回 528 张卡明细）。
+  // 单独一个请求而不是塞进 /api/mini/home：它是**派生数据** ——
+  // 算法库（ALGO_STORE，现在是 JSON/Pg 那份）挂了或还没算过时它可以失败，
+  // 首页其余部分照常。口径与网页端 /api/mastery?brief=1 同一份
+  // （两端都走 db.mastery_report，2026-11-17 起路径收进 /api/mini/mastery）。
   async loadMastery() {
     try {
       const r = await api.masteryBrief();

@@ -11,12 +11,27 @@ Page({
     error: "",
     user: null,
     stats: null,
+    // 后端自检结果（app.checkBackend()）：登录失败时最需要知道的是
+    // 「到底连的是哪个后端」，所以未登录也要显示这一块。
+    health: null,
+    checking: false,
   },
 
   onShow() {
     const user = app.globalData.user;
     this.setData({ user });
+    // 先画 onLaunch 那次（可能还没回来就是空），再补一次；
+    // checkBackend 内部有 60s 新鲜期和并发去重，不会每次进页面都打一遍。
+    this.setData({ health: app.globalData.health });
+    app.checkBackend().then((h) => this.setData({ health: h }));
     if (user) this.loadStats();
+  },
+
+  // 手动重测：起了后端 / 改了 BASE 之后不必退出小程序重来
+  recheck() {
+    if (this.data.checking) return;
+    this.setData({ checking: true });
+    app.checkBackend(true).then((h) => this.setData({ health: h, checking: false }));
   },
 
   async loadStats() {

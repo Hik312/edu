@@ -16,7 +16,7 @@
   `event: error`               出错
 */
 import client from './client'
-import { getToken } from './client'
+import { apiUrl, getToken } from './client'
 
 /** 可用性（模型在不在 / langchain 装没装）。 */
 export function getAgentStatus() {
@@ -192,7 +192,7 @@ export function askStream(question, opts = {}) {
     profile: profile || undefined,
     webSearch
   })
-  fetch('/api/agent/ask', {
+  fetch(apiUrl('/agent/ask'), {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',

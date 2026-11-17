@@ -24,7 +24,7 @@ import { computed, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { getDoc } from '@/api/docs'
 import { cardsChapter, cardsStructure, parseDoc, putParseKeeps } from '@/api/agent'
-import { getToken } from '@/api/client'
+import { apiUrl, getToken } from '@/api/client'
 
 /** 正文里的图片占位（和后端 docparse.MEDIA_TOKEN 同形，改了要两边同步）。 */
 const MEDIA_RE = /!\[\]\(media:([A-Za-z0-9_.\- ]+)\)/g
@@ -218,7 +218,7 @@ export function makeDocAgent(d) {
  *  Authorization 头，逐张 fetch 转 blob 又要管一堆加载状态。 */
 export function mediaSrc(docId, name) {
   const t = getToken()
-  return `/api/media/${docId}/${encodeURIComponent(name)}${t ? '?t=' + t : ''}`
+  return apiUrl(`/media/${docId}/${encodeURIComponent(name)}${t ? '?t=' + t : ''}`)
 }
 
 /** 正文切段：文字（预览截到 260 字）+ 图片，按原文顺序。

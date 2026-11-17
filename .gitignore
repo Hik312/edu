@@ -91,3 +91,13 @@ edupath-backend.tar.gz
 .sources/
 # 截图/验证产物
 .screenshots/
+
+# 冒烟/契约测试账号的本机口令（脚本首次运行自动生成，绝不入库）
+back_study/.probe.json
+
+# 本机部署工具与产物（自签名部署脚本、临时打包），不属于产品代码
+.tools/
+
+# 冒烟/解析过程的一次性转储（诊断输出，不是产物也不是源码）
+back_study/_diag*.txt
+back_study/.smoke_hdr.txt

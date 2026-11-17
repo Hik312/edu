@@ -35,7 +35,7 @@
 import { onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
 import * as pdfjsLib from 'pdfjs-dist'
 import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
-import { getToken } from '@/api/client'
+import { apiUrl, getToken } from '@/api/client'
 
 //★★ 这一行是「PDF 打不开」的直接原因，别删（2026-10-11定位）。
 //
@@ -124,10 +124,20 @@ let epoch = 0
 const pageWrap = ref(null)
 
 async function fetchBytes(id) {
-  const res = await fetch('/api/knowledge/file/' + encodeURIComponent(id), {
+  const res = await fetch(apiUrl('/knowledge/file/' + encodeURIComponent(id)), {
     headers: getToken() ? { Authorization: 'Bearer ' + getToken() } : {}
   })
-  if (!res.ok) throw new Error('原件读取失败（HTTP ' + res.status + '）')
+  if (!res.ok) {
+    // 后端把原因写在响应体里：原件不在磁盘上回 410 + {code:'raw_missing',msg,hasText}，
+    // 纯文本导入回 404 + {code:'no_original'}。只报状态码的话界面能给的
+    // 就只剩「打不开这份 PDF」这句没用的话 —— 分不清是文件丢了、没登录，
+    // 还是地址拼错打到了静态托管上（Sites 那阵子就是这样）。
+    let body = null
+    try { body = await res.json() } catch (e) { /* 不是 JSON（网关错误页）就回落到状态码 */ }
+    const err = new Error((body && body.msg) || '原件读取失败（HTTP ' + res.status + '）')
+    if (body && body.code) err.code = body.code
+    throw err
+  }
   return res.arrayBuffer()
 }
 

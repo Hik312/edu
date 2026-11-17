@@ -55,8 +55,8 @@ from .profiles import (FILE_PROFILES, get_today_pick, load_profiles,
                        profile_of, save_profile, set_today_pick)
 from .progress import (CORRECT_LEVEL, EVENTS_ALL, OVERDUE_NEVER, clear_progress,
                        due_list, events_count, events_of, get_progress,
-                       log_review, reset_progress, review_queue, set_level,
-                       stats)
+                       log_review, mastery_report, reset_progress, review_queue,
+                       set_level, stats)
 from .users import (create_user, public_user, update_user_profile, user_all,
                     user_by_name, user_count, user_get, verify_login)
 

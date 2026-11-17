@@ -157,35 +157,15 @@ def mastery(brief: str = Query('', description='=1 时只回汇总，不回每�
     主调度算法算（/api/review/due 的 nextAt），**掌握度**由这里单独给。
 
     刻意**不**在这里对每张卡跑回放（那是 N 次全量事件扫描，慢得莫名其妙）：
-    直接读 mastery 表 + Redis 缓存，没算过的卡补先验。口径见 db.mastery_map。
+    直接读 mastery 表 + Redis 缓存，没算过的卡补先验。口径见 db.mastery_report。
 
     `computed=false` 的卡表示「还没算过它的掌握度」（没练过，或参数刚重拟合
     把 mastery 表清空了）—— 它的 p 是先验，不代表真的不会。
     """
     uid = user.get('id')
-    cards = db.all_cards()
-    pm = db.mastery_map(uid, cards)
-    stored = db.mastery_all(uid) or {}
-    rows = []
-    buckets = {'weak': 0, 'mid': 0, 'strong': 0, 'untouched': 0}
-    for c in cards:
-        p = float(pm.get(c['id'], 0.25))
-        computed = c['id'] in stored
-        if not computed:
-            buckets['untouched'] += 1
-        elif p < 0.4:
-            buckets['weak'] += 1
-        elif p < 0.8:
-            buckets['mid'] += 1
-        else:
-            buckets['strong'] += 1
-        rows.append({'id': c['id'], 'title': c.get('title'),
-                     'domain': c.get('domain'), 'p': round(p, 4),
-                     'computed': computed})
-    avg = (sum(r['p'] for r in rows) / len(rows)) if rows else 0.0
-    summary = {'total': len(rows), 'avgP': round(avg, 4),
-               'events': db.events_count(uid),
-               'computed': len(stored), **buckets}
+    # 明细和分布一次扫出来（db.mastery_report）：小程序的 /api/mini/mastery
+    # 要的是同一份 summary，两端各算一遍迟早算出两个「薄弱卡数」。
+    rows, summary = db.mastery_report(uid)
     if brief == '1':
         # 汇总 + 参数，不带 cards。首页/看板只要那条分布条，
         # 拉 400 张卡的明细纯属浪费流量（手机端尤其明显）。

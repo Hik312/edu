@@ -210,9 +210,36 @@ def _cors_origins():
             'http://127.0.0.1:8080', 'http://localhost:8080']
 
 
+# 按**域**放行（与上面的精确列表是叠加关系，不是二选一）。
+#
+# 为什么光有 CORS_ORIGINS 不够：前端和后端不同源的场景比想象的多 ——
+# Sites 发布站、Qoder 的预览面板、`npm run dev`、服务器上同源那份 dist，
+# 四个源的写法都不一样，而 Sites 每次新建站点子域还会变。逐个往
+# CORS_ORIGINS 里贴必然漏，漏掉的表现为「页面能打开、一登录就 Network
+# Error」（预检 400 且没有 Access-Control-Allow-Origin，浏览器直接掐掉请求，
+# axios 只能报这一句），排查时很容易被当成后端挂了。
+#
+# 放行的四类：
+#   https://*.qoder.website / *.qoder.sh / *.qoder.com —— Sites 站点 + 预览面板
+#   http://127.0.0.1:<端口> / http://localhost:<端口>   —— 本地 dev 与本机静态站
+#   null —— 沙箱 iframe 的源就是字面量 "null"（预览面板是 sandbox）
+#
+# 为什么这样不算把门敞开：allow_credentials 是关的，浏览器不会带 cookie，
+# 别人的页面也读不到本站 localStorage 里的 token，所以第三方只能发**匿名**
+# 请求 —— 数据端点一律 401，能探到的只有 /api/health 这类公开探针。
+# 真正要防的是「任意网页 JS 探测某台机器上有没有跑这个服务」，
+# 所以不放 *，只放 Qoder 自己的域 + 回环地址。
+_CORS_ORIGIN_REGEX = (
+    r'https://([A-Za-z0-9_-]+\.)+qoder\.(website|sh|com)'
+    r'|http://(127\.0\.0\.1|localhost)(:\d{1,5})?'
+    r'|null'
+)
+
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_cors_origins(),
+    allow_origin_regex=_CORS_ORIGIN_REGEX,
     allow_methods=['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     allow_headers=['Authorization', 'Content-Type'],
 )

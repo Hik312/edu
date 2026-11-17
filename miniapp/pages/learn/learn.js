@@ -97,7 +97,10 @@ Page({
       } catch (e) {
         /* 拿不到清单就当没挑，普通队列照常 */
       }
-      const r = await api.queue(pick.length ? 100 : 20, pick.length > 0);
+      // 没挑清单时 limit 传 **0**，让后端按这个人档案里的 dailyTarget 给量 ——
+      // 原来这里写死 20，于是网页端把每日目标改成 50 在小程序完全无效，
+      // 同一个账号两个数（后端 _plan_limit 的注释就是冲着这件事写的）。
+      const r = await api.queue(pick.length ? 100 : 0, pick.length > 0);
       const s = {
         queue: r.queue,
         // total 用**后端给的条数**，别用 queue.length —— 两者今天恰好相等，

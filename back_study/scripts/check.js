@@ -5,7 +5,9 @@
 //   WEB  = study/web/        前端工程根（Vite）
 //   DATA = study/data/       共用卡片数据
 //
-// （MINI = study/minprogram/ 微信小程序 —— 2026-09-26 整端移除，相关检查已删）
+// （MINI = study/miniapp/ 微信小程序原生端 —— 2026-09-26 移除的是旧
+//   minprogram/ 及它的 JS 语法/app.json/WXML 静态检查；接口契约仍由下面
+//   「/api/mini/*」那一节 e2e 覆盖。别说成「只剩网页端」，那是错的。）
 //
 // web/ 从「单文件 index.html」改成了 Vite 工程：
 //   web/index.html      → Vite 入口（<div id="app"> + 内联 SW 清理脚本 + module script）
@@ -287,8 +289,9 @@ cards.forEach((c) => {
 });
 console.log("diagram kinds: " + JSON.stringify(kinds));
 
-// （小程序端 minprogram/ 已于 2026-09-26 整体移除 ——
-//  这里的 JS 语法 / app.json / WXML 检查一并删掉。三端只剩网页端。）
+// 旧 minprogram/ 客户端的结构检查（JS 语法 / app.json / WXML）2026-09-26
+// 随那一端一起删了；现在的 miniapp/ 也不在这里查 —— 它的接口契约在下面
+// /api/mini/* 那节跑真服务验。别据此以为「小程序端没了」。
 
 // 网页端。目录结构改过（单文件 index.html → Vite 工程），这里要跟着改：
 //   web/index.html          Vite 入口（<div id="app"> + 内联脚本 + module script）
@@ -1912,6 +1915,18 @@ sys.stdout.write(base64.b64encode(b.getvalue()).decode())
       r.body.catalog.length > 0 &&
       Array.isArray(r.body.directions)
     );
+  });
+  await t("mini mastery 汇总 = web brief 同一份口径（明细不上手机）", async () => {
+    const m = await call("/api/mini/mastery");
+    if (m.code !== 200 || !m.body || !m.body.ok) return false;
+    const s = m.body.summary;
+    if (!s || typeof s.weak !== "number" || typeof s.total !== "number") return false;
+    // 手机只该拿到分布条那几个数；带回每张卡明细就是浪费流量
+    if (m.body.cards !== undefined) return false;
+    // 两端各写一遍统计迟早算出两个「薄弱卡数」—— 断言它们是同一个对象
+    const w = await call("/api/mastery?brief=1");
+    if (w.code !== 200 || !w.body || !w.body.ok) return false;
+    return JSON.stringify(w.body.summary) === JSON.stringify(m.body.summary);
   });
   await t("mini 卡包分页：brief 字段 + hasMore + 超限 422", async () => {
     const r = await call("/api/mini/cards?page=1&pageSize=5&q=java");

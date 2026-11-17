@@ -5,7 +5,7 @@
  * - 文档与精读：转卡工具
  */
 import client from './client'
-import { getToken } from './client'
+import { apiUrl, getToken } from './client'
 
 /** 知识库文档列表（含分类字段）。
  * @returns {Promise<{ok:boolean, total:number, docs:Array<Object>}>}
@@ -21,7 +21,8 @@ export function listKnowledge() {
  */
 export function getFileUrl(did) {
   const t = getToken()
-  return '/api/knowledge/file/' + encodeURIComponent(did) + (t ? '?t=' + encodeURIComponent(t) : '')
+  return apiUrl('/knowledge/file/' + encodeURIComponent(did) +
+    (t ? '?t=' + encodeURIComponent(t) : ''))
 }
 
 /** 导入文档（复用现有导入接口）。
@@ -140,7 +141,7 @@ export function placeDoc(did, folderIds) {
  * @param {{onText?:Function,onSources?:Function,onDone?:Function,onError?:Function}} cb */
 export function askDocStream(did, question, history, cb = {}) {
   const token = getToken()
-  return fetch('/api/docs/' + encodeURIComponent(did) + '/ask', {
+  return fetch(apiUrl('/docs/' + encodeURIComponent(did) + '/ask'), {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -238,7 +239,7 @@ export function runTranslation(did, opt, cb = {}) {
     mode: (opt && opt.mode) || 'run',
     verify: !opt || opt.verify !== false
   })
-  return fetch('/api/docs/' + encodeURIComponent(did) + '/translate/run', {
+  return fetch(apiUrl('/docs/' + encodeURIComponent(did) + '/translate/run'), {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -385,8 +386,8 @@ export function captionFigure(did, name, context) {
  */
 export function getMediaUrl(owner, name) {
   const t = getToken()
-  return (
-    '/api/media/' +
+  return apiUrl(
+    '/media/' +
     encodeURIComponent(owner) +
     '/' +
     encodeURIComponent(name) +

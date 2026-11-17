@@ -23,8 +23,25 @@ export function setToken(t) {
 
 // 部署到静态托管（如 Qoder Sites）时后端不在同源：构建期用 VITE_API_BASE
 // 指向公网后端（例 https://api.example.com/api）；本地开发保持同源 /api。
+const API_BASE = import.meta.env.VITE_API_BASE || '/api'
+
+/** 拼后端的绝对地址 —— 只给**不吃 axios baseURL** 的那几类调用用：
+ *  原生 `fetch`（SSE 流式问答、翻译跑批）、`<img src>`、`<iframe src>`。
+ *
+ * ★ 这些调用以前直接写相对 `/api/...`，于是同一份构建放到 Sites 域名上
+ *   全数 404（静态托管上根本没有 /api 这条路），放到同源域名上却好好的 ——
+ *   线上症状就是知识库「打不开这份 PDF / 原件读取失败（HTTP 404）」。
+ *   拼接规则和 axios 的 combineURLs 一致（base 去尾斜杠 + path 去头斜杠），
+ *   所以 `apiUrl('/cards')` 和 `client.get('/cards')` 得到同一个地址。
+ *
+ * @param {string} path 后端路径，以 / 开头，**不要再带 /api**（base 里已经有了）
+ */
+export function apiUrl(path) {
+  return API_BASE.replace(/\/+$/, '') + '/' + String(path).replace(/^\/+/, '')
+}
+
 const client = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE || '/api',
+  baseURL: API_BASE,
   timeout: 20000
 })
 

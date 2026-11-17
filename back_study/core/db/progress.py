@@ -329,3 +329,46 @@ def stats(user_id=None, cards=None):
             s['dueLearned'] += 1
             s['dueToday'] += 1
     return s
+
+
+def mastery_report(user_id, cards=None):
+    """一遍扫出「每张卡的 BKT 明细 + 分布汇总」，返回 `(rows, summary)`。
+
+    网页端 `/api/mastery` 和小程序 `/api/mini/mastery` 共用这里：阈值
+    （<0.4 薄弱、<0.8 一般、其余扎实）、没算过的算 `untouched`、均值按
+    四舍五入后的 p 求 —— 这些口径两端各写一份，迟早算出两个「薄弱卡数」。
+
+    `cards` 同 `stats()`：调用方手里已有 all_cards() 结果时传进来省一次取数。
+
+    刻意不对每张卡跑事件回放（那是 N 次全量扫描，见 bkt.mastery_all 的警告）：
+    只读 mastery 表 + 缓存，没算过的补先验 —— 所以 `computed=false` 的卡
+    那个 p 是先验，不代表真的不会。
+    """
+    # 惰性 import：bkt.py 模块级要从本文件取事件流（events_of），
+    # 这里反过来在模块级 import 会成环。
+    from .bkt import mastery_all, mastery_map
+
+    cards = all_cards() if cards is None else cards
+    pm = mastery_map(user_id, cards)
+    stored = mastery_all(user_id) or {}
+    rows = []
+    buckets = {'weak': 0, 'mid': 0, 'strong': 0, 'untouched': 0}
+    for c in cards:
+        p_raw = float(pm.get(c['id'], 0.25))
+        p = round(p_raw, 4)
+        computed = c['id'] in stored
+        if not computed:
+            buckets['untouched'] += 1
+        elif p_raw < 0.4:
+            buckets['weak'] += 1
+        elif p_raw < 0.8:
+            buckets['mid'] += 1
+        else:
+            buckets['strong'] += 1
+        rows.append({'id': c['id'], 'title': c.get('title'),
+                     'domain': c.get('domain'), 'p': p, 'computed': computed})
+    avg = (sum(r['p'] for r in rows) / len(rows)) if rows else 0.0
+    summary = {'total': len(rows), 'avgP': round(avg, 4),
+               'events': events_count(user_id), 'computed': len(stored),
+               **buckets}
+    return rows, summary

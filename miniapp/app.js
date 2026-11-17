@@ -4,15 +4,21 @@
 // 所以这里只存 token，不做第二套会话。
 //
 // ★ BASE 三个必须同时对：
-//   ① **端口** —— 后端跑在 8080（back_study/run.py + app/main.py），
-//      这里曾写成 8099，于是所有请求都 connection refused，
-//      表现为「登录不行」，但代码里看不出是地址错。
-//   ② **主机** —— 真机/模拟器上 `127.0.0.1` 指的是**手机自己**，不是电脑。
-//      开发者工具「不校验合法域名」时可以用127.0.0.1；
-//      真机预览必须换成电脑的局域网 IP，且手机和电脑要在同一 Wi-Fi。
-//      → 换机器/换网络时只改这一行。
-//   ③ **协议** —— 上线必须 https（微信小程序不允许 http 请求）。
-const BASE = "http://127.0.0.1:8080";
+//   ① **协议** —— 真机/正式版只允许 https（微信直接拦 http 请求）。
+//      线上后端是 nginx 反代 → 127.0.0.1:8081，入口 `https://edu.312783.xyz`。
+//      注意这里填的是**主机根**，路径由各接口自己带 `/api/...`。
+//   ② **主机** —— 开发者工具/真机调试勾上「不校验合法域名」才允许 localhost；
+//      `127.0.0.1` 在真机指的是**手机自己**，本地联调要换成电脑的局域网 IP，
+//      且手机和电脑同一 Wi-Fi。
+//   ③ **端口** —— 本地后端是 **8081**（`run.py` 默认值），不是 8080：
+//      这台机器上 8080 历史上撞过 Ollama，服务器上 8080 是一个旧 Java 项目。
+//      撞端口最阴的地方是**它回 200**，只是内容根本不是本项目 ——
+//      所以 onLaunch 会打一次 `/api/health`，用 `framework` 字段（恒 `fastapi`）
+//      证明「BASE 指的确实是 EduPath」，结果在「我的」页能看到。
+//
+// 本地联调就换这一行（勾掉「不校验合法域名」）：
+// const BASE = "http://127.0.0.1:8081";
+const BASE = "https://edu.312783.xyz";
 
 App({
   globalData: {
@@ -27,9 +33,16 @@ App({
     // 用途见 cachePeek/cacheFresh —— tab 页每次 onShow 都重拉会让切页看到
     // 「加载中…」闪一下，先渲染缓存再后台刷新就没这个观感问题。
     cache: {},
+    // /api/health 的自检结果（{ok, store, cards, llm, foreign} 或 {ok:false,msg}）。
+    // 见 checkBackend()：「登录不行」到底是密码错还是 BASE 指错了端口，
+    // 以前只能猜 —— 现在「我的」页直接写着连的是哪个后端。
+    health: null,
   },
 
   onLaunch() {
+    // 先自检后端，再验 token —— 没登录的时候这条信息最有用（登录失败多半是
+    // 地址错，不是密码错），放在 token 判断之后就把未登录的用户挡在门外了。
+    this.checkBackend();
     const token = wx.getStorageSync("token");
     if (!token) return;
     this.globalData.token = token;
@@ -46,6 +59,44 @@ App({
         if (e.status === 401) this.logout();
         else this.globalData.netDown = true;
       });
+  },
+
+  // 后端自检：证明 BASE 指的确实是 EduPath，而不是端口上别的服务。
+  // ★ 永远 resolve（连不上也当数据回 `{ok:false,msg}`）—— 它在 onLaunch 里
+  //   跑，一个未处理的 rejection 会把启动流程打断；而页面要的也只是
+  //   「显示连的是哪个后端」，不是「要不要因此崩」。
+  // 并发去重：onLaunch 和「我的」页 onShow 会同时来问，共用同一个请求。
+  checkBackend(force) {
+    const cached = this.globalData.health;
+    if (!force && cached && Date.now() - cached.at < 60 * 1000) {
+      return Promise.resolve(cached);
+    }
+    if (this._healthReq) return this._healthReq;
+    this._healthReq = this.request("/api/health")
+      .then((r) => ({
+        ok: true,
+        store: r.store,
+        cards: r.cards,
+        llm: !!r.llm,
+        today: r.today,
+        // framework 恒 'fastapi'。对不上就是打到别的服务了 —— 8080 上那个
+        // 旧 Java 项目回的是 200 + JSON，看着完全像通了，这才是它难查的地方。
+        foreign: r.framework !== "fastapi",
+        at: Date.now(),
+      }))
+      .catch((e) => ({
+        ok: false,
+        net: !!e.net,
+        // 网络不通和后端报错分开说：前者是 BASE/没起服务，后者才轮到看 msg。
+        msg: e.net ? "连不上 " + BASE : e.message || "后端返回异常",
+        at: Date.now(),
+      }))
+      .then((h) => {
+        this._healthReq = null;
+        this.globalData.health = h;
+        return h;
+      });
+    return this._healthReq;
   },
 
   // 统一请求：拼 BASE、带 token、把 {ok:false,msg} 当异常抛

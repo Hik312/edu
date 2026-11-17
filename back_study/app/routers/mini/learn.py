@@ -88,6 +88,20 @@ def home(user=Depends(current_user)):
             'pick': pick}
 
 
+@router.get('/mastery', summary='BKT 掌握度分布（首页那条分布条）')
+def mastery(user=Depends(current_user)):
+    """只回 summary + params，**不回每张卡明细** —— 手机首页只画一条分布。
+
+    网页端有 `/api/mastery?brief=1`，口径完全一样（两端都走
+    `db.mastery_report`，阈值和均值算法只有一份），但按 routers/__init__.py
+    的规矩「路径前缀就是调用方标识」，小程序不该打裸 `/api/xxx`。
+    `utils/api.js` 里那句 `/api/mastery?brief=1` 是违规存量，这次收进来。
+    """
+    uid = user.get('id')
+    _, summary = db.mastery_report(uid)
+    return {'ok': True, 'summary': summary, 'params': db.bkt_params(uid)}
+
+
 @router.get('/cards', summary='卡包列表（分页 + 搜索 + 方向）')
 def list_cards(page: int = Query(1, ge=1),
                pageSize: int = Query(20, ge=1, le=50),
