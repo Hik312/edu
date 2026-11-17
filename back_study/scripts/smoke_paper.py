@@ -153,8 +153,31 @@ class Server:
 
 # 冒烟账号：跟 check.js 的契约测试用同一组。第一次跑会注册，之后就只是登录。
 # 走真实登录接口而不是自己签 token —— 顺手把 auth 往返也验了一遍。
-SEED_USER = "zz_check_probe"
-SEED_PASS = "zz_check_123456"
+#
+# 口令不进仓库：env EDUPATH_PROBE_PASS 优先，其次读 back_study/.probe.json
+# （已 gitignore），两份都没有时随机生成一个写进去。check.js 读同一个文件，
+# 所以两个脚本始终用同一组凭据；删掉这个文件等于换口令，要先删掉本地库里的
+# 冒烟账号才能重新注册。
+SEED_USER = os.environ.get("EDUPATH_PROBE_USER", "zz_check_probe")
+
+
+def probe_pass():
+    v = os.environ.get("EDUPATH_PROBE_PASS")
+    if v:
+        return v
+    f = os.path.join(BACK, ".probe.json")
+    try:
+        with open(f, encoding="utf-8") as fh:
+            return json.load(fh)["pass"]
+    except (OSError, ValueError, KeyError):
+        import secrets
+        v = "zzp_" + secrets.token_hex(6) + "_a1"
+        with open(f, "w", encoding="utf-8", newline="\n") as fh:
+            json.dump({"user": SEED_USER, "pass": v}, fh, indent=2)
+        return v
+
+
+SEED_PASS = probe_pass()
 
 
 def ensure_seed(srv):

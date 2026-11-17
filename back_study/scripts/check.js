@@ -23,6 +23,21 @@ const WEB = path.join(ROOT, "web");
 const DIST = path.join(WEB, "dist");
 const DATA = path.join(ROOT, "data");
 
+// 冒烟账号的口令不进仓库（env → back_study/.probe.json → 首次随机生成并落盘）。
+// 第一次跑用它注册，之后只能拿同一份口令登录，所以必须持久化而不是每次随机。
+// smoke_paper.py 读同一个文件，两边保持一组凭据。
+function probePass() {
+  if (process.env.EDUPATH_PROBE_PASS) return process.env.EDUPATH_PROBE_PASS;
+  const f = path.join(BACK, ".probe.json");
+  try {
+    return JSON.parse(fs.readFileSync(f, "utf8")).pass;
+  } catch (e) {
+    const pass = "zzp_" + require("crypto").randomBytes(6).toString("hex") + "_a1";
+    fs.writeFileSync(f, JSON.stringify({ user: "zz_check_probe", pass }, null, 2) + "\n");
+    return pass;
+  }
+}
+
 const html = fs.readFileSync(path.join(WEB, "index.html"), "utf8");
 
 const blocks = [
@@ -739,8 +754,8 @@ async function smoke(py) {
   // 账号固定用 zz_check_probe（**下划线，不能写连字符** —— 用户名规则是
   // 3-20 位字母/数字/下划线，带连字符会被 400 拦下，看起来像后端坏了）。
   // 幂等：已存在就改走登录，空库和有数据的库上都能跑，名字一眼看得出是测试。
-  const AUTH_USER = "zz_check_probe";
-  const AUTH_PASS = "zz_check_123456";
+  const AUTH_USER = process.env.EDUPATH_PROBE_USER || "zz_check_probe";
+  const AUTH_PASS = probePass();
   const authHeaders = (tk) => ({ Authorization: "Bearer " + tk });
   const post = (u, obj) =>
     call(u, {
