@@ -1,0 +1,87 @@
+<!-- 已登录 -->
+<block wx:if="{{user}}">
+  <view class="card head">
+    <view class="avatar">{{user.displayName[0]}}</view>
+    <view>
+      <view class="title">{{user.displayName}}</view>
+      <view class="muted">ID {{user.id}} · 注册于 {{user.createdAt}}</view>
+    </view>
+  </view>
+
+  <view class="card" wx:if="{{stats}}">
+    <view class="secT">📊 学习进度</view>
+    <view class="grid">
+      <view class="cell"><view class="n">{{stats.total}}</view><view class="muted">📚 总卡片</view></view>
+      <view class="cell"><view class="n lv3">{{stats.known}}</view><view class="muted">✅ 已掌握</view></view>
+      <view class="cell"><view class="n lv2">{{stats.fuzzy}}</view><view class="muted">🟡 模糊</view></view>
+      <view class="cell"><view class="n lv1">{{stats.weak}}</view><view class="muted">🔥 薄弱</view></view>
+      <!-- 今日待复习：用 dueTodayPlan（今天实际要刷几张）而不是 dueToday（全库到期数）。
+           400 张库里 398 张没背过 → dueToday 常年 400，而学习页一次只给 20 张。
+           这里再补一格「待学新卡」= fresh，把那 400 拆成有意义的两部分。 -->
+      <view class="cell"><view class="n accent">{{stats.dueTodayPlan}}</view><view class="muted">⏰ 今日待复习</view></view>
+      <view class="cell"><view class="n">{{stats.unmarked}}</view><view class="muted">✏️ 未标记</view></view>
+      <view class="cell"><view class="n" style="font-size:26rpx;color:var(--dim)">到期 {{stats.dueLearned}} · 新卡 {{stats.fresh}}</view><view class="muted">🗂️ 到期构成</view></view>
+    </view>
+  </view>
+
+  <view class="foot">
+    <button class="btn ghost block" bindtap="logout">🚪 退出登录</button>
+  </view>
+</block>
+
+<!-- 未登录：登录 / 注册表单 -->
+<block wx:else>
+  <view class="card">
+    <view class="title">{{mode === 'login' ? '登录' : '注册'}}</view>
+    <view class="oneLine">与网页端同一账号，进度共用</view>
+
+    <input class="input" placeholder="用户名" data-field="username"
+           value="{{username}}" bindinput="onField" />
+    <input class="input" placeholder="密码" password data-field="password"
+           value="{{password}}" bindinput="onField" />
+    <input class="input" wx:if="{{mode === 'register'}}" placeholder="昵称（可空）"
+           data-field="displayName" value="{{displayName}}" bindinput="onField" />
+
+    <view class="err" wx:if="{{error}}">{{error}}</view>
+
+    <button class="btn block" loading="{{busy}}" bindtap="submit">
+      {{mode === 'login' ? '登录' : '注册并登录'}}
+    </button>
+    <view class="switch muted" bindtap="switchMode">
+      {{mode === 'login' ? '没有账号？去注册 →' : '已有账号？去登录 →'}}
+    </view>
+  </view>
+</block>
+
+<!-- 后端状态（登录与否都显示）。
+     ★ 这一块是给「登录不行」准备的：BASE 指错端口时（8080 上跑的是别的服务，
+       它照样回 200 + JSON）原来完全看不出来，只能猜是密码错还是服务没起。
+       framework 字段对不上 fastapi 就直说「这不是 EduPath 后端」。 -->
+<view class="card">
+  <view class="secT">🔌 后端</view>
+
+  <block wx:if="{{!health}}">
+    <view class="muted">检测中…</view>
+  </block>
+
+  <block wx:elif="{{!health.ok}}">
+    <view class="lv1">{{health.net ? '连不上服务器' : '后端返回异常'}}</view>
+    <view class="muted">{{health.msg}}</view>
+  </block>
+
+  <block wx:elif="{{health.foreign}}">
+    <view class="lv1">⚠️ 这不是 EduPath 后端</view>
+    <view class="muted">/api/health 回的 framework 不是 fastapi —— 端口上坐着别的服务，改 app.js 顶部 BASE。</view>
+  </block>
+
+  <block wx:else>
+    <view class="lv3">✓ 已连接</view>
+    <view class="muted">
+      存储 {{health.store === 'mysql' ? 'MySQL' : health.store === 'json' ? 'JSON 文件' : health.store}} · 卡片 {{health.cards}} 张 · AI {{health.llm ? '已启用' : '未启用'}}
+    </view>
+    <!-- store 只有 json/mysql 两个正常值；连不上库时后端会自己回退 json 照常服务，
+         真出问题是 /api/storage 的 degraded 字段（要登录才给），不在这里猜。 -->
+  </block>
+
+  <button class="btn ghost block" loading="{{checking}}" bindtap="recheck">重新检测</button>
+</view>

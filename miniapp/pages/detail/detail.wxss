@@ -1,0 +1,87 @@
+.between { justify-content: space-between; }
+.qtitle { font-size: 40rpx; font-weight: 700; margin: 18rpx 0 8rpx; }
+.path { font-size: 22rpx; margin-top: 8rpx; }
+.tags { margin-top: 14rpx; }
+
+/* 逐张浏览条：固定在页首，翻页时模块名/进度一直在视野里 */
+.browse {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12rpx;
+  padding: 16rpx 24rpx;
+  background: var(--card2);
+  border-bottom: 1rpx solid var(--line);
+}
+.bbtn {
+  flex: none;
+  background: var(--card);
+  border: 1rpx solid var(--line);
+  border-radius: 12rpx;
+  padding: 10rpx 20rpx;
+  font-size: 26rpx;
+  color: var(--accent);
+  line-height: 1.3;
+}
+.bbtn[disabled] { color: var(--dim); opacity: 0.5; }
+.bpos { flex: 1; min-width: 0; text-align: center; }
+.bmod {
+  font-size: 26rpx;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.bnum { font-size: 22rpx; }
+
+/* 加入今日清单：整卡宽度的次级按钮，选中态用 accent 描边 */
+.pickbtn {
+  margin-top: 20rpx;
+  width: 100%;
+  background: var(--card2);
+  border: 1rpx solid var(--line);
+  border-radius: 12rpx;
+  padding: 14rpx 0;
+  font-size: 26rpx;
+  color: var(--dim);
+  line-height: 1.3;
+}
+.pickbtn.on {
+  background: rgba(31, 75, 107, 0.14);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.pickbtn[disabled] { opacity: 0.6; }
+
+.secT {
+  font-size: 24rpx;
+  color: var(--dim);
+  letter-spacing: 2rpx;
+  margin-bottom: 14rpx;
+}
+.para { display: flex; margin-top: 14rpx; }
+.step {
+  flex: none;
+  width: 40rpx;
+  height: 40rpx;
+  line-height: 40rpx;
+  text-align: center;
+  border-radius: 50%;
+  background: rgba(31, 75, 107, 0.16);
+  color: var(--accent);
+  font-size: 24rpx;
+  margin-right: 16rpx;
+}
+
+.rel {
+  display: flex;
+  justify-content: space-between;
+  padding: 16rpx 0;
+  border-top: 1rpx solid var(--line);
+}
+.rel .grow { flex: 1; min-width: 0; }
+.rel .muted { font-size: 22rpx; margin-top: 4rpx; }
+.rel:first-of-type { border-top: none; }
+.arrow { color: var(--dim); }
+
+.foot { padding: 12rpx 24rpx 60rpx; }

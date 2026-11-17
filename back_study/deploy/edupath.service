@@ -1,0 +1,34 @@
+# /etc/systemd/system/edupath.service —— 服务器上正在跑的这一份（2026-11-16 起）。
+# 指令与线上一字不差；解释性注释只有仓库这份有，别当成两份不同的东西。
+# 装法：bash back_study/deploy/setup.sh <api域名>（会把下面的绝对路径换成你的仓库根），
+# 或照抄到 /etc/systemd/system/ 后 systemctl daemon-reload && systemctl enable --now edupath。
+#
+# 别用宝塔「网站 → Python项目」的 启动/重启 按钮当进程管理：那台机器上它点了不拉起
+# 进程（项目日志字节数不变、状态一直「未启动」），120 秒守护也不重启被外部 kill 的进程，
+# 「开机启动」还得单独勾。systemd 自己管自己，重启机器就能回来。
+
+[Unit]
+Description=EduPath FastAPI backend (study platform)
+After=network.target
+
+[Service]
+Type=simple
+# www 是宝塔那边跑站点文件的账号（chown -R www:www 过）。换独立机器时用
+# 专用的 nologin 账号，setup.sh 会建。
+User=www
+Group=www
+WorkingDirectory=/www/wwwroot/python/back_study
+# 环境变量**不在这里**注入，交给 start_backend.sh 用 bash 去 source app.env。
+# 原因：systemd 不跑 shell，EnvironmentFile 里值的引号、行内注释、变量展开全部
+# 静默失效，表现是「明明写了 STORE=mysql，服务读到的还是默认 json」—— 不报错，最难查。
+# 宝塔面板那份「环境变量」更直接：压根不会进守护进程（/proc/$pid/environ 是空的）。
+ExecStart=/bin/bash /www/wwwroot/python/start_backend.sh
+# always 而不是 on-failure：被 OOM 杀掉、异常退出都得自己回来，比赛期间站点挂着最贵。
+# RestartSec=3 兜住「起来就崩」时不刷屏式重启。
+Restart=always
+RestartSec=3
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

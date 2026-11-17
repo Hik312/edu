@@ -1,0 +1,63 @@
+<view class="bar">
+  <input class="input grow" placeholder="搜索卡片（空格分隔=都要命中）"
+         value="{{q}}" bindinput="onInput" confirm-type="search" bindconfirm="onSearch" />
+  <button class="btn" bindtap="onSearch">搜索</button>
+</view>
+
+<!-- 模块条：emoji 图标 + 名称 + 卡数，横滑；点选即按这个模块筛列表 -->
+<view class="modsWrap" wx:if="{{directions.length}}">
+  <view class="modsHead">
+    <text class="modsT">模块</text>
+    <text class="muted">点一下只看这个模块 · 左右滑</text>
+  </view>
+  <scroll-view scroll-x class="mods" enable-flick>
+    <view class="mtile {{dirs === '' ? 'on' : ''}}" data-id="" bindtap="pickDir">
+      <view class="mi">📚</view>
+      <view class="mn">全部</view>
+      <view class="mc">{{dirs ? '' : '共 ' + total + ' 张'}}</view>
+    </view>
+    <view class="mtile {{dirs === item.id ? 'on' : ''}}" wx:for="{{directions}}" wx:key="id"
+          data-id="{{item.id}}" bindtap="pickDir">
+      <view class="mi">{{item.emoji || '📁'}}</view>
+      <view class="mn">{{item.name}}</view>
+      <view class="mc">{{item.count}} 张</view>
+    </view>
+  </scroll-view>
+</view>
+
+<view class="filter" wx:if="{{subject || dirs}}">
+  <text class="chip on" wx:if="{{subject}}">科目：{{subjectName}}</text>
+  <text class="chip on" wx:if="{{dirs}}">模块：{{modName}}</text>
+  <text class="chip" bindtap="clearFilter">清除 ✕</text>
+</view>
+
+<!-- 逐张浏览：把当前筛选带进详情页，翻着看不用回列表 -->
+<view class="browse" wx:if="{{cards.length}}">
+  <button class="btn ghost block" bindtap="browse">📖 逐张浏览（{{modName || '当前筛选'}} · {{total}} 张）</button>
+</view>
+<view class="muted count" wx:if="{{cards.length}}">已加载 {{cards.length}} 张</view>
+
+<view wx:if="{{loading && !cards.length}}" class="empty">加载中…</view>
+<view wx:elif="{{error}}" class="empty">{{error}}</view>
+<!-- 搜不到时要说清「搜的是什么」并给出路：原来只有一句「没有匹配的卡片」，
+     用户不知道搜的是哪个词、也不知道怎么回退，只能干看着。 -->
+<view wx:elif="{{!cards.length}}" class="empty">
+  <view wx:if="{{q}}" style="margin-bottom:8px">没有匹配「{{q}}」的卡片</view>
+  <view wx:else>这个筛选下还没有卡片</view>
+  <button wx:if="{{q}}" class="btn ghost" bindtap="clearSearch" style="margin-top:16rpx">
+    清空搜索
+  </button>
+</view>
+
+<view class="card item" wx:for="{{cards}}" wx:key="id"
+      data-id="{{item.id}}" bindtap="openDetail">
+  <view class="row between">
+    <view class="title grow">{{item.title}}</view>
+    <view class="lv{{item.level}} lvl">{{item.levelName}}</view>
+  </view>
+  <view class="oneLine">{{item.oneLine}}</view>
+  <view class="muted path">{{item.topicPath}}</view>
+</view>
+
+<view class="empty" wx:if="{{cards.length && !hasMore}}">— 到底了 —</view>
+<view class="empty" wx:if="{{loading && cards.length}}">加载中…</view>

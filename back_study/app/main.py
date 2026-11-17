@@ -1,0 +1,373 @@
+# -*- coding: utf-8 -*-
+"""FastAPI 应用装配。
+
+分工很清楚：
+    routers/  只写业务
+    main.py   只收横切关注点 —— 请求体上限、缓存头、CORS、日志、
+              异常统一翻译成 `{ok:false,msg}`、静态资源挂载、启动横幅
+
+路由注册顺序不影响匹配（Starlette 按注册顺序匹配，但我们的路径没有歧义），
+**静态挂载必须放最后** —— 它挂在 `/` 上会吃掉所有未匹配请求。
+"""
+import mimetypes
+import os
+import sys
+import time
+from contextlib import asynccontextmanager
+
+from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
+from starlette.exceptions import HTTPException as StarletteHTTPException
+from starlette.responses import Response
+
+import db       # noqa: E402  sys.path 由 app/__init__.py 挂好
+import llm      # noqa: E402
+import netinfo  # noqa: E402
+import store as store_pkg   # noqa: E402  存储后端工厂（json / mysql）
+
+# DATA_DIR 从包根取（它定义在 app/__init__.py），不从 config 转一手 ——
+# config 那边为了让 main 能取到它，得写一行「自己用不到的 import」再导出，
+# 那行会被 pyflakes 报假阳性，删了要到起服务才炸。少一层中转少一个坑。
+from . import DATA_DIR
+from .config import (API_DESC, API_TITLE, API_VERSION, DENY_PREFIX,
+                     MAX_BODY, OPENAPI_TAGS, STATIC_DIR, WEB_DIST)
+from .routers import ALL as ROUTERS
+
+# Windows 上有的 Python 把 .js 认成 application/javascript，
+# 少数浏览器对 service worker 的 MIME 挑得很死，显式钉住
+mimetypes.add_type('application/manifest+json', '.webmanifest')
+mimetypes.add_type('text/javascript', '.js')
+
+
+class GuardedStatic(StaticFiles):
+    """静态目录，但按 deny 前缀挡掉几段不给看。
+
+    手机连着 WiFi 访问时，浏览器随手敲个 `/data/store/progress.json`
+    就能把笔记正文拉走，这里顺手堵上。
+
+    注意比较时转小写：Windows 文件系统大小写不敏感，`/DATA/STORE/` 照样能读到。
+    """
+
+    deny = DENY_PREFIX          # 类默认，挂载点可以按需覆盖
+
+    async def get_response(self, path: str, scope) -> Response:
+        rel = path.replace('\\', '/').lstrip('/').lower()
+        if rel.startswith(tuple(p.lower() for p in self.deny)):
+            return Response('404 Not Found', status_code=404, media_type='text/plain')
+        return await super().get_response(path, scope)
+
+
+class SpaStatic(GuardedStatic):
+    """单页应用的静态目录：找不到的路径回落到 index.html。
+
+    为什么必须这么干：Vue 用的是 history 模式，`/cards`、`/login` 这些路径
+    **在服务器上并不存在对应的文件**，靠前端路由渲染。默认的 StaticFiles
+    见到 `/cards` 直接 404 —— 用户手一刷新就白屏，而他刚从这一页点进去过。
+
+    ⚠️ 注意 StaticFiles 表达 404 的方式是**抛 HTTPException**，不是返回一个
+    状态码为 404 的 Response。所以这里必须 try/except —— 写成
+    `resp = await super().get_response(...); if resp.status_code == 404`
+    的话那行判断永远执行不到，页面照样 404，而且看不出哪里错了。
+
+    两条例外，都不能回落成 HTML：
+
+    1. `/api/...` 的 404 保持 404。回落的话前端拿到一坨 HTML，
+       axios 报「JSON 解析失败」，排查方向直接跑偏到「后端挂了」。
+    2. 带扩展名的路径（.js / .css / .png）保持 404。浏览器把 HTML 当 JS
+       解析时报的错，跟真正的原因（文件没了）八竿子打不着，比 404 难查十倍。
+    """
+
+    async def get_response(self, path: str, scope) -> Response:
+        rel = (path or '').replace('\\', '/').lstrip('/')
+        # 非法文件名（WinError 123）当 404 处理，别让它变成 500。
+        # ★ 2026-10-03 实测踩到：节点 id 形如 'sub:work/ai'，含 ':' 和 '/'，
+        #   拼进静态路径后 Windows 直接抛 OSError —— 它**不是** HTTPException，
+        #   上面的 except 抓不到，于是穿成 500「服务器内部错误」，
+        #   而真因（URL 少编码了一位）被彻底掩盖。
+        #   兜底的代价只是把一种 404 报成另一种 404，收益是不掩盖真因。
+        try:
+            return await super().get_response(path, scope)
+        except StarletteHTTPException as e:
+            if e.status_code != 404:
+                raise
+        except OSError:
+            if not (rel == 'api' or rel.startswith('api/')
+                    or os.path.splitext(rel)[1]):
+                pass                        # 前端路由：继续往下走回落
+            raise StarletteHTTPException(404)
+
+        # `rel == 'api'` 这一条是补的：旧写法只判 `startswith('api/')`，
+        # 于是 `/api` 和 `/api/` 既不命中它、也不带扩展名 → 回落成 index.html
+        # 返回 200 HTML。模块自己的注释早就写了「/api/... 的 404 保持 404」，
+        # 只是这条边界漏了。
+        if rel == 'api' or rel.startswith('api/') or os.path.splitext(rel)[1]:
+            raise StarletteHTTPException(404)
+
+        try:
+            return await super().get_response('index.html', scope)
+        except StarletteHTTPException:
+            # 连 index.html 都没有（前端还没构建）。这时给个 404 是诚实的
+            raise StarletteHTTPException(404)
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    db.ensure_store()
+    _banner()
+    yield
+
+
+def _banner():
+    """启动横幅。这几行是排查「手机连不上」「AI 不通」的第一手信息，
+    所以格式要稳定：这些字段（端口 / 静态目录 / 存储 / AI / 局域网地址）
+    是肉眼扫一眼就要找到的，别往上加装饰。"""
+    port = int(os.environ.get('CARDS_PORT') or 8080)
+    lan = os.environ.get('CARDS_LAN') == '1'
+
+    print('serving  %s' % STATIC_DIR)
+    if not os.path.isdir(WEB_DIST):
+        print('         !! web/dist 还没构建，Vue 版打不开。到 web/ 下跑：')
+        print('            npm install && npm run build')
+    print('API      http://127.0.0.1:%d/api/health' % port)
+    print('本机访问 http://127.0.0.1:%d/' % port)
+    print('交互文档 http://127.0.0.1:%d/docs' % port)
+
+    s = db.stats()
+    # ★ 不再打「今日待复习 N」：进度从2026-10-03 起是 per-user 的，
+    #   启动时还没有登录用户，只能读匿名桶（永远是空的）→ 这个数字会变成
+    #   「全库卡数」，看着像 bug。横幅要打的是**不依赖登录上下文**的事实，
+    #   个人口径的数字交给 /api/stats（带 token 时才有）。
+    print('卡片 %d 张（自定义 %d）'
+          % (s['total'], s['custom']))
+
+    try:
+        n = db.user_count()
+        print('账号 %d 个%s' % (n, '' if n else '（第一个注册的人自动成为管理员）'))
+    except Exception as e:
+        # 老库还没建 users 表时不要让整条横幅崩掉 —— 横幅是排查的第一手信息，
+        # 它自己报错就没得看了
+        print('账号    ? 读取失败：%s' % str(e)[:80])
+
+    for line in store_pkg.banner_lines():
+        print(line)
+
+    # ★ 算法库（PG）与缓存（Redis）的降级也必须打在横幅上。
+    # 这两个模块的 degraded() 从前一处都没被服务端消费过 ——
+    # 于是 ALGO_STORE=pg 连不上时事件静默写进 JSON 文件、
+    # Redis 连不上时掌握度缓存悄悄退化成进程内存，启动日志一片安静。
+    # 项目自己的硬要求是「降级必须看得见」，这里就是那个「看得见」的地方。
+    try:
+        import algostore as algo_pkg
+        import cache as cache_pkg
+        for label, pkg in (('算法库  ', algo_pkg), ('缓存    ', cache_pkg)):
+            reason = pkg.degraded()
+            backend_name = type(pkg.get()).__name__
+            if reason:
+                print('!! %s降级运行：%s' % (label, reason))
+            else:
+                print('%s%s' % (label, backend_name))
+    except Exception as e:
+        print('算法库/缓存 ? 读取失败：%s' % str(e)[:80])
+
+    st = llm.status()
+    print('%s %s' % ('AI      ' if st['ok'] else 'AI 不可用', st['msg']))
+    if not st['ok']:
+        print('         ↑ 关了也不影响背卡 / 复习 / 导入分章，AI 只是可选增强')
+
+    for line in netinfo.banner(port, lan):
+        print(line)
+
+
+app = FastAPI(
+    title=API_TITLE,
+    version=API_VERSION,
+    description=API_DESC,
+    openapi_tags=OPENAPI_TAGS,
+    lifespan=lifespan,
+)
+
+# 纯公开 API，不带 cookie —— 所以 allow_credentials 保持 False
+# （它和 allow_origins=['*'] 不能同时开，浏览器会直接拒）
+#
+# ★ 这里**不能**用 ['*']。理由不是"将来可能带 cookie"，而是：
+#   个人数据端点虽然已经全部要求登录（Bearer token，不是 cookie），
+#   但通配来源仍然意味着「任意网页的 JS 都能对你的本机后端发请求」——
+#   跨源读走 /api/catalog 这类信息、或者拿 401/400 的差异去探测
+#   「这台机器上有没有跑这个服务」。收成白名单后，只有自己的前端能调。
+#
+# 默认放本机前端（Vite dev server 与后端自挂的静态站，两者都是 127.0.0.1/
+# localhost 来源）。换端口、放到局域网/域名下时用环境变量覆盖，
+# 不用改代码：
+#     CORS_ORIGINS="http://192.168.1.5:8080,https://my.example.com"
+def _cors_origins():
+    raw = os.environ.get('CORS_ORIGINS', '').strip()
+    if raw:
+        return [x.strip().rstrip('/') for x in raw.split(',') if x.strip()]
+    return ['http://127.0.0.1:5173', 'http://localhost:5173',
+            'http://127.0.0.1:8080', 'http://localhost:8080']
+
+
+# 按**域**放行（与上面的精确列表是叠加关系，不是二选一）。
+#
+# 为什么光有 CORS_ORIGINS 不够：前端和后端不同源的场景比想象的多 ——
+# Sites 发布站、Qoder 的预览面板、`npm run dev`、服务器上同源那份 dist，
+# 四个源的写法都不一样，而 Sites 每次新建站点子域还会变。逐个往
+# CORS_ORIGINS 里贴必然漏，漏掉的表现为「页面能打开、一登录就 Network
+# Error」（预检 400 且没有 Access-Control-Allow-Origin，浏览器直接掐掉请求，
+# axios 只能报这一句），排查时很容易被当成后端挂了。
+#
+# 放行的四类：
+#   https://*.qoder.website / *.qoder.sh / *.qoder.com —— Sites 站点 + 预览面板
+#   http://127.0.0.1:<端口> / http://localhost:<端口>   —— 本地 dev 与本机静态站
+#   null —— 沙箱 iframe 的源就是字面量 "null"（预览面板是 sandbox）
+#
+# 为什么这样不算把门敞开：allow_credentials 是关的，浏览器不会带 cookie，
+# 别人的页面也读不到本站 localStorage 里的 token，所以第三方只能发**匿名**
+# 请求 —— 数据端点一律 401，能探到的只有 /api/health 这类公开探针。
+# 真正要防的是「任意网页 JS 探测某台机器上有没有跑这个服务」，
+# 所以不放 *，只放 Qoder 自己的域 + 回环地址。
+_CORS_ORIGIN_REGEX = (
+    r'https://([A-Za-z0-9_-]+\.)+qoder\.(website|sh|com)'
+    r'|http://(127\.0\.0\.1|localhost)(:\d{1,5})?'
+    r'|null'
+)
+
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=_cors_origins(),
+    allow_origin_regex=_CORS_ORIGIN_REGEX,
+    allow_methods=['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allow_headers=['Authorization', 'Content-Type'],
+)
+
+
+class _BodyTooLarge(Exception):
+    """chunked 请求超限时用异常把控制流拉回中间件。
+
+    为什么不只在中间件里判 Content-Length：带 `Transfer-Encoding: chunked`
+    的请求**没有** Content-Length，旧写法直接放行，FastAPI 会把整个 body
+    缓冲进内存 —— 16MB 上限形同虚设。这里改成数实际收到的字节。
+    """
+
+
+@app.middleware('http')
+async def guard_log_cache(request: Request, call_next):
+    """三件事攒在一个中间件里：体积闸门 → 转发 → 补缓存头 + 记 API 日志。
+
+    分开写三个会让每个请求多穿三层，收益为零。
+    """
+    # 1) Content-Length 能看到的先快速拒掉（省掉收 body 的开销）
+    n = request.headers.get('content-length')
+    if n and n.isdigit() and int(n) > MAX_BODY:
+        # 语义上 413 才对（以前这里是 400，且提示还写着「上限 2MB」，
+        # 实际是 16MB —— 提示早就过期了）。
+        return JSONResponse(status_code=413, content={
+            'ok': False, 'msg': '请求体过大（上限 %dMB）' % (MAX_BODY >> 20)})
+
+    # 2) 没有（或不可信）Content-Length 时按实际收到的字节数兜底 ——
+    #    chunked 请求走的就是这条路。计数包在 receive 上，边收边数，
+    #    超限立刻抛出去，不等 FastAPI 把整个 body 缓冲进内存。
+    seen = {'n': 0}
+    original_receive = request._receive
+
+    async def counting_receive():
+        msg = await original_receive()
+        if msg.get('type') == 'http.request':
+            seen['n'] += len(msg.get('body') or b'')
+            if seen['n'] > MAX_BODY:
+                raise _BodyTooLarge()
+        return msg
+
+    request._receive = counting_receive
+
+    is_api = request.url.path.startswith('/api/')
+    t0 = time.perf_counter()
+    try:
+        resp = await call_next(request)
+    except _BodyTooLarge:
+        return JSONResponse(status_code=413, content={
+            'ok': False, 'msg': '请求体过大（上限 %dMB）' % (MAX_BODY >> 20)})
+
+    if is_api:
+        # 进度、笔记这些接口的返回值绝不能进浏览器缓存，否则标记了「会」
+        # 刷新又变回原样，人会以为是数据丢了
+        resp.headers['Cache-Control'] = 'no-store'
+        # 只记 API：静态资源一屏几十个请求，记了刷屏，真正要看的错误反而被埋
+        sys.stderr.write('%s %s → %d  %.0fms\n' % (
+            request.method, request.url.path, resp.status_code,
+            (time.perf_counter() - t0) * 1000))
+    else:
+        # sw.js 必须是 no-cache，否则 Service Worker 更新推不下去
+        resp.headers.setdefault('Cache-Control', 'no-cache')
+    return resp
+
+
+@app.exception_handler(StarletteHTTPException)
+async def on_http_error(_request: Request, exc: StarletteHTTPException):
+    """HTTPException → 前端认识的 `{ok:false,msg}`。
+
+    前端所有错误分支都读 body.msg，默认的 `{"detail": "..."}` 会让它显示成
+    一串看不懂的对象。
+    """
+    return JSONResponse(status_code=exc.status_code,
+                        content={'ok': False, 'msg': str(exc.detail)})
+
+
+@app.exception_handler(RequestValidationError)
+async def on_bad_params(_request: Request, exc: RequestValidationError):
+    """参数问题一律 400（FastAPI 默认 422）。
+
+    不是洁癖：老前端到处是 `if (r.status === 400)`，换成 422 会静默走进
+    「服务器错误」那条分支，错误信息就没了。
+    """
+    errs = exc.errors()
+    # 坏 JSON 走单独一句话：pydantic 原话是 "JSON decode error"，
+    # 前端弹给用户看太出戏
+    if errs and errs[0].get('type') == 'json_invalid':
+        return JSONResponse(status_code=400,
+                            content={'ok': False, 'msg': '请求体不是合法 JSON'})
+
+    detail = '参数不合法'
+    if errs:
+        first = errs[0]
+        # loc 形如 ('body', 'level') 或 ('query', 'limit')；只保留真正的字段名，
+        # 中间那些 'body'/'query' 和列表下标（整数）都丢掉
+        name = '.'.join(str(x) for x in first.get('loc', ())
+                       if isinstance(x, str) and x not in ('body', 'query', 'path'))
+        msg = first.get('msg') or detail
+        detail = ('%s: %s' % (name, msg)) if name else msg
+    return JSONResponse(status_code=400, content={'ok': False, 'msg': detail})
+
+
+@app.exception_handler(Exception)
+async def on_boom(_request: Request, exc: Exception):
+    """兜底 500。
+
+    Starlette 会在发完这个响应后把异常重新抛出，所以 traceback 照样会打到
+    日志里 —— 该看的堆栈没被藏起来，但客户端拿到的是约定的 JSON 形状。
+    """
+    sys.stderr.write('[api] %s: %s\n' % (type(exc).__name__, exc))
+    return JSONResponse(status_code=500,
+                        content={'ok': False, 'msg': '服务器内部错误'})
+
+
+for _r in ROUTERS:
+    app.include_router(_r)
+
+# /data 单独挂一份：网页里写的是 <script src="data/catalog.js">，
+# 相对根路径解析成 /data/catalog.js，指向 study/data/ 那份唯一真相源。
+# 这一段要挡住 store/（笔记正文、复习进度都在这儿）。
+_data_mount = GuardedStatic(directory=DATA_DIR, html=False)
+_data_mount.deny = ('store/',)
+app.mount('/data', _data_mount, name='data')
+
+# 最后挂，且挂在 '/' 上：API 路由先匹配，剩下的才落到静态资源。
+# 用 SpaStatic 而不是 GuardedStatic —— Vue 是 history 模式，/cards 这类路径
+# 在磁盘上没有对应文件，必须回落到 index.html，否则用户一刷新就白屏。
+_web_mount = SpaStatic(directory=STATIC_DIR, html=True)
+_web_mount.deny = ()
+app.mount('/', _web_mount, name='static')

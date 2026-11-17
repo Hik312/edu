@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>调试入口</title>
+</head>
+<body>
+<script>
+/* 调试 / 冒烟专用：用测试账号换一个 JWT 塞进 localStorage，再跳到目标页。
+ *
+ * 为什么需要它：headless 截图工具没法在页面执行前注入存储，而除了登录页
+ * 之外所有页面都有路由守卫。借一个真实页面把 token 写进去是最省事的办法。
+ *
+ * 用法：_seed.html?user=xxx&pass=yyy&to=/docs   用指定账号换 token 后跳目标页
+ *       没有 user/pass 参数就直接跳登录页。
+ *
+ * 为什么不写死默认账号：这份文件在 public/ 下，`vite build` 会把它原样拷进
+ * dist/，跟着前端一起发布到公网。任何内置口令都会变成"公开仓库 + 线上页面"
+ * 双重暴露。真正要截图时由脚本传参（口令见 back_study/.probe.json），
+ * 或直接用 smoke_paper.py 生成的 dist/_seed.html —— 那个写的是 token，不是口令。
+ */
+(async function () {
+  var q = new URLSearchParams(location.search)
+  var user = q.get('user')
+  var pass = q.get('pass')
+  if (user && pass) {
+    try {
+      var r = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: user, password: pass })
+      })
+      var d = await r.json()
+      if (d && d.token) localStorage.setItem('edupath.token', d.token)
+    } catch (e) {
+      /* 登录失败就不写 token，让路由守卫把我们踢回登录页 —— 
+         这样截出来的是登录页，一眼就知道是账号问题而不是页面坏了 */
+    }
+    location.replace(q.get('to') || '/dashboard')
+  } else {
+    location.replace('/login')
+  }
+})()
+</script>
+</body>
+</html>

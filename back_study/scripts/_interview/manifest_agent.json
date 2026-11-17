@@ -1,0 +1,1689 @@
+[
+  {
+    "id": "ai-what-is-llm-agent",
+    "subject": "ai",
+    "domain": "AI工程",
+    "topicPath": [
+      "AI工程",
+      "Agent 架构"
+    ],
+    "tags": [
+      "Agent",
+      "Agent 架构"
+    ],
+    "title_hint": "什么是 LLM Agent？与传统 LLM 应用有何区别？",
+    "src_path": "C:\\Users\\wangh\\AppData\\Local\\Temp\\opencode\\interview_src\\Agent-Interview-100\\01-agent-architecture\\001-what-is-llm-agent.md"
+  },
+  {
+    "id": "ai-agent-core-components",
+    "subject": "ai",
+    "domain": "AI工程",
+    "topicPath": [
+      "AI工程",
+      "Agent 架构"
+    ],
+    "tags": [
+      "Agent",
+      "Agent 架构"
+    ],
+    "title_hint": "解释 Agent 的核心组件：感知、推理、行动、记忆",
+    "src_path": "C:\\Users\\wangh\\AppData\\Local\\Temp\\opencode\\interview_src\\Agent-Interview-100\\01-agent-architecture\\002-agent-core-components.md"
+  },
+  {
+    "id": "ai-agent-architecture-patterns",
+    "subject": "ai",
+    "domain": "AI工程",
+    "topicPath": [
+      "AI工程",
+      "Agent 架构"
+    ],
+    "tags": [
+      "Agent",
+      "Agent 架构"
+    ],
+    "title_hint": "Agent 架构模式详解：ReAct、Plan-and-Execute、LATS、Proactive",
+    "src_path": "C:\\Users\\wangh\\AppData\\Local\\Temp\\opencode\\interview_src\\Agent-Interview-100\\01-agent-architecture\\003-agent-architecture-patterns.md"
+  },
+  {
+    "id": "ai-layered-agent-architecture",
+    "subject": "ai",
+    "domain": "AI工程",
+    "topicPath": [
+      "AI工程",
+      "Agent 架构"
+    ],
+    "tags": [
+      "Agent",
+      "Agent 架构"
+    ],
+    "title_hint": "如何设计一个分层 Agent 架构（Orchestrator / Worker 模式）？",
+    "src_path": "C:\\Users\\wangh\\AppData\\Local\\Temp\\opencode\\interview_src\\Agent-Interview-100\\01-agent-architecture\\005-layered-agent-architecture.md"
+  },
+  {
+    "id": "ai-workflow-vs-agent",
+    "subject": "ai",
+    "domain": "AI工程",
+    "topicPath": [
+      "AI工程",
+      "Agent 架构"
+    ],
+    "tags": [
+      "Agent",
+      "Agent 架构"
+    ],
+    "title_hint": "Workflow vs Agent：什么时候用确定性工作流，什么时候用自主 Agent？",
+    "src_path": "C:\\Users\\wangh\\AppData\\Local\\Temp\\opencode\\interview_src\\Agent-Interview-100\\01-agent-architecture\\007-workflow-vs-agent.md"
+  },
+  {
+    "id": "ai-production-agent-system-design",
+    "subject": "ai",
+    "domain": "AI工程",
+    "topicPath": [
+      "AI工程",
+      "Agent 架构"
+    ],
+    "tags": [
+      "Agent",
+      "Agent 架构"
+    ],
+    "title_hint": "生产级 Agent 系统设计（含智能客服实战案例）",
+    "src_path": "C:\\Users\\wangh\\AppData\\Local\\Temp\\opencode\\interview_src\\Agent-Interview-100\\01-agent-architecture\\010-production-agent-system-design.md"
+  },
+  {
+    "id": "ai-interview-deep-dive-chain",
+    "subject": "ai",
+    "domain": "AI工程",
+    "topicPath": [
+      "AI工程",
+      "Agent 架构"
+    ],
+    "tags": [
+      "Agent",
+      "Agent 架构"
+    ],
+    "title_hint": "面试追问链：从「什么是 Agent」到系统设计的 10 层递进追问",
+    "src_path": "C:\\Users\\wangh\\AppData\\Local\\Temp\\opencode\\interview_src\\Agent-Interview-100\\01-agent-architecture\\108-interview-deep-dive-chain.md"
+  },
+  {
+    "id": "ai-what-is-agent-harness",
+    "subject": "ai",
+    "domain": "AI工程",
+    "topicPath": [
+      "AI工程",
+      "Agent 架构"
+    ],
+    "tags": [
+      "Agent",
+      "Agent 架构"
+    ],
+    "title_hint": "什么是 Agent Harness？与 Framework / Runtime 三层抽象有何区别？",
+    "src_path": "C:\\Users\\wangh\\AppData\\Local\\Temp\\opencode\\interview_src\\Agent-Interview-100\\01-agent-architecture\\109-what-is-agent-harness.md"
+  },
+  {
+    "id": "ai-computer-use-agent",
+    "subject": "ai",
+    "domain": "AI工程",
+    "topicPath": [
+      "AI工程",
+      "Agent 架构"
+    ],
+    "tags": [
+      "Agent",
+      "Agent 架构"
+    ],
+    "title_hint": "什么是 Computer Use / Browser Use Agent？它与 API Agent 有何区别？",
+    "src_path": "C:\\Users\\wangh\\AppData\\Local\\Temp\\opencode\\interview_src\\Agent-Interview-100\\01-agent-architecture\\113-computer-use-agent.md"
+  },
+  {
+    "id": "ai-deep-research-agent",
+    "subject": "ai",
+    "domain": "AI工程",
+    "topicPath": [
+      "AI工程",
+      "Agent 架构"
+    ],
+    "tags": [
+      "Agent",
+      "Agent 架构"
+    ],
+    "title_hint": "什么是 Deep Research / Agentic Search Agent？它和 Agentic RAG 有何区别？",
+    "src_path": "C:\\Users\\wangh\\AppData\\Local\\Temp\\opencode\\interview_src\\Agent-Interview-100\\01-agent-architecture\\114-deep-research-agent.md"
+  },
+  {
+    "id": "ai-chunking-strategies",
+    "subject": "ai",
+    "domain": "AI工程",
+    "topicPath": [
+      "AI工程",
+      "RAG 检索增强"
+    ],
+    "tags": [
+      "Agent",
+      "RAG 检索增强"
+    ],
+    "title_hint": "文档分块（Chunking）策略有哪些？各有什么优缺点？",
+    "src_path": "C:\\Users\\wangh\\AppData\\Local\\Temp\\opencode\\interview_src\\Agent-Interview-100\\02-rag\\013-chunking-strategies.md"
+  },
+  {
+    "id": "ai-vector-database-comparison",
+    "subject": "ai",
+    "domain": "AI工程",
+    "topicPath": [
+      "AI工程",
+      "RAG 检索增强"
+    ],
+    "tags": [
+      "Agent",
+      "RAG 检索增强"
+    ],
+    "title_hint": "向量数据库选型：Pinecone vs Weaviate vs Chroma vs Milvus",
+    "src_path": "C:\\Users\\wangh\\AppData\\Local\\Temp\\opencode\\interview_src\\Agent-Interview-100\\02-rag\\014-vector-database-comparison.md"
+  },
+  {
+    "id": "ai-embedding-model-selection",
+    "subject": "ai",
+    "domain": "AI工程",
+    "topicPath": [
+      "AI工程",
+      "RAG 检索增强"
+    ],
+    "tags": [
+      "Agent",
+      "RAG 检索增强"
+    ],
+    "title_hint": "Embedding 模型选择与微调策略",
+    "src_path": "C:\\Users\\wangh\\AppData\\Local\\Temp\\opencode\\interview_src\\Agent-Interview-100\\02-rag\\015-embedding-model-selection.md"
+  },
+  {
+    "id": "ai-hybrid-retrieval",
+    "subject": "ai",
+    "domain": "AI工程",
+    "topicPath": [
+      "AI工程",
+      "RAG 检索增强"
+    ],
+    "tags": [
+      "Agent",
+      "RAG 检索增强"
+    ],
+    "title_hint": "混合检索：如何结合语义检索和关键词检索？",
+    "src_path": "C:\\Users\\wangh\\AppData\\Local\\Temp\\opencode\\interview_src\\Agent-Interview-100\\02-rag\\016-hybrid-retrieval.md"
+  },
+  {
+    "id": "ai-reranking-strategies",
+    "subject": "ai",
+    "domain": "AI工程",
+    "topicPath": [
+      "AI工程",
+      "RAG 检索增强"
+    ],
+    "tags": [
+      "Agent",
+      "RAG 检索增强"
+    ],
+    "title_hint": "Re-ranking 的原理与实现：Cross-Encoder vs Bi-Encoder",
+    "src_path": "C:\\Users\\wangh\\AppData\\Local\\Temp\\opencode\\interview_src\\Agent-Interview-100\\02-rag\\017-reranking-strategies.md"
+  },
+  {
+    "id": "ai-agentic-rag",
+    "subject": "ai",
+    "domain": "AI工程",
+    "topicPath": [
+      "AI工程",
+      "RAG 检索增强"
+    ],
+    "tags": [
+      "Agent",
+      "RAG 检索增强"
+    ],
+    "title_hint": "什么是 Agentic RAG？它与传统 RAG 有何不同？",
+    "src_path": "C:\\Users\\wangh\\AppData\\Local\\Temp\\opencode\\interview_src\\Agent-Interview-100\\02-rag\\018-agentic-rag.md"
+  },
+  {
+    "id": "ai-advanced-rag-variants",
+    "subject": "ai",
+    "domain": "AI工程",
+    "topicPath": [
+      "AI工程",
+      "RAG 检索增强"
+    ],
+    "tags": [
+      "Agent",
+      "RAG 检索增强"
+    ],
+    "title_hint": "高级 RAG 变体：Corrective RAG、Self-RAG、Adaptive RAG",
+    "src_path": "C:\\Users\\wangh\\AppData\\Local\\Temp\\opencode\\interview_src\\Agent-Interview-100\\02-rag\\019-advanced-rag-variants.md"
+  },
+  {
+    "id": "ai-rag-evaluation-metrics",
+    "subject": "ai",
+    "domain": "AI工程",
+    "topicPath": [
+      "AI工程",
+      "RAG 检索增强"
+    ],
+    "tags": [
+      "Agent",
+      "RAG 检索增强"
+    ],
+    "title_hint": "RAG 评估指标体系：原理、计算与实战",
+    "src_path": "C:\\Users\\wangh\\AppData\\Local\\Temp\\opencode\\interview_src\\Agent-Interview-100\\02-rag\\020-rag-evaluation-metrics.md"
+  },
+  {
+    "id": "ai-tool-schema-design",
+    "subject": "ai",
+    "domain": "AI工程",
+    "topicPath": [
+      "AI工程",
+      "工具调用"
+    ],
+    "tags": [
+      "Agent",
+      "工具调用"
+    ],
+    "title_hint": "如何为 LLM 定义和描述工具（Tool Schema）？",
+    "src_path": "C:\\Users\\wangh\\AppData\\Local\\Temp\\opencode\\interview_src\\Agent-Interview-100\\03-tool-use\\022-tool-schema-design.md"
+  },
+  {
+    "id": "ai-common-tool-patterns",
+    "subject": "ai",
+    "domain": "AI工程",
+    "topicPath": [
+      "AI工程",
+      "工具调用"
+    ],
+    "tags": [
+      "Agent",
+      "工具调用"
+    ],
+    "title_hint": "Tool Use 的常见模式：API 调用、数据库查询、代码执行",
+    "src_path": "C:\\Users\\wangh\\AppData\\Local\\Temp\\opencode\\interview_src\\Agent-Interview-100\\03-tool-use\\023-common-tool-patterns.md"
+  },
+  {
+    "id": "ai-tool-gateway-permissions",
+    "subject": "ai",
+    "domain": "AI工程",
+    "topicPath": [
+      "AI工程",
+      "工具调用"
+    ],
+    "tags": [
+      "Agent",
+      "工具调用"
+    ],
+    "title_hint": "如何设计 Tool Gateway 和工具权限管理？",
+    "src_path": "C:\\Users\\wangh\\AppData\\Local\\Temp\\opencode\\interview_src\\Agent-Interview-100\\03-tool-use\\024-tool-gateway-permissions.md"
+  },
+  {
+    "id": "ai-tool-selection-strategy",
+    "subject": "ai",
+    "domain": "AI工程",
+    "topicPath": [
+      "AI工程",
+      "工具调用"
+    ],
+    "tags": [
+      "Agent",
+      "工具调用"
+    ],
+    "title_hint": "工具选择策略：LLM 如何决定使用哪个工具？",
+    "src_path": "C:\\Users\\wangh\\AppData\\Local\\Temp\\opencode\\interview_src\\Agent-Interview-100\\03-tool-use\\025-tool-selection-strategy.md"
+  },
+  {
+    "id": "ai-tool-failure-handling",
+    "subject": "ai",
+    "domain": "AI工程",
+    "topicPath": [
+      "AI工程",
+      "工具调用"
+    ],
+    "tags": [
+      "Agent",
+      "工具调用"
+    ],
+    "title_hint": "如何处理工具调用失败和超时？",
+    "src_path": "C:\\Users\\wangh\\AppData\\Local\\Temp\\opencode\\interview_src\\Agent-Interview-100\\03-tool-use\\026-tool-failure-handling.md"
+  },
+  {
+    "id": "ai-parallel-vs-sequential-tools",
+    "subject": "ai",
+    "domain": "AI工程",
+    "topicPath": [
+      "AI工程",
+      "工具调用"
+    ],
+    "tags": [
+      "Agent",
+      "工具调用"
+    ],
+    "title_hint": "并行工具调用 vs 顺序工具调用的设计考量",
+    "src_path": "C:\\Users\\wangh\\AppData\\Local\\Temp\\opencode\\interview_src\\Agent-Interview-100\\03-tool-use\\028-parallel-vs-sequential-tools.md"
+  },
+  {
+    "id": "ai-dynamic-tool-discovery",
+    "subject": "ai",
+    "domain": "AI工程",
+    "topicPath": [
+      "AI工程",
+      "工具调用"
+    ],
+    "tags": [
+      "Agent",
+      "工具调用"
+    ],
+    "title_hint": "如何实现动态工具发现和注册？",
+    "src_path": "C:\\Users\\wangh\\AppData\\Local\\Temp\\opencode\\interview_src\\Agent-Interview-100\\03-tool-use\\029-dynamic-tool-discovery.md"
+  },
+  {
+    "id": "ai-tool-use-security",
+    "subject": "ai",
+    "domain": "AI工程",
+    "topicPath": [
+      "AI工程",
+      "工具调用"
+    ],
+    "tags": [
+      "Agent",
+      "工具调用"
+    ],
+    "title_hint": "工具使用的安全性：防止注入攻击和越权操作",
+    "src_path": "C:\\Users\\wangh\\AppData\\Local\\Temp\\opencode\\interview_src\\Agent-Interview-100\\03-tool-use\\030-tool-use-security.md"
+  },
+  {
+    "id": "ai-communication-patterns",
+    "subject": "ai",
+    "domain": "AI工程",
+    "topicPath": [
+      "AI工程",
+      "多智能体"
+    ],
+    "tags": [
+      "Agent",
+      "多智能体"
+    ],
+    "title_hint": "多 Agent 通信模式：消息传递、共享状态、黑板模式",
+    "src_path": "C:\\Users\\wangh\\AppData\\Local\\Temp\\opencode\\interview_src\\Agent-Interview-100\\04-multi-agent\\032-communication-patterns.md"
+  },
+  {
+    "id": "ai-orchestration-patterns",
+    "subject": "ai",
+    "domain": "AI工程",
+    "topicPath": [
+      "AI工程",
+      "多智能体"
+    ],
+    "tags": [
+      "Agent",
+      "多智能体"
+    ],
+    "title_hint": "Agent 编排模式：Hub-Spoke、Pipeline、Hierarchical",
+    "src_path": "C:\\Users\\wangh\\AppData\\Local\\Temp\\opencode\\interview_src\\Agent-Interview-100\\04-multi-agent\\033-orchestration-patterns.md"
+  },
+  {
+    "id": "ai-task-allocation-coordination",
+    "subject": "ai",
+    "domain": "AI工程",
+    "topicPath": [
+      "AI工程",
+      "多智能体"
+    ],
+    "tags": [
+      "Agent",
+      "多智能体"
+    ],
+    "title_hint": "如何设计 Agent 间的任务分配与协调？",
+    "src_path": "C:\\Users\\wangh\\AppData\\Local\\Temp\\opencode\\interview_src\\Agent-Interview-100\\04-multi-agent\\034-task-allocation-coordination.md"
+  },
+  {
+    "id": "ai-conflict-resolution",
+    "subject": "ai",
+    "domain": "AI工程",
+    "topicPath": [
+      "AI工程",
+      "多智能体"
+    ],
+    "tags": [
+      "Agent",
+      "多智能体"
+    ],
+    "title_hint": "多 Agent 系统中的冲突解决机制",
+    "src_path": "C:\\Users\\wangh\\AppData\\Local\\Temp\\opencode\\interview_src\\Agent-Interview-100\\04-multi-agent\\035-conflict-resolution.md"
+  },
+  {
+    "id": "ai-multi-agent-frameworks",
+    "subject": "ai",
+    "domain": "AI工程",
+    "topicPath": [
+      "AI工程",
+      "多智能体"
+    ],
+    "tags": [
+      "Agent",
+      "多智能体"
+    ],
+    "title_hint": "比较主流多 Agent 框架：CrewAI、AutoGen、LangGraph",
+    "src_path": "C:\\Users\\wangh\\AppData\\Local\\Temp\\opencode\\interview_src\\Agent-Interview-100\\04-multi-agent\\036-multi-agent-frameworks.md"
+  },
+  {
+    "id": "ai-agent-handoff",
+    "subject": "ai",
+    "domain": "AI工程",
+    "topicPath": [
+      "AI工程",
+      "多智能体"
+    ],
+    "tags": [
+      "Agent",
+      "多智能体"
+    ],
+    "title_hint": "如何实现 Agent 间的 Handoff（任务交接）？",
+    "src_path": "C:\\Users\\wangh\\AppData\\Local\\Temp\\opencode\\interview_src\\Agent-Interview-100\\04-multi-agent\\037-agent-handoff.md"
+  },
+  {
+    "id": "ai-emergent-behavior",
+    "subject": "ai",
+    "domain": "AI工程",
+    "topicPath": [
+      "AI工程",
+      "多智能体"
+    ],
+    "tags": [
+      "Agent",
+      "多智能体"
+    ],
+    "title_hint": "多 Agent 系统中的涌现行为与可控性",
+    "src_path": "C:\\Users\\wangh\\AppData\\Local\\Temp\\opencode\\interview_src\\Agent-Interview-100\\04-multi-agent\\038-emergent-behavior.md"
+  },
+  {
+    "id": "ai-debugging-monitoring-multi-agent",
+    "subject": "ai",
+    "domain": "AI工程",
+    "topicPath": [
+      "AI工程",
+      "多智能体"
+    ],
+    "tags": [
+      "Agent",
+      "多智能体"
+    ],
+    "title_hint": "如何调试和监控多 Agent 系统？",
+    "src_path": "C:\\Users\\wangh\\AppData\\Local\\Temp\\opencode\\interview_src\\Agent-Interview-100\\04-multi-agent\\039-debugging-monitoring-multi-agent.md"
+  },
+  {
+    "id": "ai-context-window-management",
+    "subject": "ai",
+    "domain": "AI工程",
+    "topicPath": [
+      "AI工程",
+      "记忆与状态"
+    ],
+    "tags": [
+      "Agent",
+      "记忆与状态"
+    ],
+    "title_hint": "对话上下文窗口管理与压缩策略",
+    "src_path": "C:\\Users\\wangh\\AppData\\Local\\Temp\\opencode\\interview_src\\Agent-Interview-100\\05-memory-and-state\\041-context-window-management.md"
+  },
+  {
+    "id": "ai-persistent-memory",
+    "subject": "ai",
+    "domain": "AI工程",
+    "topicPath": [
+      "AI工程",
+      "记忆与状态"
+    ],
+    "tags": [
+      "Agent",
+      "记忆与状态"
+    ],
+    "title_hint": "如何实现 Agent 的持久化记忆（Persistent Memory）？",
+    "src_path": "C:\\Users\\wangh\\AppData\\Local\\Temp\\opencode\\interview_src\\Agent-Interview-100\\05-memory-and-state\\043-persistent-memory.md"
+  },
+  {
+    "id": "ai-state-management-patterns",
+    "subject": "ai",
+    "domain": "AI工程",
+    "topicPath": [
+      "AI工程",
+      "记忆与状态"
+    ],
+    "tags": [
+      "Agent",
+      "记忆与状态"
+    ],
+    "title_hint": "状态管理在 Agent 系统中的设计模式",
+    "src_path": "C:\\Users\\wangh\\AppData\\Local\\Temp\\opencode\\interview_src\\Agent-Interview-100\\05-memory-and-state\\044-state-management-patterns.md"
+  },
+  {
+    "id": "ai-cross-session-preferences",
+    "subject": "ai",
+    "domain": "AI工程",
+    "topicPath": [
+      "AI工程",
+      "记忆与状态"
+    ],
+    "tags": [
+      "Agent",
+      "记忆与状态"
+    ],
+    "title_hint": "如何实现跨会话的用户偏好学习？",
+    "src_path": "C:\\Users\\wangh\\AppData\\Local\\Temp\\opencode\\interview_src\\Agent-Interview-100\\05-memory-and-state\\045-cross-session-preferences.md"
+  },
+  {
+    "id": "ai-long-term-memory-storage",
+    "subject": "ai",
+    "domain": "AI工程",
+    "topicPath": [
+      "AI工程",
+      "记忆与状态"
+    ],
+    "tags": [
+      "Agent",
+      "记忆与状态"
+    ],
+    "title_hint": "长期记忆存储介质选型：向量 / 结构化 / 图谱",
+    "src_path": "C:\\Users\\wangh\\AppData\\Local\\Temp\\opencode\\interview_src\\Agent-Interview-100\\05-memory-and-state\\046-long-term-memory-storage.md"
+  },
+  {
+    "id": "ai-memory-forgetting-updating",
+    "subject": "ai",
+    "domain": "AI工程",
+    "topicPath": [
+      "AI工程",
+      "记忆与状态"
+    ],
+    "tags": [
+      "Agent",
+      "记忆与状态"
+    ],
+    "title_hint": "记忆的遗忘与更新机制：如何处理过时信息？",
+    "src_path": "C:\\Users\\wangh\\AppData\\Local\\Temp\\opencode\\interview_src\\Agent-Interview-100\\05-memory-and-state\\048-memory-forgetting-updating.md"
+  },
+  {
+    "id": "ai-cot-and-tot",
+    "subject": "ai",
+    "domain": "AI工程",
+    "topicPath": [
+      "AI工程",
+      "规划与推理"
+    ],
+    "tags": [
+      "Agent",
+      "规划与推理"
+    ],
+    "title_hint": "推理策略详解：Chain-of-Thought 与 Tree-of-Thought",
+    "src_path": "C:\\Users\\wangh\\AppData\\Local\\Temp\\opencode\\interview_src\\Agent-Interview-100\\06-planning-and-reasoning\\049-cot-and-tot.md"
+  },
+  {
+    "id": "ai-task-decomposition",
+    "subject": "ai",
+    "domain": "AI工程",
+    "topicPath": [
+      "AI工程",
+      "规划与推理"
+    ],
+    "tags": [
+      "Agent",
+      "规划与推理"
+    ],
+    "title_hint": "任务分解（Task Decomposition）的基本方法",
+    "src_path": "C:\\Users\\wangh\\AppData\\Local\\Temp\\opencode\\interview_src\\Agent-Interview-100\\06-planning-and-reasoning\\050-task-decomposition.md"
+  },
+  {
+    "id": "ai-plan-and-solve-replanning",
+    "subject": "ai",
+    "domain": "AI工程",
+    "topicPath": [
+      "AI工程",
+      "规划与推理"
+    ],
+    "tags": [
+      "Agent",
+      "规划与推理"
+    ],
+    "title_hint": "Plan-and-Solve 与动态重规划",
+    "src_path": "C:\\Users\\wangh\\AppData\\Local\\Temp\\opencode\\interview_src\\Agent-Interview-100\\06-planning-and-reasoning\\052-plan-and-solve-replanning.md"
+  },
+  {
+    "id": "ai-llm-planning-limitations",
+    "subject": "ai",
+    "domain": "AI工程",
+    "topicPath": [
+      "AI工程",
+      "规划与推理"
+    ],
+    "tags": [
+      "Agent",
+      "规划与推理"
+    ],
+    "title_hint": "LLM 作为规划器的局限性与缓解方案",
+    "src_path": "C:\\Users\\wangh\\AppData\\Local\\Temp\\opencode\\interview_src\\Agent-Interview-100\\06-planning-and-reasoning\\053-llm-planning-limitations.md"
+  },
+  {
+    "id": "ai-reasoning-models",
+    "subject": "ai",
+    "domain": "AI工程",
+    "topicPath": [
+      "AI工程",
+      "规划与推理"
+    ],
+    "tags": [
+      "Agent",
+      "规划与推理"
+    ],
+    "title_hint": "2026 推理 / Agent 模型版图：Claude / GPT / Gemini 三家旗舰对比与选型",
+    "src_path": "C:\\Users\\wangh\\AppData\\Local\\Temp\\opencode\\interview_src\\Agent-Interview-100\\06-planning-and-reasoning\\055-reasoning-models.md"
+  },
+  {
+    "id": "ai-mcts-in-agent-planning",
+    "subject": "ai",
+    "domain": "AI工程",
+    "topicPath": [
+      "AI工程",
+      "规划与推理"
+    ],
+    "tags": [
+      "Agent",
+      "规划与推理"
+    ],
+    "title_hint": "Monte Carlo Tree Search 在 Agent 规划中的应用",
+    "src_path": "C:\\Users\\wangh\\AppData\\Local\\Temp\\opencode\\interview_src\\Agent-Interview-100\\06-planning-and-reasoning\\056-mcts-in-agent-planning.md"
+  },
+  {
+    "id": "ai-reasoning-quality-evaluation",
+    "subject": "ai",
+    "domain": "AI工程",
+    "topicPath": [
+      "AI工程",
+      "规划与推理"
+    ],
+    "tags": [
+      "Agent",
+      "规划与推理"
+    ],
+    "title_hint": "如何评估 Agent 的推理质量？",
+    "src_path": "C:\\Users\\wangh\\AppData\\Local\\Temp\\opencode\\interview_src\\Agent-Interview-100\\06-planning-and-reasoning\\057-reasoning-quality-evaluation.md"
+  },
+  {
+    "id": "ai-causal-reasoning",
+    "subject": "ai",
+    "domain": "AI工程",
+    "topicPath": [
+      "AI工程",
+      "规划与推理"
+    ],
+    "tags": [
+      "Agent",
+      "规划与推理"
+    ],
+    "title_hint": "因果推理在 Agent 决策中的作用",
+    "src_path": "C:\\Users\\wangh\\AppData\\Local\\Temp\\opencode\\interview_src\\Agent-Interview-100\\06-planning-and-reasoning\\058-causal-reasoning.md"
+  },
+  {
+    "id": "ai-agentic-rl-grpo",
+    "subject": "ai",
+    "domain": "AI工程",
+    "topicPath": [
+      "AI工程",
+      "规划与推理"
+    ],
+    "tags": [
+      "Agent",
+      "规划与推理"
+    ],
+    "title_hint": "Agentic-RL 是什么？如何用 GRPO 训练 Agent 的决策能力？",
+    "src_path": "C:\\Users\\wangh\\AppData\\Local\\Temp\\opencode\\interview_src\\Agent-Interview-100\\06-planning-and-reasoning\\103-agentic-rl-grpo.md"
+  },
+  {
+    "id": "ai-system-prompt-principles",
+    "subject": "ai",
+    "domain": "AI工程",
+    "topicPath": [
+      "AI工程",
+      "提示工程"
+    ],
+    "tags": [
+      "Agent",
+      "提示工程"
+    ],
+    "title_hint": "System Prompt 设计的核心原则",
+    "src_path": "C:\\Users\\wangh\\AppData\\Local\\Temp\\opencode\\interview_src\\Agent-Interview-100\\07-prompt-engineering\\059-system-prompt-principles.md"
+  },
+  {
+    "id": "ai-few-shot-vs-zero-shot",
+    "subject": "ai",
+    "domain": "AI工程",
+    "topicPath": [
+      "AI工程",
+      "提示工程"
+    ],
+    "tags": [
+      "Agent",
+      "提示工程"
+    ],
+    "title_hint": "Few-Shot vs Zero-Shot Prompting：如何选择？",
+    "src_path": "C:\\Users\\wangh\\AppData\\Local\\Temp\\opencode\\interview_src\\Agent-Interview-100\\07-prompt-engineering\\060-few-shot-vs-zero-shot.md"
+  },
+  {
+    "id": "ai-structured-output",
+    "subject": "ai",
+    "domain": "AI工程",
+    "topicPath": [
+      "AI工程",
+      "提示工程"
+    ],
+    "tags": [
+      "Agent",
+      "提示工程"
+    ],
+    "title_hint": "结构化输出（Structured Output）：如何让 LLM 返回 JSON/XML？",
+    "src_path": "C:\\Users\\wangh\\AppData\\Local\\Temp\\opencode\\interview_src\\Agent-Interview-100\\07-prompt-engineering\\061-structured-output.md"
+  },
+  {
+    "id": "ai-agentic-prompting",
+    "subject": "ai",
+    "domain": "AI工程",
+    "topicPath": [
+      "AI工程",
+      "提示工程"
+    ],
+    "tags": [
+      "Agent",
+      "提示工程"
+    ],
+    "title_hint": "Agentic Prompting：如何编写让 LLM 自主执行任务的 Prompt？",
+    "src_path": "C:\\Users\\wangh\\AppData\\Local\\Temp\\opencode\\interview_src\\Agent-Interview-100\\07-prompt-engineering\\062-agentic-prompting.md"
+  },
+  {
+    "id": "ai-prompt-chaining",
+    "subject": "ai",
+    "domain": "AI工程",
+    "topicPath": [
+      "AI工程",
+      "提示工程"
+    ],
+    "tags": [
+      "Agent",
+      "提示工程"
+    ],
+    "title_hint": "Prompt Chaining：多步骤 Prompt 的设计与编排",
+    "src_path": "C:\\Users\\wangh\\AppData\\Local\\Temp\\opencode\\interview_src\\Agent-Interview-100\\07-prompt-engineering\\063-prompt-chaining.md"
+  },
+  {
+    "id": "ai-prompt-injection-defense",
+    "subject": "ai",
+    "domain": "AI工程",
+    "topicPath": [
+      "AI工程",
+      "提示工程"
+    ],
+    "tags": [
+      "Agent",
+      "提示工程"
+    ],
+    "title_hint": "如何防止 Prompt Injection 攻击？",
+    "src_path": "C:\\Users\\wangh\\AppData\\Local\\Temp\\opencode\\interview_src\\Agent-Interview-100\\07-prompt-engineering\\064-prompt-injection-defense.md"
+  },
+  {
+    "id": "ai-programmatic-prompt-optimization",
+    "subject": "ai",
+    "domain": "AI工程",
+    "topicPath": [
+      "AI工程",
+      "提示工程"
+    ],
+    "tags": [
+      "Agent",
+      "提示工程"
+    ],
+    "title_hint": "自动化 Prompt 优化：DSPy / APE / OPRO / PromptBreeder 全景",
+    "src_path": "C:\\Users\\wangh\\AppData\\Local\\Temp\\opencode\\interview_src\\Agent-Interview-100\\07-prompt-engineering\\065-programmatic-prompt-optimization.md"
+  },
+  {
+    "id": "ai-prompt-versioning-ab-testing",
+    "subject": "ai",
+    "domain": "AI工程",
+    "topicPath": [
+      "AI工程",
+      "提示工程"
+    ],
+    "tags": [
+      "Agent",
+      "提示工程"
+    ],
+    "title_hint": "Prompt 版本管理与 A/B 测试",
+    "src_path": "C:\\Users\\wangh\\AppData\\Local\\Temp\\opencode\\interview_src\\Agent-Interview-100\\07-prompt-engineering\\066-prompt-versioning-ab-testing.md"
+  },
+  {
+    "id": "ai-cross-model-prompt-portability",
+    "subject": "ai",
+    "domain": "AI工程",
+    "topicPath": [
+      "AI工程",
+      "提示工程"
+    ],
+    "tags": [
+      "Agent",
+      "提示工程"
+    ],
+    "title_hint": "跨模型 Prompt 迁移：如何编写模型无关的 Prompt？",
+    "src_path": "C:\\Users\\wangh\\AppData\\Local\\Temp\\opencode\\interview_src\\Agent-Interview-100\\07-prompt-engineering\\068-cross-model-prompt-portability.md"
+  },
+  {
+    "id": "ai-llm-as-judge",
+    "subject": "ai",
+    "domain": "AI工程",
+    "topicPath": [
+      "AI工程",
+      "智能体评测"
+    ],
+    "tags": [
+      "Agent",
+      "智能体评测"
+    ],
+    "title_hint": "LLM-as-Judge：使用 LLM 评估 LLM 输出",
+    "src_path": "C:\\Users\\wangh\\AppData\\Local\\Temp\\opencode\\interview_src\\Agent-Interview-100\\08-evaluation\\071-llm-as-judge.md"
+  },
+  {
+    "id": "ai-agent-benchmarks",
+    "subject": "ai",
+    "domain": "AI工程",
+    "topicPath": [
+      "AI工程",
+      "智能体评测"
+    ],
+    "tags": [
+      "Agent",
+      "智能体评测"
+    ],
+    "title_hint": "Agent Benchmark：如何设计端到端的 Agent 测试？",
+    "src_path": "C:\\Users\\wangh\\AppData\\Local\\Temp\\opencode\\interview_src\\Agent-Interview-100\\08-evaluation\\072-agent-benchmarks.md"
+  },
+  {
+    "id": "ai-regression-testing",
+    "subject": "ai",
+    "domain": "AI工程",
+    "topicPath": [
+      "AI工程",
+      "智能体评测"
+    ],
+    "tags": [
+      "Agent",
+      "智能体评测"
+    ],
+    "title_hint": "回归测试：如何检测 Agent 性能退化？",
+    "src_path": "C:\\Users\\wangh\\AppData\\Local\\Temp\\opencode\\interview_src\\Agent-Interview-100\\08-evaluation\\073-regression-testing.md"
+  },
+  {
+    "id": "ai-traces-and-spans",
+    "subject": "ai",
+    "domain": "AI工程",
+    "topicPath": [
+      "AI工程",
+      "智能体评测"
+    ],
+    "tags": [
+      "Agent",
+      "智能体评测"
+    ],
+    "title_hint": "Trace 和 Span：Agent 执行的可观测性",
+    "src_path": "C:\\Users\\wangh\\AppData\\Local\\Temp\\opencode\\interview_src\\Agent-Interview-100\\08-evaluation\\074-traces-and-spans.md"
+  },
+  {
+    "id": "ai-evaluation-tools-comparison",
+    "subject": "ai",
+    "domain": "AI工程",
+    "topicPath": [
+      "AI工程",
+      "智能体评测"
+    ],
+    "tags": [
+      "Agent",
+      "智能体评测"
+    ],
+    "title_hint": "评估工具对比：Ragas、LangSmith、Braintrust",
+    "src_path": "C:\\Users\\wangh\\AppData\\Local\\Temp\\opencode\\interview_src\\Agent-Interview-100\\08-evaluation\\075-evaluation-tools-comparison.md"
+  },
+  {
+    "id": "ai-static-benchmark-trap",
+    "subject": "ai",
+    "domain": "AI工程",
+    "topicPath": [
+      "AI工程",
+      "智能体评测"
+    ],
+    "tags": [
+      "Agent",
+      "智能体评测"
+    ],
+    "title_hint": "静态 Benchmark 的陷阱：为什么 95% 准确率在生产中会失效？",
+    "src_path": "C:\\Users\\wangh\\AppData\\Local\\Temp\\opencode\\interview_src\\Agent-Interview-100\\08-evaluation\\076-static-benchmark-trap.md"
+  },
+  {
+    "id": "ai-continuous-evaluation-pipeline",
+    "subject": "ai",
+    "domain": "AI工程",
+    "topicPath": [
+      "AI工程",
+      "智能体评测"
+    ],
+    "tags": [
+      "Agent",
+      "智能体评测"
+    ],
+    "title_hint": "如何构建持续评估（Continuous Evaluation）流水线？",
+    "src_path": "C:\\Users\\wangh\\AppData\\Local\\Temp\\opencode\\interview_src\\Agent-Interview-100\\08-evaluation\\077-continuous-evaluation-pipeline.md"
+  },
+  {
+    "id": "ai-eval-harness-design",
+    "subject": "ai",
+    "domain": "AI工程",
+    "topicPath": [
+      "AI工程",
+      "智能体评测"
+    ],
+    "tags": [
+      "Agent",
+      "智能体评测"
+    ],
+    "title_hint": "Eval Harness 设计与生态选型：lm-evaluation-harness / Inspect AI / HELM / METR",
+    "src_path": "C:\\Users\\wangh\\AppData\\Local\\Temp\\opencode\\interview_src\\Agent-Interview-100\\08-evaluation\\111-eval-harness-design.md"
+  },
+  {
+    "id": "ai-agent-safety-risks",
+    "subject": "ai",
+    "domain": "AI工程",
+    "topicPath": [
+      "AI工程",
+      "安全与对齐"
+    ],
+    "tags": [
+      "Agent",
+      "安全与对齐"
+    ],
+    "title_hint": "LLM Agent 的主要安全风险有哪些？",
+    "src_path": "C:\\Users\\wangh\\AppData\\Local\\Temp\\opencode\\interview_src\\Agent-Interview-100\\09-safety-and-alignment\\078-agent-safety-risks.md"
+  },
+  {
+    "id": "ai-guardrails-basics",
+    "subject": "ai",
+    "domain": "AI工程",
+    "topicPath": [
+      "AI工程",
+      "安全与对齐"
+    ],
+    "tags": [
+      "Agent",
+      "安全与对齐"
+    ],
+    "title_hint": "什么是 Guardrails？如何为 Agent 设置安全护栏？",
+    "src_path": "C:\\Users\\wangh\\AppData\\Local\\Temp\\opencode\\interview_src\\Agent-Interview-100\\09-safety-and-alignment\\079-guardrails-basics.md"
+  },
+  {
+    "id": "ai-human-in-the-loop",
+    "subject": "ai",
+    "domain": "AI工程",
+    "topicPath": [
+      "AI工程",
+      "安全与对齐"
+    ],
+    "tags": [
+      "Agent",
+      "安全与对齐"
+    ],
+    "title_hint": "Human-in-the-Loop：何时以及如何引入人工审核？",
+    "src_path": "C:\\Users\\wangh\\AppData\\Local\\Temp\\opencode\\interview_src\\Agent-Interview-100\\09-safety-and-alignment\\080-human-in-the-loop.md"
+  },
+  {
+    "id": "ai-least-privilege-sandboxing",
+    "subject": "ai",
+    "domain": "AI工程",
+    "topicPath": [
+      "AI工程",
+      "安全与对齐"
+    ],
+    "tags": [
+      "Agent",
+      "安全与对齐"
+    ],
+    "title_hint": "Agent 的权限最小化原则与沙箱执行",
+    "src_path": "C:\\Users\\wangh\\AppData\\Local\\Temp\\opencode\\interview_src\\Agent-Interview-100\\09-safety-and-alignment\\081-least-privilege-sandboxing.md"
+  },
+  {
+    "id": "ai-hallucination-detection",
+    "subject": "ai",
+    "domain": "AI工程",
+    "topicPath": [
+      "AI工程",
+      "安全与对齐"
+    ],
+    "tags": [
+      "Agent",
+      "安全与对齐"
+    ],
+    "title_hint": "如何检测和缓解 Agent 的幻觉（Hallucination）？",
+    "src_path": "C:\\Users\\wangh\\AppData\\Local\\Temp\\opencode\\interview_src\\Agent-Interview-100\\09-safety-and-alignment\\082-hallucination-detection.md"
+  },
+  {
+    "id": "ai-content-filtering-toxicity",
+    "subject": "ai",
+    "domain": "AI工程",
+    "topicPath": [
+      "AI工程",
+      "安全与对齐"
+    ],
+    "tags": [
+      "Agent",
+      "安全与对齐"
+    ],
+    "title_hint": "内容过滤与毒性检测在 Agent 系统中的实现",
+    "src_path": "C:\\Users\\wangh\\AppData\\Local\\Temp\\opencode\\interview_src\\Agent-Interview-100\\09-safety-and-alignment\\083-content-filtering-toxicity.md"
+  },
+  {
+    "id": "ai-agent-alignment",
+    "subject": "ai",
+    "domain": "AI工程",
+    "topicPath": [
+      "AI工程",
+      "安全与对齐"
+    ],
+    "tags": [
+      "Agent",
+      "安全与对齐"
+    ],
+    "title_hint": "Agent 对齐问题：如何确保 Agent 行为符合人类意图？",
+    "src_path": "C:\\Users\\wangh\\AppData\\Local\\Temp\\opencode\\interview_src\\Agent-Interview-100\\09-safety-and-alignment\\084-agent-alignment.md"
+  },
+  {
+    "id": "ai-red-teaming-agents",
+    "subject": "ai",
+    "domain": "AI工程",
+    "topicPath": [
+      "AI工程",
+      "安全与对齐"
+    ],
+    "tags": [
+      "Agent",
+      "安全与对齐"
+    ],
+    "title_hint": "Red Teaming：如何对 Agent 系统进行对抗测试？",
+    "src_path": "C:\\Users\\wangh\\AppData\\Local\\Temp\\opencode\\interview_src\\Agent-Interview-100\\09-safety-and-alignment\\085-red-teaming-agents.md"
+  },
+  {
+    "id": "ai-agent-compliance-eu-ai-act",
+    "subject": "ai",
+    "domain": "AI工程",
+    "topicPath": [
+      "AI工程",
+      "安全与对齐"
+    ],
+    "tags": [
+      "Agent",
+      "安全与对齐"
+    ],
+    "title_hint": "Agent 产品如何做合规设计？EU AI Act 对 Agent 有何影响？",
+    "src_path": "C:\\Users\\wangh\\AppData\\Local\\Temp\\opencode\\interview_src\\Agent-Interview-100\\09-safety-and-alignment\\115-agent-compliance-eu-ai-act.md"
+  },
+  {
+    "id": "ai-llmops-and-deployment",
+    "subject": "ai",
+    "domain": "AI工程",
+    "topicPath": [
+      "AI工程",
+      "生产部署"
+    ],
+    "tags": [
+      "Agent",
+      "生产部署"
+    ],
+    "title_hint": "LLMOps 与 Agent 部署架构",
+    "src_path": "C:\\Users\\wangh\\AppData\\Local\\Temp\\opencode\\interview_src\\Agent-Interview-100\\10-production-and-deployment\\086-llmops-and-deployment.md"
+  },
+  {
+    "id": "ai-cost-optimization",
+    "subject": "ai",
+    "domain": "AI工程",
+    "topicPath": [
+      "AI工程",
+      "生产部署"
+    ],
+    "tags": [
+      "Agent",
+      "生产部署"
+    ],
+    "title_hint": "LLM API 的成本优化策略",
+    "src_path": "C:\\Users\\wangh\\AppData\\Local\\Temp\\opencode\\interview_src\\Agent-Interview-100\\10-production-and-deployment\\088-cost-optimization.md"
+  },
+  {
+    "id": "ai-model-routing",
+    "subject": "ai",
+    "domain": "AI工程",
+    "topicPath": [
+      "AI工程",
+      "生产部署"
+    ],
+    "tags": [
+      "Agent",
+      "生产部署"
+    ],
+    "title_hint": "模型路由（Model Routing）：如何根据任务复杂度选择模型？",
+    "src_path": "C:\\Users\\wangh\\AppData\\Local\\Temp\\opencode\\interview_src\\Agent-Interview-100\\10-production-and-deployment\\089-model-routing.md"
+  },
+  {
+    "id": "ai-latency-optimization",
+    "subject": "ai",
+    "domain": "AI工程",
+    "topicPath": [
+      "AI工程",
+      "生产部署"
+    ],
+    "tags": [
+      "Agent",
+      "生产部署"
+    ],
+    "title_hint": "Agent 系统的延迟优化：Streaming、缓存、批处理",
+    "src_path": "C:\\Users\\wangh\\AppData\\Local\\Temp\\opencode\\interview_src\\Agent-Interview-100\\10-production-and-deployment\\090-latency-optimization.md"
+  },
+  {
+    "id": "ai-prompt-drift-management",
+    "subject": "ai",
+    "domain": "AI工程",
+    "topicPath": [
+      "AI工程",
+      "生产部署"
+    ],
+    "tags": [
+      "Agent",
+      "生产部署"
+    ],
+    "title_hint": "Prompt Drift 管理：如何避免 Prompt 退化？",
+    "src_path": "C:\\Users\\wangh\\AppData\\Local\\Temp\\opencode\\interview_src\\Agent-Interview-100\\10-production-and-deployment\\091-prompt-drift-management.md"
+  },
+  {
+    "id": "ai-logging-monitoring-alerting",
+    "subject": "ai",
+    "domain": "AI工程",
+    "topicPath": [
+      "AI工程",
+      "生产部署"
+    ],
+    "tags": [
+      "Agent",
+      "生产部署"
+    ],
+    "title_hint": "Agent 系统的日志、监控与告警设计",
+    "src_path": "C:\\Users\\wangh\\AppData\\Local\\Temp\\opencode\\interview_src\\Agent-Interview-100\\10-production-and-deployment\\092-logging-monitoring-alerting.md"
+  },
+  {
+    "id": "ai-canary-ab-testing",
+    "subject": "ai",
+    "domain": "AI工程",
+    "topicPath": [
+      "AI工程",
+      "生产部署"
+    ],
+    "tags": [
+      "Agent",
+      "生产部署"
+    ],
+    "title_hint": "如何实现 Agent 的灰度发布和 A/B 测试？",
+    "src_path": "C:\\Users\\wangh\\AppData\\Local\\Temp\\opencode\\interview_src\\Agent-Interview-100\\10-production-and-deployment\\093-canary-ab-testing.md"
+  },
+  {
+    "id": "ai-scaling-strategies",
+    "subject": "ai",
+    "domain": "AI工程",
+    "topicPath": [
+      "AI工程",
+      "生产部署"
+    ],
+    "tags": [
+      "Agent",
+      "生产部署"
+    ],
+    "title_hint": "高并发场景下的 Agent 系统扩展策略",
+    "src_path": "C:\\Users\\wangh\\AppData\\Local\\Temp\\opencode\\interview_src\\Agent-Interview-100\\10-production-and-deployment\\094-scaling-strategies.md"
+  },
+  {
+    "id": "ai-disaster-recovery-ha",
+    "subject": "ai",
+    "domain": "AI工程",
+    "topicPath": [
+      "AI工程",
+      "生产部署"
+    ],
+    "tags": [
+      "Agent",
+      "生产部署"
+    ],
+    "title_hint": "Agent 系统的灾难恢复与高可用设计",
+    "src_path": "C:\\Users\\wangh\\AppData\\Local\\Temp\\opencode\\interview_src\\Agent-Interview-100\\10-production-and-deployment\\095-disaster-recovery-ha.md"
+  },
+  {
+    "id": "ai-agent-production-troubleshooting",
+    "subject": "ai",
+    "domain": "AI工程",
+    "topicPath": [
+      "AI工程",
+      "生产部署"
+    ],
+    "tags": [
+      "Agent",
+      "生产部署"
+    ],
+    "title_hint": "场景题：你的 Agent 在生产环境出了故障，如何系统性排查和修复？",
+    "src_path": "C:\\Users\\wangh\\AppData\\Local\\Temp\\opencode\\interview_src\\Agent-Interview-100\\10-production-and-deployment\\104-agent-production-troubleshooting.md"
+  },
+  {
+    "id": "ai-agent-code-review",
+    "subject": "ai",
+    "domain": "AI工程",
+    "topicPath": [
+      "AI工程",
+      "生产部署"
+    ],
+    "tags": [
+      "Agent",
+      "生产部署"
+    ],
+    "title_hint": "代码 Review 题：找出这段 Agent 代码中的设计问题并修复",
+    "src_path": "C:\\Users\\wangh\\AppData\\Local\\Temp\\opencode\\interview_src\\Agent-Interview-100\\10-production-and-deployment\\107-agent-code-review.md"
+  },
+  {
+    "id": "ai-agent-sandbox-runtime",
+    "subject": "ai",
+    "domain": "AI工程",
+    "topicPath": [
+      "AI工程",
+      "生产部署"
+    ],
+    "tags": [
+      "Agent",
+      "生产部署"
+    ],
+    "title_hint": "Agent Sandbox / Runtime 选型：E2B / Daytona / Modal / Cloudflare Sandbox 隔离强度 + cold start + egress",
+    "src_path": "C:\\Users\\wangh\\AppData\\Local\\Temp\\opencode\\interview_src\\Agent-Interview-100\\10-production-and-deployment\\112-agent-sandbox-runtime.md"
+  },
+  {
+    "id": "ai-12-factor-agents",
+    "subject": "ai",
+    "domain": "AI工程",
+    "topicPath": [
+      "AI工程",
+      "生产部署"
+    ],
+    "tags": [
+      "Agent",
+      "生产部署"
+    ],
+    "title_hint": "什么是 12-Factor Agents？如何用它评审生产级 Agent？",
+    "src_path": "C:\\Users\\wangh\\AppData\\Local\\Temp\\opencode\\interview_src\\Agent-Interview-100\\10-production-and-deployment\\116-12-factor-agents.md"
+  },
+  {
+    "id": "ai-framework-overview",
+    "subject": "ai",
+    "domain": "AI工程",
+    "topicPath": [
+      "AI工程",
+      "Agent 框架"
+    ],
+    "tags": [
+      "Agent",
+      "Agent 框架"
+    ],
+    "title_hint": "主流 Agent 框架概览：LangChain、LlamaIndex、Haystack",
+    "src_path": "C:\\Users\\wangh\\AppData\\Local\\Temp\\opencode\\interview_src\\Agent-Interview-100\\11-frameworks\\096-framework-overview.md"
+  },
+  {
+    "id": "ai-framework-vs-custom",
+    "subject": "ai",
+    "domain": "AI工程",
+    "topicPath": [
+      "AI工程",
+      "Agent 框架"
+    ],
+    "tags": [
+      "Agent",
+      "Agent 框架"
+    ],
+    "title_hint": "框架 vs 自研：什么时候应该自己构建 Agent 框架？",
+    "src_path": "C:\\Users\\wangh\\AppData\\Local\\Temp\\opencode\\interview_src\\Agent-Interview-100\\11-frameworks\\098-framework-vs-custom.md"
+  },
+  {
+    "id": "ai-assistants-api-vs-claude-sdk",
+    "subject": "ai",
+    "domain": "AI工程",
+    "topicPath": [
+      "AI工程",
+      "Agent 框架"
+    ],
+    "tags": [
+      "Agent",
+      "Agent 框架"
+    ],
+    "title_hint": "OpenAI Responses API / Agents SDK vs Anthropic Claude Agent SDK 对比",
+    "src_path": "C:\\Users\\wangh\\AppData\\Local\\Temp\\opencode\\interview_src\\Agent-Interview-100\\11-frameworks\\099-assistants-api-vs-claude-sdk.md"
+  },
+  {
+    "id": "ai-testable-extensible-framework",
+    "subject": "ai",
+    "domain": "AI工程",
+    "topicPath": [
+      "AI工程",
+      "Agent 框架"
+    ],
+    "tags": [
+      "Agent",
+      "Agent 框架"
+    ],
+    "title_hint": "如何设计可测试、可扩展的 Agent 框架抽象层？",
+    "src_path": "C:\\Users\\wangh\\AppData\\Local\\Temp\\opencode\\interview_src\\Agent-Interview-100\\11-frameworks\\100-testable-extensible-framework.md"
+  },
+  {
+    "id": "ai-coding-agent-harness-comparison",
+    "subject": "ai",
+    "domain": "AI工程",
+    "topicPath": [
+      "AI工程",
+      "Agent 框架"
+    ],
+    "tags": [
+      "Agent",
+      "Agent 框架"
+    ],
+    "title_hint": "主流 Coding Agent Harness 横评：Claude Code / Cursor / Aider / Cline / Codex CLI 在 Context / Tool / Permission / Sandbox 四维对比",
+    "src_path": "C:\\Users\\wangh\\AppData\\Local\\Temp\\opencode\\interview_src\\Agent-Interview-100\\11-frameworks\\110-coding-agent-harness-comparison.md"
+  },
+  {
+    "id": "ai-projq02",
+    "subject": "ai",
+    "domain": "AI工程",
+    "topicPath": [
+      "AI工程",
+      "Agent 项目面试"
+    ],
+    "tags": [
+      "面试",
+      "Agent 项目面试"
+    ],
+    "title_hint": "3 分钟版本怎么展开？",
+    "src_path": "C:\\Users\\wangh\\AppData\\Local\\Temp\\opencode\\interview_src\\JavaGuide\\docs\\ai\\interview-questions\\agent-project-interview-guide.md",
+    "src_inline": "3 分钟版本可以按下面的顺序：\n\n1. 业务问题与成功标准；\n2. 一次请求的完整链路；\n3. 两个关键技术选择；\n4. 一个最有代表性的 Badcase；\n5. 结果与自己的职责边界。\n\n不要按“Spring AI、Redis、Milvus、MCP……”的顺序报技术栈。技术栈应该出现在具体决策里，而不是单独占一段。\n\n## 如何从一次请求讲清系统架构？\n\n“我们采用分层架构”很抽象。面试时可以先带面试官走完一次请求，再回头解释每层的职责。\n\n以“这个订单的耳机坏了，帮我申请售后”为例，一次请求可以这样流转：\n\n1. 接入层完成身份认证、租户识别、限流，并生成 `requestId` 和 `runId`。\n2. 编排层读取当前任务状态，判断订单号等必要信息是否齐全。\n3. Agent 根据可用工具及上下文选择订单查询工具。业务执行层再次检查用户是否有权查看该订单。\n4. 系统根据订单商品、购买时间和问题类型检索对应售后政策，并把证据注入本轮上下文。\n5. 如果信息不足，Agent 向用户追问；如果条件满足，则生成待创建工单的结构化草稿。\n6. 写操作执行前，系统展示关键字段并等待用户确认。确认后再校验权限、业务规则和幂等键。\n7. 工单服务返回结果后，系统不能只相信“调用成功”的文本，而要保存业务工单号和最终状态。\n8. 记录模型调用、Prompt、检索、工具、审批、耗时和结果，供评测与 Badcase 回放使用。\n\n对应到系统分层，可以压缩为下面七层：\n\n| 层次     | 主要职责                              | 不能交给模型的工作           |\n| -------- | ------------------------------------- | ---------------------------- |\n| 接入层   | 鉴权、租户、限流、流式连接、请求标识  | 身份和租户边界               |\n| 编排层   | Workflow、Graph、Agent Loop、停止条件 | 超时预算、最大步数、强制分支 |\n| 模型层   | 模型路由、Prompt、结构化输出          | 供应商降级和成本硬限制       |\n| 上下文层 | RAG、会话历史、Memory、上下文裁剪     | 数据访问权限和事实来源校验   |\n| 工具层   | 工具发现、参数校验、执行和结果回传    | 业务校验、授权、事务和幂等   |\n| 状态层   | 任务状态、检查点、业务产物和记忆      | 权威业务状态的一致性         |\n| 治理层   | Trace、评测、审计、告警、灰度和回滚   | 发布门禁和高风险动作审批     |\n\n如果项目没有这么多独立服务，不要硬说成七个微服务。这里描述的是逻辑职责，早期完全可以放在同一个应用中。面试官更关心边界是否清楚，不是服务数量是否足够多。\n\n## Agent 项目的技术选型应该回答哪些问题？\n\n前五个问题用于解释每一项选择，第六个问题决定方案能否经得住验证：\n\n1. 当时的业务约束是什么？\n2. 比较过哪些候选方案？\n3. 为什么当前方案更合适？\n4. 它牺牲了什么，又如何控制代价？\n5. 用什么评测或运行数据验证？\n6. 如果约束变化，什么情况下会换方案？"
+  },
+  {
+    "id": "rag-memory-context-state",
+    "subject": "ai",
+    "domain": "AI工程",
+    "topicPath": [
+      "AI工程",
+      "Agent 项目面试"
+    ],
+    "tags": [
+      "面试",
+      "Agent 项目面试"
+    ],
+    "title_hint": "RAG、Memory、Context 和 State 怎么区分？",
+    "src_path": "C:\\Users\\wangh\\AppData\\Local\\Temp\\opencode\\interview_src\\JavaGuide\\docs\\ai\\interview-questions\\agent-project-interview-guide.md",
+    "src_inline": "这四个概念经常在项目介绍里混在一起。\n\n下面采用的是本文在售后项目里的工程口径，不是所有框架都统一遵守的一套类型定义。\n\n| 概念    | 在售后案例中的内容                               | 主要回答的问题               |\n| ------- | ------------------------------------------------ | ---------------------------- |\n| RAG     | 售后政策、产品手册、服务网点资料                 | 外部知识里有哪些相关证据？   |\n| Memory  | 用户偏好、经过确认且允许长期保留的信息           | 跨轮次或跨会话需要记住什么？ |\n| Context | 本轮实际发给模型的指令、证据、工具和历史         | 模型这一次能看到什么？       |\n| State   | 当前订单、缺失字段、审批状态、已执行动作、工单号 | 任务现在进行到哪一步？       |\n\n短期 Memory 在一些框架里本来就是 Agent State 的一部分，Checkpoint 也可能保存某个时刻的 State。名称会变，但边界不能混：Memory、Agent State 和工作流 Checkpoint 都不能代替权威业务数据库。把“工单是否已创建”只保存在对话历史里，是很危险的设计。\n\n详细原理可以分别看 上下文工程实战指南 和 AI Agent 记忆系统详解。\n\n项目里如果真的用了长期 Memory，还要能回答哪些信息允许写入、来源由谁确认、保存多久、用户怎样查看和删除，以及恶意内容写入后如何清理。只保存了几轮 Chat History，就按会话历史来讲，不要包装成完整的长期记忆系统。\n\nRAG 部分也不能停在“接了向量数据库”。至少准备好文档怎么解析和切块、索引如何更新、向量与关键词怎样召回、是否使用 Reranker、Top-K 怎么定、ACL 在哪里生效，以及引用与知识版本如何回放。评测时把检索命中和最终回答分开看，不然很难判断问题出在召回还是生成。"
+  },
+  {
+    "id": "ai-projq10",
+    "subject": "ai",
+    "domain": "AI工程",
+    "topicPath": [
+      "AI工程",
+      "Agent 项目面试"
+    ],
+    "tags": [
+      "面试",
+      "Agent 项目面试"
+    ],
+    "title_hint": "为什么超时不能直接判定为执行失败？",
+    "src_path": "C:\\Users\\wangh\\AppData\\Local\\Temp\\opencode\\interview_src\\JavaGuide\\docs\\ai\\interview-questions\\agent-project-interview-guide.md",
+    "src_inline": "面试官问“模型或工具超时了怎么办”，不少人的第一反应是“重试几次不就行了”。如果继续追问“写操作已经执行成功，只是响应丢了呢”，原来的回答就不够用了。\n\n这时再按原样重试一次，可能导致重复创建工单或重复退款。\n\n问题出在对超时的理解上。超时只说明调用方在期限内没拿到结果，服务端那边可能是三种状态里的任何一种：请求根本没到达、正在执行、已经执行完但响应丢在了网络上。调用方无法区分，所以不能把超时直接当成失败。\n\n查询类接口好办，读操作没有副作用，可以在总时间预算内对瞬时错误做有限重试。写操作不行，创建工单、退款这类请求一旦盲重试，就可能造成重复副作用。\n\n更稳妥的方案是：\n\n1. 创建逻辑动作时生成一次稳定的 `actionId`，并用它参与业务幂等键；同一动作在 SDK 重试、消息重投和人工恢复中始终复用，新动作才生成新 ID；\n2. 服务端用唯一约束或请求记录识别重复请求；\n3. 同一幂等键携带不同参数时确定性拒绝，不能静默返回第一次结果；\n4. 超时后先按幂等键查询执行状态；\n5. 状态仍不明确时进入对账或人工处理，而不是无限重试；\n6. 将最终业务对象 ID 回写到任务状态和审计日志。\n\n重试还需要指数退避、随机抖动、最大次数、总截止时间和重试预算。模型 SDK、网关、HTTP Client、工具适配器和工作流节点不能各自独立重试三次，否则调用次数会被乘法放大。比较稳妥的做法是共享总 Deadline 和 Retry Budget，并在 Trace 中记录每一层的 `attempt`。\n\n调用方超时、Future 被取消或者用户断开 SSE，也不代表远端写操作已经停止。副作用可能稍后成功，所以取消之后仍要保留幂等键、状态查询和对账。参数错误、权限失败和业务拒绝属于确定性错误，应立即失败；限流、临时网络错误等才可能在预算内重试。详细内容见 超时和重试机制详解 与 接口幂等性。"
+  },
+  {
+    "id": "ai-projq11",
+    "subject": "ai",
+    "domain": "AI工程",
+    "topicPath": [
+      "AI工程",
+      "Agent 项目面试"
+    ],
+    "tags": [
+      "面试",
+      "Agent 项目面试"
+    ],
+    "title_hint": "模型或工具持续不可用时怎么降级？",
+    "src_path": "C:\\Users\\wangh\\AppData\\Local\\Temp\\opencode\\interview_src\\JavaGuide\\docs\\ai\\interview-questions\\agent-project-interview-guide.md",
+    "src_inline": "重试主要处理限流、临时网络错误等瞬时故障。模型供应商长时间不可用，或者某个工具持续报错时，继续消耗重试预算只会拉长响应时间。这时要及时熔断故障依赖，停止向它发送新请求，并根据任务风险选择备用模型、缓存结果、返回部分结果或转人工。\n\n切换备用模型前，要用同一套评测集确认它能否承担当前任务。低风险的文本总结可以降级到能力较弱的模型；涉及退款、发消息等写操作时，模型能力下降可能同时影响工具选择和参数生成，这类任务更适合暂停执行或转人工，不能为了维持可用性静默降低安全要求。\n\n工具降级也要看它在任务中的作用。可选工具不可用时，可以临时从工具集合中移除；缺少它仍能回答的问题，可以明确告知限制后返回部分结果；订单、权限或政策证据等必要数据拿不到时，应停止生成确定性结论。系统还要把熔断原因、降级路径和最终结果写入 Trace，方便区分“正常完成”和“降级完成”。\n\n流量上来后还要看模型配额、工具并发、线程池、连接池和队列长度。限流与背压应尽量靠近入口，慢工具使用独立并发舱壁，避免一个第三方接口拖住全部 Agent Run。并行分支会写共享 State 时，还要提前定义合并和冲突规则。"
+  },
+  {
+    "id": "ai-projq13",
+    "subject": "ai",
+    "domain": "AI工程",
+    "topicPath": [
+      "AI工程",
+      "Agent 项目面试"
+    ],
+    "tags": [
+      "面试",
+      "Agent 项目面试"
+    ],
+    "title_hint": "长任务和人工确认怎样恢复？",
+    "src_path": "C:\\Users\\wangh\\AppData\\Local\\Temp\\opencode\\interview_src\\JavaGuide\\docs\\ai\\interview-questions\\agent-project-interview-guide.md",
+    "src_inline": "以退款为例，Agent 已经收集完信息，真正执行前需要等待用户确认。用户可能几小时后才回来，系统不能继续依赖原来的进程和内存状态。暂停时要保存 `runId`、Checkpoint、待执行工具、规范化参数、当前 State、`actionId`，以及工具 Schema 和策略版本。\n\n用户确认时，系统先校验确认人的身份和权限，并检查这次确认是否已经过期。恢复任务后还要重新读取订单状态。等待期间如果退款金额、订单状态、工具 Schema 或策略发生变化，原来的确认立即失效，系统需要展示新参数并再次确认。\n\n部分框架恢复时会从节点起点重新执行。写操作节点因此仍要复用同一个 `actionId`，先查询外部状态，再决定是否执行；确认事件也只能消费一次。这样即使恢复动作被重复触发，也不会重复退款或重复创建工单。\n\n## Agent 项目的指标应该怎么讲？\n\n面试时先讲任务有没有完成，再补充执行过程、成本和安全。一个脱离测试集与统计口径的“准确率 85%”，很难说明项目是否真的可用。\n\n| 要回答的问题 | 可用指标                                      |\n| ------------ | --------------------------------------------- |\n| 任务完成了吗 | 任务完成率、最终业务状态正确率、事实有据率    |\n| 执行过程对吗 | 工具选择与参数正确率、多余调用率、越权调用数  |\n| 成本能接受吗 | 端到端 P50/P95、模型调用数、Token、单任务成本 |\n| 失败后可控吗 | 故障恢复率、转人工率、重复副作用数、误拦截率  |\n\n说完指标，还要交代测试集从哪里来、怎样判定成功、同一个任务运行几次，以及相对哪个版本比较。已经上线的项目可以再补自助解决率、处理时长等业务指标，同时说明统计时间和对照组。项目还没有上线，就展示离线评测集和错误分布，不要把实验结果包装成生产数据。\n\n售后案例中，工单是否正确创建属于 Outcome；调用了哪些工具、参数是否正确、有没有越权或重复执行，则要回到 Trace 检查。开放任务可能有多条正确路径，评测时先验证最终业务状态和必须满足的安全规则，不要求执行顺序和一条 Golden Sequence 完全一致。\n\n一条固定输入和成功条件组成一个 Task，每次执行是一次 Trial。Agent 输出有随机性，关键任务需要运行多次。Grader 可以使用代码规则、LLM-as-Judge 或人工，Eval Harness 负责执行这些 Trial、保存 Trace 并汇总结果。\n\n完整方法可以看 AI 应用评测体系。\n\n## Agent 项目的 Badcase 应该怎么复盘？\n\n只说“模型答错了，然后优化 Prompt”，无法说明根因是否找对。一个合格的 Badcase 复盘要留下可复现的定位证据。\n\n可以按下面七步回答：\n\n1. **保存现场。** 保留输入、模型与 Prompt 版本、上下文、检索结果、工具请求与响应及外部状态。\n2. **描述现象。** 写清预期结果、实际结果和影响范围。\n3. **分层假设。** 分别检查数据、检索、上下文、模型、工具、编排和第三方系统。\n4. **控制变量。** 一次只替换一个变量，避免同时修改模型、Prompt 和检索参数。\n5. **确认根因。** 拿出能够稳定复现问题的证据，不能停在相关性上。\n6. **实施修复。** 说明修复放在哪一层，并解释为什么不能只改 Prompt。\n7. **加入回归用例。** 把原始 Case 和相邻边界 Case 加入回归集，再观察线上指标。\n\n下面看两个容易被追问的例子。回答自己的项目时，先交代证据属于真实生产事故、离线故障注入还是设计预案。没有生产记录，就不要把模拟复现说成线上事故。"
+  },
+  {
+    "id": "ai-projq14",
+    "subject": "ai",
+    "domain": "AI工程",
+    "topicPath": [
+      "AI工程",
+      "Agent 项目面试"
+    ],
+    "tags": [
+      "面试",
+      "Agent 项目面试"
+    ],
+    "title_hint": "Agent 为什么会选错相似工具？",
+    "src_path": "C:\\Users\\wangh\\AppData\\Local\\Temp\\opencode\\interview_src\\JavaGuide\\docs\\ai\\interview-questions\\agent-project-interview-guide.md",
+    "src_inline": "系统里有两个名字很像的工具。`query_after_sale_policy` 查询通用售后政策，不需要具体订单；`check_after_sale_eligibility` 接收订单号，判断这笔订单能否申请售后。用户已经提供订单号时，Agent 本应调用后一个工具，却选了前一个。它返回的政策说明可能没有事实错误，却回答不了“我的订单到底能不能申请”。\n\n排查要先看 Trace。订单号没有进入模型上下文，说明状态组装出了问题；模型看到了订单号却仍然选错，才继续检查两个工具的名称、描述和参数是否容易混淆。固定输入后一次只改工具描述、Prompt 或模型，也能判断究竟是哪项修改让错误消失。\n\n修复时，先把两个工具的职责和前置条件写清楚，并把订单号放进简短的状态摘要。如果路由规则能够由代码确定，例如只有拿到订单号才能检查具体订单，就直接缩小这一轮暴露给模型的工具集合。代码会先排除不满足前置条件的工具，没有订单号的请求也不会被 Prompt 里的固定优先级带偏。\n\n最后把“有订单号”“没有订单号”“订单不属于当前用户”和“订单号格式错误”放进同一组回归测试。样本多了以后，再用工具混淆矩阵观察两个工具是否仍被频繁选错。"
+  },
+  {
+    "id": "ai-projq15",
+    "subject": "ai",
+    "domain": "AI工程",
+    "topicPath": [
+      "AI工程",
+      "Agent 项目面试"
+    ],
+    "tags": [
+      "面试",
+      "Agent 项目面试"
+    ],
+    "title_hint": "创建工单超时为什么会产生重复记录？",
+    "src_path": "C:\\Users\\wangh\\AppData\\Local\\Temp\\opencode\\interview_src\\JavaGuide\\docs\\ai\\interview-questions\\agent-project-interview-guide.md",
+    "src_inline": "第一次创建请求已经在工单服务中执行成功，返回响应时网络却超时了。Agent 执行层只看到超时，于是生成一个新请求再次调用接口。工单服务无法识别两次请求属于同一个业务动作，最终创建出两张工单。\n\n这个 Badcase 发生在工具执行层。调用方把超时记成了失败，接口又缺少幂等约束。实际上，超时只代表结果暂时未知，第一次请求可能失败、仍在执行，也可能已经成功。\n\n创建动作开始时生成一个稳定的 `actionId`，后续的 SDK 重试、消息重投和人工恢复都复用它。工单服务使用这个标识建立幂等记录和唯一约束；同一个 `actionId` 携带不同参数时直接拒绝，避免悄悄返回一份不匹配的旧结果。\n\n调用超时后，执行层先按 `actionId` 查询原请求状态。查到成功就回填工单号，明确失败后才允许按策略重试，状态仍不确定则进入对账或人工处理。Trace 也要区分 `FAILED`、`TIMED_OUT_UNKNOWN` 和 `SUCCEEDED`，不能把三种结果都记成调用失败。\n\n回归测试需要故意制造“服务端已经写入，响应在返回途中丢失”的情况，确认多次恢复最终只会得到一张工单。\n\n## 如何用 Trace 还原 Agent 的执行过程？\n\n普通接口抛出异常时，状态码和异常栈通常能指出出错位置。Agent 即使没有抛异常，也可能在前几轮拿错文档、选错工具，最后生成一段看起来合理的错误答案。Trace 按时间还原这段执行过程，记录系统实际看到的输入、产生的输出和执行的动作。它不保存模型的私有思维链，也不能证明模型内部为什么作出某个判断。\n\n以一次售后工单请求为例，Trace 可以按下面的顺序记录。\n\n1. 请求进入系统时生成 `requestId` 和 `runId`，同时关联脱敏后的用户、租户标识，以及本次运行使用的代码、Prompt 和工具 Schema 版本。\n2. 每次调用模型时保存脱敏后的输入摘要与模型输出，并记录 Token、耗时和停止原因，避免只留下最终回答。\n3. 发生检索时记录查询内容、命中文档 ID、分数和真正注入模型的片段，并带上知识库版本。\n4. 调用工具时生成 `toolCallId`，记录参数摘要、权限判定、执行结果和错误类型。重试还要带上 `attempt`、父 Span 和幂等键摘要，才能看出同一个动作执行了几次。\n5. 任务结束或暂停时记录状态变化、Checkpoint、人工确认、最终 Outcome、总调用数、总成本和降级原因。\n\n排查时从最终结果往前看，找到第一次偏离预期的位置。检索阶段拿错文档，就查切块、召回和 Reranker；证据已经正确，Agent 却选错工具，再查上下文与模型；工具返回成功而业务状态没有变化，则检查工具适配器和结果核验。这样能把“回答错了”缩小到某一次检索、模型调用或工具执行。\n\n模型输入、工具参数和检索片段可能包含个人信息或业务机密，生产环境通常只保存脱敏摘要，并配合采样、访问控制和保留期限。排障需要的字段可以留下，完整原文不应默认长期保存。\n\n回放某一次请求看 Trace，观察一段时间的延迟和错误率看 Metrics，核对谁批准了退款等外部操作看 Audit，比较不同模型或 Prompt 版本看 Eval Record。具体异常日志可以挂到对应 Span 上。这些记录通过同一个 `runId` 关联，不需要塞进一张大表。\n\n`Session`、`Run`、`Trace`、`Span` 和 `Attempt` 的划分、异步任务的上下文传播，以及采样和敏感数据处理，详见 AI 可观测性与 Trace。\n\n## 面试前要做哪些准备？\n\n每个 Agent 项目至少准备下面这些内容：\n\n- 一份项目复盘表；\n- 30 秒、3 分钟和 10 分钟三个版本的介绍；\n- 一张能从入口讲到最终结果的架构图；\n- 两个有备选方案的技术选型；\n- 两个不同根因的 Badcase，最好一个效果问题、一个工程问题；\n- 一份评测集分类和指标定义；\n- 一条可以逐节点解释的 Trace；\n- 当前使用的模型、框架、协议和工具 Schema 版本；\n- 项目当前明确存在的限制和下一步计划；\n- 自己负责与未负责的边界。\n\n最后可以用下面这组问题做一次自测：\n\n1. 去掉大模型后，原流程是什么？\n2. 为什么是 Agent，不是 RAG 问答或 Workflow？\n3. 模型、工具、Memory、RAG 和 State 的边界分别是什么？\n4. 哪些决策由模型做，哪些必须由代码做？\n5. 写操作如何授权、确认、幂等和核验？\n6. 如何限制死循环、成本和总时延？\n7. 指标的公式、样本和基线是什么？\n8. 最严重的一次失败如何复现？\n9. 修复后如何证明没有引入新的回归？\n10. 如果流量扩大十倍，最先出现瓶颈的环节是什么？\n11. `requestId`、`runId`、`sessionId`、`toolCallId` 和 `actionId` 分别解决什么问题？\n12. HITL 暂停后如何持久化、过期、恢复并重新校验业务状态？\n13. RAG、工具结果、MCP Server 和长期 Memory 的信任边界在哪里？\n14. 哪些能力由框架提供，哪些权限、状态和可靠性机制是项目自己实现的？\n15. 当前结论哪些来自生产、哪些来自离线实验、哪些只是设计预案？\n\n如果这些问题都能基于真实证据回答，项目介绍基本不会停留在“套壳 Demo”层面。"
+  },
+  {
+    "id": "ai-agent-skills",
+    "subject": "ai",
+    "domain": "AI工程",
+    "topicPath": [
+      "AI工程",
+      "Agent 架构"
+    ],
+    "tags": [
+      "AI",
+      "Agent 架构"
+    ],
+    "title_hint": "Agent Skills 是什么？和 MCP 工具怎么配合？",
+    "src_path": "C:\\Users\\wangh\\AppData\\Local\\Temp\\opencode\\interview_src\\JavaGuide\\docs\\ai\\agent\\skills.md"
+  },
+  {
+    "id": "ai-workflow-graph-loop",
+    "subject": "ai",
+    "domain": "AI工程",
+    "topicPath": [
+      "AI工程",
+      "Agent 架构"
+    ],
+    "tags": [
+      "AI",
+      "Agent 架构"
+    ],
+    "title_hint": "Workflow、Graph 和 Loop 三种执行模型怎么选？",
+    "src_path": "C:\\Users\\wangh\\AppData\\Local\\Temp\\opencode\\interview_src\\JavaGuide\\docs\\ai\\agent\\workflow-graph-loop.md"
+  },
+  {
+    "id": "ai-llm-api-engineering",
+    "subject": "ai",
+    "domain": "AI工程",
+    "topicPath": [
+      "AI工程",
+      "LLM 基础"
+    ],
+    "tags": [
+      "AI",
+      "LLM 基础"
+    ],
+    "title_hint": "LLM API 调用工程：流式、重试与限流怎么做？",
+    "src_path": "C:\\Users\\wangh\\AppData\\Local\\Temp\\opencode\\interview_src\\JavaGuide\\docs\\ai\\llm-basis\\llm-api-engineering.md"
+  },
+  {
+    "id": "ai-llm-operation-mechanism",
+    "subject": "ai",
+    "domain": "AI工程",
+    "topicPath": [
+      "AI工程",
+      "LLM 基础"
+    ],
+    "tags": [
+      "AI",
+      "LLM 基础"
+    ],
+    "title_hint": "LLM 从输入到输出的运行机制是什么？",
+    "src_path": "C:\\Users\\wangh\\AppData\\Local\\Temp\\opencode\\interview_src\\JavaGuide\\docs\\ai\\llm-basis\\llm-operation-mechanism.md"
+  },
+  {
+    "id": "ai-graphrag",
+    "subject": "ai",
+    "domain": "AI工程",
+    "topicPath": [
+      "AI工程",
+      "RAG 检索增强"
+    ],
+    "tags": [
+      "AI",
+      "RAG 检索增强"
+    ],
+    "title_hint": "GraphRAG 是什么？什么时候比普通 RAG 好？",
+    "src_path": "C:\\Users\\wangh\\AppData\\Local\\Temp\\opencode\\interview_src\\JavaGuide\\docs\\ai\\rag\\graphrag.md"
+  },
+  {
+    "id": "ai-rag-knowledge-update",
+    "subject": "ai",
+    "domain": "AI工程",
+    "topicPath": [
+      "AI工程",
+      "RAG 检索增强"
+    ],
+    "tags": [
+      "AI",
+      "RAG 检索增强"
+    ],
+    "title_hint": "RAG 知识库怎么持续更新？",
+    "src_path": "C:\\Users\\wangh\\AppData\\Local\\Temp\\opencode\\interview_src\\JavaGuide\\docs\\ai\\rag\\rag-knowledge-update.md"
+  },
+  {
+    "id": "ai-rag-optimization",
+    "subject": "ai",
+    "domain": "AI工程",
+    "topicPath": [
+      "AI工程",
+      "RAG 检索增强"
+    ],
+    "tags": [
+      "AI",
+      "RAG 检索增强"
+    ],
+    "title_hint": "RAG 效果不好，从哪些环节优化？",
+    "src_path": "C:\\Users\\wangh\\AppData\\Local\\Temp\\opencode\\interview_src\\JavaGuide\\docs\\ai\\rag\\rag-optimization.md"
+  },
+  {
+    "id": "ai-application-architecture",
+    "subject": "ai",
+    "domain": "AI工程",
+    "topicPath": [
+      "AI工程",
+      "AI 系统设计"
+    ],
+    "tags": [
+      "AI",
+      "AI 系统设计"
+    ],
+    "title_hint": "一个生产级 AI 应用的整体架构长什么样？",
+    "src_path": "C:\\Users\\wangh\\AppData\\Local\\Temp\\opencode\\interview_src\\JavaGuide\\docs\\ai\\system-design\\ai-application-architecture.md"
+  },
+  {
+    "id": "ai-llm-gateway",
+    "subject": "ai",
+    "domain": "AI工程",
+    "topicPath": [
+      "AI工程",
+      "AI 系统设计"
+    ],
+    "tags": [
+      "AI",
+      "AI 系统设计"
+    ],
+    "title_hint": "LLM 网关解决什么问题？核心能力有哪些？",
+    "src_path": "C:\\Users\\wangh\\AppData\\Local\\Temp\\opencode\\interview_src\\JavaGuide\\docs\\ai\\system-design\\llm-gateway.md"
+  },
+  {
+    "id": "ai-llm-security",
+    "subject": "ai",
+    "domain": "AI工程",
+    "topicPath": [
+      "AI工程",
+      "AI 系统设计"
+    ],
+    "tags": [
+      "AI",
+      "AI 系统设计"
+    ],
+    "title_hint": "LLM 应用有哪些安全风险？怎么防？",
+    "src_path": "C:\\Users\\wangh\\AppData\\Local\\Temp\\opencode\\interview_src\\JavaGuide\\docs\\ai\\system-design\\llm-security.md"
+  },
+  {
+    "id": "ai-observability",
+    "subject": "ai",
+    "domain": "AI工程",
+    "topicPath": [
+      "AI工程",
+      "AI 系统设计"
+    ],
+    "tags": [
+      "AI",
+      "AI 系统设计"
+    ],
+    "title_hint": "AI 应用怎么做好可观测性（Tracing/评测）？",
+    "src_path": "C:\\Users\\wangh\\AppData\\Local\\Temp\\opencode\\interview_src\\JavaGuide\\docs\\ai\\system-design\\ai-observability.md"
+  },
+  {
+    "id": "ai-voice",
+    "subject": "ai",
+    "domain": "AI工程",
+    "topicPath": [
+      "AI工程",
+      "AI 系统设计"
+    ],
+    "tags": [
+      "AI",
+      "AI 系统设计"
+    ],
+    "title_hint": "实时语音 Agent 的架构与延迟优化怎么做？",
+    "src_path": "C:\\Users\\wangh\\AppData\\Local\\Temp\\opencode\\interview_src\\JavaGuide\\docs\\ai\\system-design\\ai-voice.md"
+  }
+]

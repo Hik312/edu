@@ -1,0 +1,74 @@
+.progress {
+  margin: 24rpx 32rpx 8rpx;
+}
+
+.flip { min-height: 360rpx; }
+.qtitle {
+  font-size: 40rpx;
+  font-weight: 700;
+  margin: 18rpx 0;
+}
+.tags { display: flex; }
+
+.answer {
+  margin-top: 24rpx;
+  padding-top: 20rpx;
+  border-top: 1rpx dashed var(--line);
+}
+.sec { margin-top: 24rpx; }
+.secT {
+  font-size: 24rpx;
+  color: var(--dim);
+  margin-bottom: 8rpx;
+  text-transform: uppercase;
+  letter-spacing: 2rpx;
+}
+.para { margin-top: 10rpx; }
+
+.answers {
+  display: flex;
+  gap: 20rpx;
+  margin: 8rpx 24rpx 0;
+}
+.ans {
+  flex: 1;
+  background: var(--card);
+  border: 1rpx solid var(--line);
+  border-radius: 16rpx;
+  font-size: 32rpx;
+  padding: 26rpx 0;
+  line-height: 1.2;
+}
+.ans.lv1 { color: var(--red); border-color: rgba(168, 57, 42, 0.45); }
+.ans.lv2 { color: var(--amber); border-color: rgba(138, 98, 24, 0.45); }
+.ans.lv3 { color: var(--green); border-color: rgba(47, 112, 87, 0.45); }
+.ans[disabled] { opacity: 0.5; }
+
+.tip { text-align: center; margin-top: 24rpx; }
+
+.done { text-align: center; padding: 80rpx 28rpx; }
+.doneIcon {
+  font-size: 88rpx;
+  color: var(--green);
+  line-height: 1.4;
+}
+
+/* 清单模式提示条：靛蓝描边，和详情页的选中态一个语言 */
+.pickbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16rpx;
+  margin: 20rpx 24rpx 0;
+  padding: 14rpx 20rpx;
+  background: rgba(31, 75, 107, 0.12);
+  border: 1rpx solid var(--accent);
+  border-radius: 12rpx;
+}
+.picktxt { font-size: 24rpx; color: var(--accent); }
+.pickclear {
+  flex: none;
+  font-size: 24rpx;
+  color: var(--dim);
+  text-decoration: underline;
+}

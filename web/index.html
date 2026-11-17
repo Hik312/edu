@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<!-- 全站单一主题：暖牛皮纸卷宗。variables 全在 tokens.css 的 :root 上，
+     这里不带 data-theme，也不带 class="dark" —— 后者是 Element Plus 的暗色开关，
+     一旦挂上，EP 的暗色变量会立刻生效，纸色页面上会冒出深色输入框。 -->
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#eee5d3">
+<!-- 图标：web/public/icons/ 下的两份 PNG 由 back_study/scripts/make_icon.py 生成，
+     改主题色后要重跑那个脚本。public/ 会被 vite 原样复制到 dist/。
+     用 192 那份当 apple-touch-icon：官方推荐 180，但 192 只差一点、iOS 会自己缩放，
+     不值得为它单独再渲一张。 -->
+<link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png">
+<link rel="apple-touch-icon" href="/icons/icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="智径 EduPath">
+<title>智径 EduPath · 自适应学习</title>
+<style>
+  /* 首屏骨架：JS bundle 没到之前的一片空白最长能有几百毫秒，
+     给个同色底 + 居中标记，比白闪一下体面得多。
+     ⚠️ 这里的色值必须与 tokens.css 的 --bg(#eee5d3) / --mu(#63543c) 一致 ——
+     不一致的话加载完会「啪」地跳一次色，那一下比空白更显眼。 */
+  html { background: #eee5d3; }
+  body {
+    margin: 0;
+    /* ⚠️ 这里**绝对不能**写 display:grid / place-items:center。
+       这段样式没有作用域、加载后一直生效（不是首屏用完就丢），
+       会把 #app 变成 fit-content 的 grid item 并水平居中 ——
+       表现就是「内容挤成中间一小条、两侧大片空白」，全站每个页面都中招。
+       实测过：body 是 grid 时 #app 是 left=649/width=143，
+       改回 block 立刻变成 left=0/width=1440。
+       要让骨架屏居中，让它自己 position:fixed 就好，别动 body 的布局。 */
+    background: #eee5d3;
+    font-family: 'Microsoft YaHei', 'PingFang SC', system-ui, sans-serif;
+  }
+  /* 骨架屏盖满全屏、内容居中。用 fixed 而不是靠 body 的 grid 居中，
+     这样 body 保持正常 block 布局，#app 才能铺满。 */
+  #boot {
+    position: fixed;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    color: #63543c;
+    font-size: 14px;
+    letter-spacing: 2px;
+    /* 它只是块占位图，别拦住底下的点击 */
+    pointer-events: none;
+  }
+  #boot svg { width: 40px; height: 40px; animation: bootPulse 1.5s ease-in-out infinite; }
+  @keyframes bootPulse {
+    0%, 100% { opacity: 0.35; }
+    50% { opacity: 1; }
+  }
+</style>
+<script>
+  /* ★ 主动拆掉历史遗留的 Service Worker。
+   *
+   * 背景：legacy.html（旧单文件版）注册过 sw.js，而 sw.js 在站点根上，
+   * **scope 因此是整个域** —— 用户只要点过一次登录页右上角的「旧版入口」，
+   * 这个 SW 就会接管之后所有页面的请求。
+   *
+   * 旧 sw.js 的缓存策略里，`.html|.js|.json` 走 network-first，但
+   * **`.vue` / `.css` 不在那个正则里**，落进了 cache-first。构建产物有 hash
+   * 不怕（改名即失效），可 **dev server 下 /src/**.vue 的 URL 不带 hash** ——
+   * 于是改完代码刷新拿到的还是旧模块。
+   *
+   * 症状是最难认的一种：**同一页刷新几次，布局在两个样子之间跳**。
+   * 一次命中缓存（旧布局）、一次走网络（新布局），两个都"稳定"，
+   * 看着像布局算法不稳定，唯独不像缓存。
+   *
+   * 这里只做两件事：注销 SW + 清空所有 Cache Storage。
+   *
+   * ⚠️ **故意不 reload**。清空缓存之后，旧 SW 即使还活着也已经无缓存可命中，
+   * cache-first 必然 miss → 立刻走网络拿新版本，效果已经到位；
+   * 而 unregister 会在下一次导航生效。加 reload 只会平白多一次白屏，
+   * 还要额外防死循环（sessionStorage 被禁用时会来回刷）。
+   *
+   * 另一道在 public/sw.js —— 那份改成了自杀版，负责还没访问过新前端的用户。
+   * 两道互为兜底，见 docs/技术架构.md 第 5 节。
+   */
+  (function () {
+    var sw = 'serviceWorker' in navigator && navigator.serviceWorker
+    var ca = window.caches
+    if (!sw && !ca) return
+
+    var jobs = []
+    if (sw) {
+      jobs.push(navigator.serviceWorker.getRegistrations().then(function (rs) {
+        return Promise.all(rs.map(function (r) { return r.unregister() })).then(function () {
+          return rs.length
+        })
+      }).catch(function () { return 0 }))
+    }
+    if (ca) {
+      jobs.push(caches.keys().then(function (ks) {
+        return Promise.all(ks.map(function (k) { return caches.delete(k) })).then(function () {
+          return ks.length
+        })
+      }).catch(function () { return 0 }))
+    }
+
+    Promise.all(jobs).then(function (n) {
+      var total = n.reduce(function (a, b) { return a + b }, 0)
+      // 只在「真的清掉了东西」时留一行 —— 正常用户看到的是安静的加载
+      if (total > 0) {
+        console.info('[edupath] 已清理历史 Service Worker / 缓存：' + total + ' 项')
+      }
+    }).catch(function () { /* 清理失败不影响使用，静默 */ })
+  })()
+</script>
+</head>
+<body>
+<div id="app"></div>
+<div id="boot">
+  <svg viewBox="0 0 32 32" fill="none" stroke="#1f4b6b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M6 25 13.5 15l5 4.2L26 7"/><circle cx="26" cy="7" r="3.1"/>
+  </svg>
+  <span>智径 EduPath</span>
+</div>
+<script type="module" src="/src/main.js"></script>
+</body>
+</html>

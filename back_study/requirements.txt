@@ -1,0 +1,82 @@
+# 原理卡片学习平台 —— 后端依赖
+#
+#   pip install -r requirements.txt
+#   python run.py 8080            # 本机 http://127.0.0.1:8080
+#   python run.py 8080 --lan      # 手机同 WiFi 访问
+#
+# 版本下限的由来：
+#   fastapi 0.110 起 response_model 与 Annotated 依赖注入才稳定，再低会有弃用警告
+#   uvicorn 0.27 起才默认支持 --host 写多个地址时的行为修正
+#
+# ★ 2026-11-16 改成**钉死版本**：服务器上 pip 装出过 fastapi 旧 + starlette 1.x 新
+#   的组合，起服务直接崩（Router.__init__() got an unexpected keyword 'on_startup'）。
+#   下限式约束（>=）挡不住这种漂移，部署环境必须和本机验证过的版本一致。
+fastapi==0.141.1
+uvicorn==0.53.0
+
+# 鉴权。JWT 的签发/验签**不要手写** —— 手写版必须自己校验 header 里的 alg，
+# 漏了就是 alg:none 伪造 token 的入口（JWT 的经典漏洞）。PyJWT 从接口上
+# 强制要求显式传 algorithms 白名单，等于把这条路堵死。
+# 注意：装了它，后端就不再是「零依赖」了 —— 这是 2026-09-26 的刻意取舍，
+# 详见 core/security.py 的模块说明。
+PyJWT>=2.8
+
+# 开发期静态检查（运行时不 import 它，不装也能起服务）。
+# check.js 会调它查「import 了但没用到」这类 py_compile 看不见的死代码，
+# 只提示、不判失败 —— 它会误报「再导出」，硬拦会逼人删错东西。
+# 手动跑：.venv/Scripts/python.exe -m pyflakes back_study/core back_study/app
+pyflakes>=3.2
+
+# ---- 测试（2026-11-15 加）----
+# algo 层、report 层、图算法、FSRS-6 黄金值的单元测试。
+# check.js 是端到端冒烟（HTTP + 双存储对拍），pytest 是白盒单测 —— 两层互补。
+# 跑法：cd back_study && .venv/Scripts/python.exe -m pytest tests -q
+pytest>=8
+
+# ---- 可选增强，都不是必须 ----
+#
+# 不装任何一项服务照样起（自动回退到 data/store/*.json），只是对应能力没有。
+
+# 1) PDF 导入：让 /api/import/doc 能直接吃 PDF。不装就只能导入 md / txt。
+#    首选 pypdf；docparse 里还留了 PyPDF2 的兜底 import（老包名兼容），
+#    两个不用都装，pypdf 装上就够。
+pypdf>=4.0
+
+# 2) 存储后端（三选一，按你要连的库装；对应 core/store/ 与 core/algostore/）：
+#
+#    MySQL —— 卡片库后端（STORE=mysql）。核心查询就一个到期队列，
+#    不值得为它上 ORM，所以用纯 Python 驱动 pymysql（300KB）。
+pymysql>=1.1
+#
+#    PostgreSQL —— 算法库后端（PgAlgoStore，core/algostore/pg.py）。
+#    用 psycopg3（import名是 psycopg，不是 psycopg2）。[binary] 带预编译轮子，
+#    省掉本机装 libpq。
+psycopg[binary]>=3.1
+#
+#    Redis —— 掌握度缓存 / 降级标记（core/cache.py，RedisCache）。
+#    下限 5.0：cache.py 传了 protocol 参数，redis-py 4.x 会 TypeError
+#    （服务器实测踩过，降级走进程内缓存不影响功能，但缓存就白配了）。
+redis>=5.0
+
+# 3) AI Agent 层（back_study/agent/）：装了才能跑多步 agent / 工具调用 / MCP 外部工具。
+#    不装完全不影响开服务 —— agent 模块把所有 langchain 的 import 都写在
+#    函数内部，缺依赖只在真正调用 AI 时才报错。
+#    这是目前最重的一组（30+ 间接依赖，含 httpx / orjson / langsmith），
+#    所以放在可选段：主链路至今只依赖 fastapi + uvicorn + PyJWT，
+#    这个克制让「clone 下来就能起服务」始终成立。
+#    本地模型走 Ollama，不需要任何 API key。
+langgraph>=1.0
+langchain>=1.0
+langchain-ollama>=0.3
+# 云端通道（LLM_PROVIDER=cloud）：agent 层走 OpenAI 兼容接口时需要。
+# 只跑本地 Ollama 可以不装。
+langchain-openai>=0.3
+
+#    MCP（Model Context Protocol）—— agent 通过标准协议接**外部工具**。
+#    mcp.py 是客户端桥接层（起 stdio 子进程 → 把工具包成 langchain 工具），
+#    servers/ 下是 4 个 stdio 服务端：web-search / code-exec / github-resource / cards。
+#
+#    ⚠️ **必须锁 1.30.0，不能写 >=**：2.x 把 FastMCP 改名成 MCPServer、server API
+#    大改，装到 2.3.0 时服务端直接起不来（少了 github_search / run_python 等工具）。
+#    这是实测踩过的坑，不是洁癖。
+mcp==1.30.0

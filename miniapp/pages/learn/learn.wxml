@@ -1,0 +1,82 @@
+<view wx:if="{{loading}}" class="empty">加载队列…</view>
+
+<view wx:elif="{{error}}" class="card">
+  <view class="title">无法开始</view>
+  <view class="oneLine">{{error}}</view>
+  <button class="btn" bindtap="reload" style="margin-top:20rpx">重试</button>
+</view>
+
+<!-- 队列空：今日清零 -->
+<view wx:elif="{{!cur}}" class="card done">
+  <view class="doneIcon">✓</view>
+  <view class="title">{{pickMode ? '今日清单刷完了' : (allMode ? '全部到期卡刷完了' : '今日复习完成')}}</view>
+  <view class="oneLine">
+    {{pickMode ? '自选 ' + pickCount + ' 张已过完' : '已完成 ' + doneCount + ' 张' + (dueTotal > 0 ? '，库里还有 ' + dueTotal + ' 张到期' : '，明天再来')}}
+  </view>
+
+  <!-- ★ 关键的第二个出口：每日目标只有 20 张，而库里到期常有几百张。
+       刷完 20 张后如果只有「刷新队列」，用户永远刷不到剩下的 ——
+       刷新回来的还是那 20 张（已答过）。这个按钮才是真正把那几百张的出口。 -->
+  <button wx:if="{{!pickMode && dueTotal > 0}}" class="btn" bindtap="loadAll" style="margin-top:24rpx">
+    继续刷剩下的 {{dueTotal}} 张
+  </button>
+
+  <button wx:if="{{pickMode}}" class="btn ghost" bindtap="clearPick" style="margin-top:24rpx">
+    清空清单 · 看自动队列
+  </button>
+  <button wx:else class="btn ghost" bindtap="reload" style="margin-top:16rpx">
+    {{dueTotal > 0 ? '按每日目标刷前 20 张' : '🔄 刷新队列'}}
+  </button>
+</view>
+
+<block wx:else>
+  <!-- 清单模式提示：只推这些，方向/每日目标不生效 -->
+  <view class="pickbar" wx:if="{{pickMode}}">
+    <view class="picktxt">今日自选 {{pickCount}} 张 · 只推清单</view>
+    <view class="pickclear" bindtap="clearPick">改用自动</view>
+  </view>
+
+  <view class="progress muted">第 {{doneCount + 1}} / {{total}} 张 · {{cur.topicPath}}</view>
+
+  <!-- 翻卡：正面问题 → 点击显示答案 -->
+  <view class="card flip" bindtap="reveal">
+    <view class="face">
+      <view class="tags">
+        <view class="chip on">{{cur.domain}}</view>
+        <view class="chip">掌握度 {{cur.level}}</view>
+      </view>
+      <view class="qtitle">{{cur.title}}</view>
+      <view class="oneLine" wx:if="{{!revealed}}">点击卡片看答案 →</view>
+
+      <!-- 背面 -->
+      <block wx:if="{{revealed && detail}}">
+        <view class="answer">
+          <view class="oneLine accent">{{detail.oneLine}}</view>
+
+          <view class="sec" wx:if="{{detail.mechanism && detail.mechanism.length}}">
+            <view class="secT">⚙️ 原理</view>
+            <view class="para" wx:for="{{detail.mechanism}}" wx:key="*this">{{item}}</view>
+          </view>
+
+          <view class="sec" wx:if="{{detail.scene && detail.scene.length}}">
+            <view class="secT">🎯 什么时候会遇到</view>
+            <view class="para" wx:for="{{detail.scene}}" wx:key="*this">· {{item}}</view>
+          </view>
+
+          <view class="sec" wx:if="{{detail.why}}">
+            <view class="secT">💡 为什么重要</view>
+            <view class="para">{{detail.why}}</view>
+          </view>
+        </view>
+      </block>
+    </view>
+  </view>
+
+  <!-- 三键作答：只在翻面后出现 -->
+  <view class="answers" wx:if="{{revealed}}">
+    <button class="ans lv1" data-level="1" disabled="{{submitting}}" bindtap="answer">😕 不会</button>
+    <button class="ans lv2" data-level="2" disabled="{{submitting}}" bindtap="answer">🤔 模糊</button>
+    <button class="ans lv3" data-level="3" disabled="{{submitting}}" bindtap="answer">😊 会</button>
+  </view>
+  <view class="muted tip" wx:else>先翻面，再选掌握程度</view>
+</block>
