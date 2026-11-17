@@ -74,6 +74,8 @@ AI       本地模型 qwen3:8b（离线、免费）
 浏览器 → Qoder Sites（web/dist 静态）
        → https://api.你的域名/api → nginx → 127.0.0.1:8081 FastAPI → MySQL
                                             → 硅基流动云端 API（对话/向量/视觉）
+
+同一份 web/dist 也可放到服务器，让 https://api.你的域名/ 同源直出前端（见第 7 步）
 ```
 
 一键产物在 `back_study/deploy/`：systemd unit、`start_backend.sh`（真正 source
@@ -97,9 +99,29 @@ AI       本地模型 qwen3:8b（离线、免费）
    `VITE_API_BASE=https://api.你的域名/api npm run build`，
    把 `web/dist` 发布到 Qoder Sites；拿到的 Sites 地址回填第 4 步的
    `CORS_ORIGINS` 再重启一次后端。
+7. （可选，但强烈建议）**同一份 dist 再放一份到服务器**：`scp -r web/dist <仓库根>/web/`
+   然后 `systemctl restart edupath`。`app/config.py` 里
+   `STATIC_DIR = web/dist if 存在 else web/public`，所以一旦有 dist，后端就同源吐出整个
+   前端（`SpaStatic` 负责 history 模式深链回落）—— `https://api.你的域名/` 直接就是站点，
+   一个地址、不吃 CORS、没有预检往返，Sites 万一出问题还有个备用入口。
+   ⚠️ **API base 用绝对地址时同一份构建两个域名都能跑**，别为服务器单独构建一次，
+   否则迟早出现「改了前端只同步了 Sites 那份」。
+   服务器上没有 scp/面板上传时，让它自己从 Sites 拉（清单来自本地 dist，逐文件校验）：
+
+   ```bash
+   # 本地：生成清单，分批贴进服务器终端
+   (cd web/dist && find . -type f | sed 's|^\./||' | sort) > /tmp/list.txt
+   # 服务器：按清单拉，再比 md5
+   mkdir -p <仓库根>/web/dist && cd <仓库根>/web/dist
+   while read f; do curl -fsS --create-dirs -o "$f" https://你的Sites域名/"$f"; done < /tmp/list.txt
+   chown -R www:www <仓库根>/web/dist && systemctl restart edupath
+   ```
 
 验证：`curl https://api.你的域名/api/health` 返回 ok;浏览器开 Sites 地址
 注册登录、背卡复习、文档问答（流式回答应逐段出字，不是整段砸出来）。
+同源那份额外验三条：`curl -I https://api.你的域名/` 应 200 且 `text/html`、
+`curl -o /dev/null -w '%{http_code}' https://api.你的域名/cards` 应 200（SPA 回落，
+不是 404）、`https://api.你的域名/_seed.html` 与 `/data/store/progress.json` 应 404。
 
 产物里已经处理掉的坑：
 
@@ -117,6 +139,9 @@ AI       本地模型 qwen3:8b（离线、免费）
 - **端口 8081，不是 8080**：这台机器 8080 被一个旧 Java 项目占着（`*:8080`），别去动它。
 - HTTPS 用宝塔签发的 Let's Encrypt + 「网站 → 反代」，不是 certbot；
   入口 `https://edu.312783.xyz/api`。
+- 2026-11-16 起 `/www/wwwroot/python/web/dist/` 有前端（按第 7 步从 Sites 拉的那份，
+  119 个文件逐文件 md5 比对一致）—— 所以 `https://edu.312783.xyz/` 本身就是完整站点，
+  不只 `/api`。**每次重新发布 Sites 后要重跑一遍第 7 步**，否则两边版本会分叉。
 - 进程由 **systemd `edupath` 单元**管（`deploy/edupath.service` + `deploy/start_backend.sh`
   两份文件的实际内容）。宝塔「网站 → Python项目」的启动/重启按钮在这台机器上
   **点了不拉起进程**（状态一直「未启动」、项目日志字节数不变），120 秒守护也不重启
