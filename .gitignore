@@ -72,10 +72,15 @@ web/_bc*/
 back_study/demo.py
 back_study/scripts/probe_layout.py
 
-# docs 只保留「开发者文档」与「技术架构」两篇
+# docs 只放公开的那几篇：开发者文档、技术架构、开发笔记、学习路线、
+# 小程序接口规范、资料来源。简历/实验手册/图表方案等留在本机（默认被 docs/* 挡掉）
 docs/*
 !docs/开发者文档.md
 !docs/技术架构.md
+!docs/开发笔记.md
+!docs/学习路线.md
+!docs/小程序接口规范.md
+!docs/资料来源.md
 .smoke_tmp_*
 .smoke_*.json
 
