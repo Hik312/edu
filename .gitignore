@@ -60,8 +60,15 @@ checklist.md
 spec.md
 tasks.md
 
-# 本地运行数据（进度/笔记/文档/PDF，以及 data/*.js 卡片数据），整体移出版本库
-data/
+# 本地运行数据（进度/笔记/文档/PDF、用户卡与派生缓存）移出版本库；
+# 卡片数据里「自己写的那部分」（data/*.js）随仓库分发，克隆后有卡可跑。
+data/*
+!data/*.js
+# 题库导入生成的八股考点：正文改写自外部教程（小林coding 无授权、JavaGuide Apache-2.0），
+# 不分发。用 back_study/scripts/_interview/ 的管线在自行 clone 的资料上重新生成。
+data/gen_interview_*.js
+# 同上：这几份 manifest 是第三方教程的逐字原文，只是生成管线的中间产物
+back_study/scripts/_interview/manifest_*.json
 
 # 构建校验产物（Vite dist 的副本，跑完即弃）
 web/dist_verify/
