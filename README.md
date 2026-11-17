@@ -15,7 +15,7 @@
 |---|---|---|
 | **网页端（主入口）** | https://edupath-ie34wojc0sj.qoder.website | Qoder Sites 发布，注册即可用 |
 | 网页端（同源入口） | https://edu.312783.xyz | 前端与 API 同一域名，不依赖跨域配置 |
-| 完整源码与开发历史 | https://gitee.com/wt312/Study | 本仓库只放作品说明，代码在 Gitee |
+| 完整源码与开发历史 | https://gitee.com/wt312/Study （国内）<br>https://github.com/Hik312/edu （国际） | 两个仓库内容一致，Gitee 为主、GitHub 为镜像 |
 
 > **评委演示账号**：（提交前填写。演示口令不放公开仓库，避免和线上环境混在一起。）
 
@@ -248,6 +248,6 @@ study/
 └── DEPLOY.md       部署：本机 / 局域网 / 云服务器 / 静态托管四种形态
 ```
 
-完整源码、开发历史与文档见 **https://gitee.com/wt312/Study**。
+完整源码、开发历史与文档见 **https://gitee.com/wt312/Study** 或镜像 **https://github.com/Hik312/edu**。
 
 <!-- 截图占位：知识图谱下钻 / 今日复习队列 / 卡片详情（含图注）/ 文档图表中文解读卡 -->
